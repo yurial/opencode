@@ -40,6 +40,7 @@ export async function resolveFileDirectives(
   content: string,
   filepath: string,
   visited: Set<string> = new Set(),
+  baseDir?: string,
 ): Promise<string> {
   return ConfigMarkdownCore.resolveFileDirectives(
     content,
@@ -52,6 +53,7 @@ export async function resolveFileDirectives(
       }
     },
     visited,
+    baseDir,
   )
 }
 

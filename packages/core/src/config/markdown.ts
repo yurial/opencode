@@ -5,11 +5,16 @@ import os from "os"
 import path from "path"
 
 export function parse(content: string) {
+  let result: ReturnType<typeof matter>
   try {
-    return matter(content)
+    result = matter(content)
   } catch {
-    return matter(sanitize(content))
+    result = matter(sanitize(content))
+    if (!Object.keys(result.data).length && content.match(/^---\r?\n/)) {
+      throw new Error("frontmatter could not be parsed")
+    }
   }
+  return result
 }
 
 export function parseOption(content: string) {
@@ -54,18 +59,20 @@ export async function resolveFileDirectives(
   filepath: string,
   read: (path: string) => Promise<string | undefined>,
   visited: Set<string> = new Set(),
+  baseDir?: string,
 ): Promise<string> {
   const matches = fileDirectives(content)
   if (matches.length === 0) return content
 
   const current = path.resolve(filepath)
+  const base = baseDir ?? path.dirname(current)
   const nextVisited = new Set(visited)
   nextVisited.add(current)
 
   let result = content
   for (const match of matches) {
     const directive = match[0]
-    const target = resolveDirectiveDir(path.dirname(current), match[1].trim())
+    const target = resolveDirectiveDir(base, match[1].trim())
     if (nextVisited.has(target)) {
       result = result.replace(directive, "")
       continue
