@@ -16,12 +16,21 @@ export async function load(dir: string) {
     dot: true,
     symlink: true,
   })) {
-    const md = await ConfigMarkdown.parse(item).catch(() => undefined)
+    const md = await ConfigMarkdown.parse(item).catch((err) => {
+      console.error(`failed to parse agent markdown ${item}: ${err instanceof Error ? err.message : String(err)}`)
+      return undefined
+    })
     if (!md) continue
 
     const name = configEntryNameFromPath(path.relative(dir, item), ["agent/", "agents/"])
     const body = md.content.trim()
-    const prompt = await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
+    const frontmatterPrompt = md.data.prompt
+    const prompt =
+      frontmatterPrompt !== undefined
+        ? await ConfigMarkdown.resolveFileDirectives(frontmatterPrompt, item, new Set(), dir).catch(
+            () => frontmatterPrompt,
+          )
+        : await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
 
     const config = {
       name,
@@ -41,11 +50,20 @@ export async function loadMode(dir: string) {
     dot: true,
     symlink: true,
   })) {
-    const md = await ConfigMarkdown.parse(item).catch(() => undefined)
+    const md = await ConfigMarkdown.parse(item).catch((err) => {
+      console.error(`failed to parse mode markdown ${item}: ${err instanceof Error ? err.message : String(err)}`)
+      return undefined
+    })
     if (!md) continue
 
     const body = md.content.trim()
-    const prompt = await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
+    const frontmatterPrompt = md.data.prompt
+    const prompt =
+      frontmatterPrompt !== undefined
+        ? await ConfigMarkdown.resolveFileDirectives(frontmatterPrompt, item, new Set(), dir).catch(
+            () => frontmatterPrompt,
+          )
+        : await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
 
     const config = {
       name: configEntryNameFromPath(path.relative(dir, item), ["mode/", "modes/"]),

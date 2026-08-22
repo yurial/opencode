@@ -953,6 +953,33 @@ Test agent prompt`,
   }),
 )
 
+it.instance("agent frontmatter prompt resolves {file:...} directive", () =>
+  Effect.gen(function* () {
+    const test = yield* TestInstance
+    yield* FSUtil.use.writeWithDirs(
+      path.join(test.directory, ".opencode", "rules", "main.md"),
+      `Rules content from referenced file`,
+    )
+    yield* FSUtil.use.writeWithDirs(
+      path.join(test.directory, ".opencode", "agent", "main.md"),
+      `---
+model: test/model
+prompt: "{file:./rules/main.md}"
+---
+Body content that should not be used as prompt`,
+    )
+
+    const config = yield* Config.use.get()
+    expect(config.agent?.["main"]).toEqual(
+      expect.objectContaining({
+        name: "main",
+        model: "test/model",
+        prompt: "Rules content from referenced file",
+      }),
+    )
+  }),
+)
+
 it.instance("agent markdown permission config preserves user key order", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
