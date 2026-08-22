@@ -36,11 +36,22 @@ export async function parse(filePath: string) {
 export const FILE_DIRECTIVE_REGEX = ConfigMarkdownCore.FILE_DIRECTIVE_REGEX
 export const fileDirectives = ConfigMarkdownCore.fileDirectives
 
+export const ENV_DIRECTIVE_REGEX = ConfigMarkdownCore.ENV_DIRECTIVE_REGEX
+export const envDirectives = ConfigMarkdownCore.envDirectives
+
+export const resolveEnvDirectives = ConfigMarkdownCore.resolveEnvDirectives
+
+/**
+ * Opencode wrapper around {@link ConfigMarkdownCore.resolveFileDirectives} that
+ * threads the project's filesystem reader through and preserves the optional
+ * `baseDir` / `env` arguments. See core docs for the full contract.
+ */
 export async function resolveFileDirectives(
   content: string,
   filepath: string,
   visited: Set<string> = new Set(),
   baseDir?: string,
+  env?: Record<string, string>,
 ): Promise<string> {
   return ConfigMarkdownCore.resolveFileDirectives(
     content,
@@ -54,6 +65,7 @@ export async function resolveFileDirectives(
     },
     visited,
     baseDir,
+    env,
   )
 }
 

@@ -1,7 +1,23 @@
-import { expect, test, describe } from "bun:test"
+import { afterEach, beforeEach, expect, test, describe } from "bun:test"
 import os from "os"
 import path from "path"
 import { ConfigMarkdown } from "@/config/markdown"
+import { ConfigMarkdown as ConfigMarkdownCore } from "@opencode-ai/core/config/markdown"
+
+function setEnv(values: Record<string, string | undefined>) {
+  const previous: Record<string, string | undefined> = {}
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key]
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+  return () => {
+    for (const [key, original] of Object.entries(previous)) {
+      if (original === undefined) delete process.env[key]
+      else process.env[key] = original
+    }
+  }
+}
 
 describe("ConfigMarkdown: normal template", () => {
   const template = `This is a @valid/path/to/a/file and it should also match at
@@ -300,5 +316,120 @@ describe("ConfigMarkdown: file directives", () => {
   test("uses os.homedir() to expand ~ prefix", () => {
     const homeRelative = path.join(os.homedir(), "opencode-inline-directives-test-missing.md")
     expect(path.resolve(os.homedir(), "opencode-inline-directives-test-missing.md")).toBe(homeRelative)
+  })
+})
+
+describe("ConfigMarkdown: env directives", () => {
+  let restoreEnv: () => void
+  beforeEach(() => {
+    restoreEnv = setEnv({
+      OPENCODE_TEST_ENV_HOST: "test-host",
+      OPENCODE_TEST_ENV_USER: "test-user",
+    })
+  })
+  afterEach(() => {
+    restoreEnv()
+  })
+
+  test("extracts env directives via regex", () => {
+    const matches = ConfigMarkdown.envDirectives("prefix {env:HOME} middle {env:PATH} suffix")
+    expect(matches.length).toBe(2)
+    expect(matches[0][1]).toBe("HOME")
+    expect(matches[1][1]).toBe("PATH")
+  })
+
+  test("resolves env directives against process.env", () => {
+    const result = ConfigMarkdown.resolveEnvDirectives("path={env:OPENCODE_TEST_ENV_HOST} ok")
+    expect(result).toBe("path=test-host ok")
+  })
+
+  test("missing env directive becomes empty string", () => {
+    const result = ConfigMarkdown.resolveEnvDirectives("a={env:OPENCODE_TEST_ENV_DOES_NOT_EXIST}b")
+    expect(result).toBe("a=b")
+  })
+
+  test("explicit env map overrides process.env", () => {
+    const result = ConfigMarkdown.resolveEnvDirectives("a={env:OPENCODE_TEST_ENV_HOST}b", {
+      OPENCODE_TEST_ENV_HOST: "override",
+    })
+    expect(result).toBe("a=overrideb")
+  })
+
+  test("parse substitutes env directives inside frontmatter", () => {
+    const parsed = ConfigMarkdownCore.parse(`---
+description: "host={env:OPENCODE_TEST_ENV_HOST} user={env:OPENCODE_TEST_ENV_USER}"
+---
+body line`)
+    expect(parsed.data.description).toBe("host=test-host user=test-user")
+  })
+
+  test("parse substitutes env directives in body before YAML parsing", () => {
+    const parsed = ConfigMarkdownCore.parse(`---
+description: "no env here"
+---
+body with {env:OPENCODE_TEST_ENV_HOST}`)
+    expect(parsed.content.trim()).toBe("body with test-host")
+  })
+
+  test("parseOption also resolves env directives", () => {
+    const parsed = ConfigMarkdownCore.parseOption("plain {env:OPENCODE_TEST_ENV_HOST} text")
+    expect(parsed?.content.trim()).toBe("plain test-host text")
+  })
+
+  test("resolveEnvDirectives is idempotent", () => {
+    const once = ConfigMarkdownCore.resolveEnvDirectives("a={env:OPENCODE_TEST_ENV_HOST}")
+    const twice = ConfigMarkdownCore.resolveEnvDirectives(once)
+    expect(once).toBe(twice)
+  })
+
+  test("parse passes custom env map through", () => {
+    const parsed = ConfigMarkdownCore.parse(
+      `---
+description: "host={env:OPENCODE_TEST_ENV_HOST}"
+---`,
+      { OPENCODE_TEST_ENV_HOST: "custom-host" },
+    )
+    expect(parsed.data.description).toBe("host=custom-host")
+  })
+
+  test("resolveFileDirectives substitutes env in body", async () => {
+    const inlineDir = path.join(import.meta.dir, "fixtures/inline")
+    const absolute = path.join(inlineDir, "env-body.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved.replaceAll("\n", "")).toBe("before test-host after")
+  })
+
+  test("resolveFileDirectives substitutes env in included file body", async () => {
+    const inlineDir = path.join(import.meta.dir, "fixtures/inline")
+    const absolute = path.join(inlineDir, "env-include.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved.replaceAll("\n", "")).toBe("before inlined content from test-host after")
+  })
+
+  test("resolveFileDirectives accepts env override for body and included files", async () => {
+    const inlineDir = path.join(import.meta.dir, "fixtures/inline")
+    const absolute = path.join(inlineDir, "env-include.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute, new Set(), undefined, {
+      OPENCODE_TEST_ENV_HOST: "override-host",
+    })
+    expect(resolved.replaceAll("\n", "")).toBe("before inlined content from override-host after")
+  })
+
+  test("parse leaves no {env:} directive behind when env is set", () => {
+    const parsed = ConfigMarkdownCore.parse(`---
+description: "host={env:OPENCODE_TEST_ENV_HOST}"
+---`)
+    expect(JSON.stringify(parsed.data)).not.toContain("{env:")
+  })
+
+  test("env directives in YAML scalar values are parsed as plain strings", () => {
+    const parsed = ConfigMarkdownCore.parse(`---
+external_directory:
+  "{env:OPENCODE_TEST_ENV_HOST}": allow
+---`)
+    expect(parsed.data.external_directory).toEqual({ "test-host": "allow" })
   })
 })
