@@ -1,6 +1,9 @@
 export * as ConfigMarkdown from "./markdown"
 
 import matter from "gray-matter"
+import os from "os"
+import path from "path"
+
 export function parse(content: string) {
   try {
     return matter(content)
@@ -33,4 +36,52 @@ export function sanitize(content: string) {
     return [`${entry[1]}: |-`, `  ${value}`]
   })
   return content.replace(frontmatter, () => result.join("\n"))
+}
+
+export const FILE_DIRECTIVE_REGEX = /\{file:([^}]+)\}/g
+
+export function fileDirectives(template: string) {
+  return Array.from(template.matchAll(FILE_DIRECTIVE_REGEX))
+}
+
+function resolveDirectiveDir(dir: string, directivePath: string) {
+  const expanded = directivePath.startsWith("~/") ? os.homedir() + directivePath.slice(1) : directivePath
+  return path.resolve(dir, expanded)
+}
+
+export async function resolveFileDirectives(
+  content: string,
+  filepath: string,
+  read: (path: string) => Promise<string | undefined>,
+  visited: Set<string> = new Set(),
+): Promise<string> {
+  const matches = fileDirectives(content)
+  if (matches.length === 0) return content
+
+  const current = path.resolve(filepath)
+  const nextVisited = new Set(visited)
+  nextVisited.add(current)
+
+  let result = content
+  for (const match of matches) {
+    const directive = match[0]
+    const target = resolveDirectiveDir(path.dirname(current), match[1].trim())
+    if (nextVisited.has(target)) {
+      result = result.replace(directive, "")
+      continue
+    }
+    const raw = await read(target)
+    if (raw === undefined) {
+      result = result.replace(directive, "")
+      continue
+    }
+    const parsed = parseOption(raw)
+    if (!parsed) {
+      result = result.replace(directive, "")
+      continue
+    }
+    const resolved = await resolveFileDirectives(parsed.content, target, read, nextVisited)
+    result = result.replace(directive, resolved)
+  }
+  return result
 }

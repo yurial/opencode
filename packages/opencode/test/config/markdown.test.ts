@@ -1,4 +1,6 @@
 import { expect, test, describe } from "bun:test"
+import os from "os"
+import path from "path"
 import { ConfigMarkdown } from "@/config/markdown"
 
 describe("ConfigMarkdown: normal template", () => {
@@ -224,5 +226,79 @@ describe("ConfigMarkdown: frontmatter has weird model id", async () => {
     expect(result.data["stuff"]).toBe("This is some stuff\n")
 
     expect(result.content.trim()).toBe("Strictly follow da rules")
+  })
+})
+
+describe("ConfigMarkdown: file directives", () => {
+  const inlineDir = path.join(import.meta.dir, "fixtures/inline")
+
+  test("extracts file directives via regex", () => {
+    const matches = ConfigMarkdown.fileDirectives("before {file:a.md} middle {file:b.md} after")
+    expect(matches.length).toBe(2)
+    expect(matches[0][1]).toBe("a.md")
+    expect(matches[1][1]).toBe("b.md")
+  })
+
+  test("resolves a leaf directive", async () => {
+    const absolute = path.join(inlineDir, "a.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved.replaceAll("\n", "")).toBe("before leaf content after")
+  })
+
+  test("resolves a chain of two directives", async () => {
+    const absolute = path.join(inlineDir, "chain-b.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved.replaceAll("\n", "")).toBe("before leaf content after")
+  })
+
+  test("skips circular references and replaces with empty string", async () => {
+    const absolute = path.join(inlineDir, "cycle-a.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved).toContain("cycle-a:")
+    expect(resolved).not.toContain("{file:")
+  })
+
+  test("missing file directive becomes empty string", async () => {
+    const absolute = path.join(inlineDir, "missing.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved).toContain("missing:")
+    expect(resolved).not.toContain("{file:")
+  })
+
+  test("resolves multiple directives in a single file", async () => {
+    const absolute = path.join(inlineDir, "multi.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved.replaceAll("\n", "")).toBe("leaf content and other leaf content and leaf content")
+  })
+
+  test("expands ~ to home directory for missing paths without throwing", async () => {
+    const content = "{file:~/opencode-inline-directives-test-missing.md}"
+    const absolute = path.join(inlineDir, "a.md")
+    const resolved = await ConfigMarkdown.resolveFileDirectives(content, absolute)
+    expect(resolved).toBe("")
+  })
+
+  test("returns original content when no directives are present", async () => {
+    const absolute = path.join(inlineDir, "leaf.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved).toBe(md.content)
+  })
+
+  test("resolves a fixture using an absolute path", async () => {
+    const absolute = path.join(inlineDir, "a.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved.replaceAll("\n", "")).toBe("before leaf content after")
+  })
+
+  test("uses os.homedir() to expand ~ prefix", () => {
+    const homeRelative = path.join(os.homedir(), "opencode-inline-directives-test-missing.md")
+    expect(path.resolve(os.homedir(), "opencode-inline-directives-test-missing.md")).toBe(homeRelative)
   })
 })

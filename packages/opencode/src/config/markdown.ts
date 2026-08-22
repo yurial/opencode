@@ -33,4 +33,26 @@ export async function parse(filePath: string) {
   }
 }
 
+export const FILE_DIRECTIVE_REGEX = ConfigMarkdownCore.FILE_DIRECTIVE_REGEX
+export const fileDirectives = ConfigMarkdownCore.fileDirectives
+
+export async function resolveFileDirectives(
+  content: string,
+  filepath: string,
+  visited: Set<string> = new Set(),
+): Promise<string> {
+  return ConfigMarkdownCore.resolveFileDirectives(
+    content,
+    filepath,
+    async (p) => {
+      try {
+        return await Filesystem.readText(p)
+      } catch {
+        return undefined
+      }
+    },
+    visited,
+  )
+}
+
 export * as ConfigMarkdown from "./markdown"

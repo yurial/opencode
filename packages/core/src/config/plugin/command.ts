@@ -6,6 +6,7 @@ import { Effect, Option, Schema } from "effect"
 import { CommandV2 } from "../../command"
 import { Config } from "../../config"
 import { FSUtil } from "../../fs-util"
+import { InlineFiles } from "../../util/inline-files"
 import { ModelV2 } from "../../model"
 import { ConfigCommand } from "../command"
 import { ConfigMarkdown } from "../markdown"
@@ -55,10 +56,13 @@ function loadDirectory(fs: FSUtil.Interface, directory: string) {
       .glob("{command,commands}/**/*.md", { cwd: directory, absolute: true, dot: true, symlink: true })
       .pipe(Effect.catch(() => Effect.succeed([] as string[])))
     return yield* Effect.forEach(files.toSorted(), (filepath) =>
-      fs.readFileStringSafe(filepath).pipe(
-        Effect.map((content) => (content === undefined ? undefined : decode(directory, filepath, content))),
-        Effect.catch(() => Effect.succeed(undefined)),
-      ),
+      Effect.gen(function* () {
+        const content = yield* fs
+          .readFileStringSafe(filepath)
+          .pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (content === undefined) return undefined
+        return yield* decode(directory, filepath, content, fs)
+      }),
     ).pipe(
       Effect.map((commands) =>
         commands.filter((command): command is { name: string; info: ConfigCommand.Info } => command !== undefined),
@@ -67,17 +71,20 @@ function loadDirectory(fs: FSUtil.Interface, directory: string) {
   })
 }
 
-function decode(directory: string, filepath: string, content: string) {
-  const markdown = ConfigMarkdown.parseOption(content)
-  if (!markdown) return
-  const info = Option.getOrUndefined(decodeCommand({ ...markdown.data, template: markdown.content.trim() }))
-  if (!info) return
-  return {
-    name: path
-      .relative(directory, filepath)
-      .replaceAll("\\", "/")
-      .replace(/^(command|commands)\//, "")
-      .replace(/\.md$/, ""),
-    info,
-  }
+function decode(directory: string, filepath: string, content: string, fs: FSUtil.Interface) {
+  return Effect.gen(function* () {
+    const resolved = yield* InlineFiles.inlineFileDirectives(content, filepath, fs)
+    const markdown = ConfigMarkdown.parseOption(resolved)
+    if (!markdown) return
+    const info = Option.getOrUndefined(decodeCommand({ ...markdown.data, template: markdown.content.trim() }))
+    if (!info) return
+    return {
+      name: path
+        .relative(directory, filepath)
+        .replaceAll("\\", "/")
+        .replace(/^(command|commands)\//, "")
+        .replace(/\.md$/, ""),
+      info,
+    }
+  })
 }

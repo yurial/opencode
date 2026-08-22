@@ -1,0 +1,1 @@
+before {file:chain-a.md} after

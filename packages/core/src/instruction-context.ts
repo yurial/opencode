@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, sep } from "path"
 import { FSUtil } from "./fs-util"
 import { Flag } from "./flag/flag"
 import { Global } from "./global"
+import { InlineFiles } from "./util/inline-files"
 import { Location } from "./location"
 import { AbsolutePath } from "./schema"
 import { SystemContext } from "./system-context/index"
@@ -59,13 +60,12 @@ const layer = Layer.effectDiscard(
       const files = yield* Effect.forEach(
         paths,
         (path) =>
-          fs
-            .readFileStringSafe(path)
-            .pipe(
-              Effect.map((content) =>
-                content === undefined ? undefined : new File({ path: AbsolutePath.make(path), content }),
-              ),
-            ),
+          Effect.gen(function* () {
+            const raw = yield* fs.readFileStringSafe(path)
+            if (raw === undefined) return undefined
+            const resolved = yield* InlineFiles.inlineFileDirectives(raw, path, fs)
+            return new File({ path: AbsolutePath.make(path), content: resolved })
+          }),
         { concurrency: "unbounded" },
       )
       if (files.some((file, index) => file === undefined && discovered.has(paths[index])))

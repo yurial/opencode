@@ -130,12 +130,24 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
     })
   }
 
+  const content = yield* Effect.tryPromise({
+    try: () => ConfigMarkdown.resolveFileDirectives(md.content, match),
+    catch: (err) => err,
+  }).pipe(
+    Effect.catch(
+      Effect.fnUntraced(function* (err) {
+        yield* Effect.logError("failed to inline skill file directives", { skill: match, error: err })
+        return md.content
+      }),
+    ),
+  )
+
   state.dirs.add(path.dirname(match))
   state.skills[md.data.name] = {
     name: md.data.name,
     description: md.data.description,
     location: match,
-    content: md.content,
+    content,
   }
 })
 

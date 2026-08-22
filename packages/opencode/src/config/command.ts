@@ -22,11 +22,13 @@ export async function load(dir: string) {
     if (!md) continue
 
     const name = configEntryNameFromPath(path.relative(dir, item), ["command/", "commands/"])
+    const body = md.content.trim()
+    const template = await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
 
     const config = {
       name,
       ...md.data,
-      template: md.content.trim(),
+      template,
     }
     const parsed = decodeInfo(config, { errors: "all", propertyOrder: "original" })
     if (Exit.isSuccess(parsed)) {

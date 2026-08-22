@@ -8,6 +8,7 @@ import { Config } from "../../config"
 import { ConfigAgent } from "../agent"
 import { ConfigMarkdown } from "../markdown"
 import { FSUtil } from "../../fs-util"
+import { InlineFiles } from "../../util/inline-files"
 import { ModelV2 } from "../../model"
 import { ConfigAgentV1 } from "../../v1/config/agent"
 import { ConfigMigrateV1 } from "../../v1/config/migrate"
@@ -56,10 +57,13 @@ export const Plugin = define({
           return Effect.gen(function* () {
             const files = yield* discover(fs, entry.path)
             return yield* Effect.forEach(files, (file) =>
-              fs.readFileStringSafe(file.filepath).pipe(
-                Effect.map((content) => content && decode(file, content)),
-                Effect.catch(() => Effect.succeed(undefined)),
-              ),
+              Effect.gen(function* () {
+                const content = yield* fs.readFileStringSafe(file.filepath).pipe(
+                  Effect.catch(() => Effect.succeed(undefined)),
+                )
+                if (content === undefined) return undefined
+                return yield* decode(file, content, fs)
+              }),
             ).pipe(
               Effect.map((documents) =>
                 documents.filter((document): document is Config.Document => document !== undefined),
@@ -150,30 +154,37 @@ function discover(fs: FSUtil.Interface, directory: string) {
   )
 }
 
-function decode(file: { directory: string; filepath: string; primary: boolean }, content: string) {
-  const markdown = ConfigMarkdown.parseOption(content)
-  if (!markdown) return
-  const name = path
-    .relative(file.directory, file.filepath)
-    .replaceAll("\\", "/")
-    .replace(/^(agent|agents|mode|modes)\//, "")
-    .replace(/\.md$/, "")
-  const body = markdown.content.trim()
-  const legacy = Object.keys(markdown.data).some((key) => !agentKeys.has(key))
-  const agent = Option.getOrUndefined(
-    legacy
-      ? Option.map(
-          decodeLegacyAgent({ name, ...markdown.data, prompt: body }, { errors: "all", propertyOrder: "original" }),
-          ConfigMigrateV1.migrateAgent,
-        )
-      : decodeAgent({ ...markdown.data, system: body }, { errors: "all", propertyOrder: "original" }),
-  )
-  if (!agent) return
-  const info = Option.getOrUndefined(
-    decodeConfig({
-      agents: { [name]: file.primary ? { ...agent, mode: "primary" } : agent },
-    }),
-  )
-  if (!info) return
-  return new Config.Document({ type: "document", path: file.filepath, info })
+function decode(
+  file: { directory: string; filepath: string; primary: boolean },
+  content: string,
+  fs: FSUtil.Interface,
+) {
+  return Effect.gen(function* () {
+    const resolved = yield* InlineFiles.inlineFileDirectives(content, file.filepath, fs)
+    const markdown = ConfigMarkdown.parseOption(resolved)
+    if (!markdown) return
+    const name = path
+      .relative(file.directory, file.filepath)
+      .replaceAll("\\", "/")
+      .replace(/^(agent|agents|mode|modes)\//, "")
+      .replace(/\.md$/, "")
+    const body = markdown.content.trim()
+    const legacy = Object.keys(markdown.data).some((key) => !agentKeys.has(key))
+    const agent = Option.getOrUndefined(
+      legacy
+        ? Option.map(
+            decodeLegacyAgent({ name, ...markdown.data, prompt: body }, { errors: "all", propertyOrder: "original" }),
+            ConfigMigrateV1.migrateAgent,
+          )
+        : decodeAgent({ ...markdown.data, system: body }, { errors: "all", propertyOrder: "original" }),
+    )
+    if (!agent) return
+    const info = Option.getOrUndefined(
+      decodeConfig({
+        agents: { [name]: file.primary ? { ...agent, mode: "primary" } : agent },
+      }),
+    )
+    if (!info) return
+    return new Config.Document({ type: "document", path: file.filepath, info })
+  })
 }

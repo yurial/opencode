@@ -7,6 +7,7 @@ import { Skill } from "@opencode-ai/schema/skill"
 import { AgentV2 } from "./agent"
 import { ConfigMarkdown } from "./config/markdown"
 import { FSUtil } from "./fs-util"
+import { InlineFiles } from "./util/inline-files"
 import { PermissionV2 } from "./permission"
 import { AbsolutePath } from "./schema"
 import { SkillDiscovery } from "./skill/discovery"
@@ -97,7 +98,7 @@ const layer = Layer.effect(
             description: frontmatter.description,
             slash: frontmatter.slash,
             location: AbsolutePath.make(filepath),
-            content: markdown.content,
+            content: yield* InlineFiles.inlineFileDirectives(markdown.content, filepath, fs),
           })
         }
       }

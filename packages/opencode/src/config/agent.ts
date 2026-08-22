@@ -20,11 +20,13 @@ export async function load(dir: string) {
     if (!md) continue
 
     const name = configEntryNameFromPath(path.relative(dir, item), ["agent/", "agents/"])
+    const body = md.content.trim()
+    const prompt = await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
 
     const config = {
       name,
       ...md.data,
-      prompt: md.content.trim(),
+      prompt,
     }
     result[config.name] = ConfigParse.schema(ConfigAgentV1.Info, config, item)
   }
@@ -42,10 +44,13 @@ export async function loadMode(dir: string) {
     const md = await ConfigMarkdown.parse(item).catch(() => undefined)
     if (!md) continue
 
+    const body = md.content.trim()
+    const prompt = await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
+
     const config = {
       name: configEntryNameFromPath(path.relative(dir, item), ["mode/", "modes/"]),
       ...md.data,
-      prompt: md.content.trim(),
+      prompt,
     }
     const parsed = Schema.decodeUnknownExit(ConfigAgentV1.Info)(config, { errors: "all", propertyOrder: "original" })
     if (Exit.isSuccess(parsed)) {
