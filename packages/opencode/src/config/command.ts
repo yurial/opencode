@@ -23,7 +23,7 @@ export async function load(dir: string) {
 
     const name = configEntryNameFromPath(path.relative(dir, item), ["command/", "commands/"])
     const body = md.content.trim()
-    const template = await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
+    const template = await ConfigMarkdown.resolveFileDirectives(body, item, new Set(), dir).catch(() => body)
 
     const config = {
       name,

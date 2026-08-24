@@ -317,6 +317,30 @@ describe("ConfigMarkdown: file directives", () => {
     const homeRelative = path.join(os.homedir(), "opencode-inline-directives-test-missing.md")
     expect(path.resolve(os.homedir(), "opencode-inline-directives-test-missing.md")).toBe(homeRelative)
   })
+
+  test("preserves baseDir across recursive file directives", async () => {
+    // Reproduces the user setup:
+    //   agents/main.md    prompt: "{file:./rules/main.md}"
+    //   rules/main.md     {file:./rules/common.md}
+    //   rules/common.md   {file:./rules/call.md}
+    //   rules/call.md     call content
+    // With baseDir = inlineDir (the agent/command directory), every level
+    // resolves relative to baseDir even though included files live in subdirs.
+    const baseDir = inlineDir
+    const filepath = path.join(inlineDir, "a.md")
+    const content = "{file:./nested-base.md}"
+    const resolved = await ConfigMarkdown.resolveFileDirectives(content, filepath, new Set(), baseDir)
+    expect(resolved.replaceAll("\n", "")).toBe("leaf content")
+  })
+
+  test("falls back to per-file dir when baseDir is omitted", async () => {
+    // No baseDir means paths resolve relative to each included file's
+    // directory; preserves the existing chain-b/chain-a/leaf2 behaviour.
+    const absolute = path.join(inlineDir, "chain-b.md")
+    const md = await ConfigMarkdown.parse(absolute)
+    const resolved = await ConfigMarkdown.resolveFileDirectives(md.content, absolute)
+    expect(resolved.replaceAll("\n", "")).toBe("before leaf content after")
+  })
 })
 
 describe("ConfigMarkdown: env directives", () => {

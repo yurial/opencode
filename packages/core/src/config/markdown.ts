@@ -130,6 +130,11 @@ function resolveDirectiveDir(dir: string, directivePath: string) {
  * detection against `visited` paths. A missing, unreadable, or unparseable
  * referenced file is replaced with an empty string instead of throwing.
  *
+ * When `baseDir` is provided, every nested `{file:}` directive is resolved
+ * relative to it; otherwise each level falls back to the directory of the file
+ * that introduced the directive, so files outside an explicit base rely on
+ * their own location for relative paths.
+ *
  * @param content text that may contain `{file:path}` and `{env:NAME}` directives
  * @param filepath absolute path of the file owning `content`, used as the
  *   source identifier for cycle detection and as the base directory for
@@ -137,8 +142,11 @@ function resolveDirectiveDir(dir: string, directivePath: string) {
  * @param read async reader returning the file body or `undefined` when absent
  * @param visited absolute paths already followed in the current resolution
  *   chain; cycles are replaced with an empty string and the chain continues
- * @param baseDir directory used to resolve relative `{file:}` paths; defaults
- *   to the directory of `filepath`
+ * @param baseDir directory used to resolve relative `{file:}` paths; once
+ *   supplied it is preserved across the recursive chain so nested files do
+ *   not need to know their position relative to the entry point. Defaults
+ *   to the directory of `filepath` and is re-anchored to each included
+ *   file's directory when no value is supplied at any level.
  * @param env optional override map consulted before `process.env` for the
  *   final env substitution pass
  * @returns the content with all `{file:}` and `{env:}` directives resolved
@@ -177,7 +185,14 @@ export async function resolveFileDirectives(
       result = result.replace(directive, "")
       continue
     }
-    const resolved = await resolveFileDirectives(parsed.content, target, read, nextVisited, undefined, env)
+    const resolved = await resolveFileDirectives(
+      parsed.content,
+      target,
+      read,
+      nextVisited,
+      baseDir ?? path.dirname(target),
+      env,
+    )
     result = result.replace(directive, resolved)
   }
   return resolveEnvDirectives(result, env)

@@ -131,7 +131,7 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
   }
 
   const content = yield* Effect.tryPromise({
-    try: () => ConfigMarkdown.resolveFileDirectives(md.content, match),
+    try: () => ConfigMarkdown.resolveFileDirectives(md.content, match, new Set(), path.dirname(match)),
     catch: (err) => err,
   }).pipe(
     Effect.catch(

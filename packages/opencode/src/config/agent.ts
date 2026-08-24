@@ -30,7 +30,7 @@ export async function load(dir: string) {
         ? await ConfigMarkdown.resolveFileDirectives(frontmatterPrompt, item, new Set(), dir).catch(
             () => frontmatterPrompt,
           )
-        : await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
+        : await ConfigMarkdown.resolveFileDirectives(body, item, new Set(), dir).catch(() => body)
 
     const config = {
       name,
@@ -63,7 +63,7 @@ export async function loadMode(dir: string) {
         ? await ConfigMarkdown.resolveFileDirectives(frontmatterPrompt, item, new Set(), dir).catch(
             () => frontmatterPrompt,
           )
-        : await ConfigMarkdown.resolveFileDirectives(body, item).catch(() => body)
+        : await ConfigMarkdown.resolveFileDirectives(body, item, new Set(), dir).catch(() => body)
 
     const config = {
       name: configEntryNameFromPath(path.relative(dir, item), ["mode/", "modes/"]),
