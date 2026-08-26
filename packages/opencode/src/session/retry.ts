@@ -184,13 +184,21 @@ export function policy(opts: {
   provider: string
   parse: (error: unknown) => Err
   set: (input: { attempt: number; message: string; action?: Retryable["action"]; next: number }) => Effect.Effect<void>
+  /**
+   * Maximum number of retry attempts before the failure is surfaced.
+   * Contract: integer 0-1000000; 0 disables retries entirely (first failure fails the request).
+   * Defaults to RETRY_MAX_RETRIES (5). Attempts are counted per request:
+   * 1 initial attempt + up to maxRetries retries.
+   */
+  maxRetries?: number
 }) {
+  const maxRetries = opts.maxRetries ?? RETRY_MAX_RETRIES
   return Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       const error = opts.parse(meta.input)
       const retry = retryable(error, opts.provider)
       if (!retry) return Cause.done(meta.attempt)
-      if (meta.attempt > RETRY_MAX_RETRIES) return Cause.done(meta.attempt)
+      if (meta.attempt > maxRetries) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
         const wait = delay(meta.attempt, SessionV1.APIError.isInstance(error) ? error : undefined)
         const now = yield* Clock.currentTimeMillis

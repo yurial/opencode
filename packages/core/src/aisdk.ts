@@ -82,6 +82,8 @@ function prepareOptions(model: ModelV2.Info, pkg: string) {
   const customFetch = options.fetch
   const chunkTimeout = options.chunkTimeout
   delete options.chunkTimeout
+  // opencode-level retry budget; not a valid AI SDK provider option
+  delete options.retries
   options.fetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const opts = { ...(init ?? {}) }
     const signals = [

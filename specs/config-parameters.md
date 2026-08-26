@@ -154,6 +154,7 @@ Known tool keys: `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`,
 | `provider.<id>.options.timeout` | int > 0 \| `false` | ms; `false` disables | provider default | Full-request timeout |
 | `provider.<id>.options.headerTimeout` | int > 0 \| `false` | ms; `false` disables | provider default | Response-header timeout |
 | `provider.<id>.options.chunkTimeout` | int > 0 | ms | none | Max gap between SSE chunks |
+| `provider.<id>.options.retries` | int 0–1000000 | attempts | `5` | Max retry attempts for failed LLM requests to this provider. `0` disables retries. Counted per request: 1 initial attempt + `retries` retries. |
 | `provider.<id>.options.*` | any | passthrough | — | AI SDK provider options |
 | `provider.<id>.models.<mid>` | object | see model fields | — | Model override/definition |
 | Model `id`/`name`/`family`/`release_date` | string | unvalidated | — | Metadata |
