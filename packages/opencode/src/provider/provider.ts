@@ -1,6 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import os from "os"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+import { ConfigProviderV1 } from "@opencode-ai/core/v1/config/provider"
 import fuzzysort from "fuzzysort"
 import { Config } from "@/config/config"
 import { mapValues, mergeDeep, omit, pickBy, sortBy } from "remeda"
@@ -1088,6 +1089,9 @@ export const Model = Schema.Struct({
   options: Schema.Record(Schema.String, Schema.Any),
   headers: Schema.Record(Schema.String, Schema.String),
   release_date: Schema.String,
+  primeTimeStart: optional(Schema.String),
+  primeTimeEnd: optional(Schema.String),
+  primeTimeDay: optional(Schema.mutable(Schema.Array(ConfigProviderV1.PrimeTimeDay))),
   variants: optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Any))),
 }).annotate({ identifier: "Model" })
 export type Model = Types.DeepMutable<Schema.Schema.Type<typeof Model>>
@@ -1563,6 +1567,9 @@ const layer = Layer.effect(
               headers: mergeDeep(existingModel?.headers ?? {}, model.headers ?? {}),
               family: model.family ?? existingModel?.family ?? "",
               release_date: model.release_date ?? existingModel?.release_date ?? "",
+              primeTimeStart: model.primeTimeStart ?? existingModel?.primeTimeStart,
+              primeTimeEnd: model.primeTimeEnd ?? existingModel?.primeTimeEnd,
+              primeTimeDay: model.primeTimeDay ?? existingModel?.primeTimeDay,
               variants: {},
             }
             const variants =

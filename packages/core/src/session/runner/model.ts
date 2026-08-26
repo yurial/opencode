@@ -11,6 +11,7 @@ import { produce } from "immer"
 import { Catalog } from "../../catalog"
 import { Credential } from "../../credential"
 import { Integration } from "../../integration"
+import { primeTimeActive } from "../../v1/config/provider"
 import { ModelV2 } from "../../model"
 import { ProviderV2 } from "../../provider"
 import { SessionSchema } from "../schema"
@@ -161,25 +162,7 @@ export const checkPrimeTime = (model: ModelV2.Info, now: Date = new Date()): Eff
   ModelV2.Info,
   ModelPrimeTimeError
 > => {
-  const start = model.primeTimeStart
-  const end = model.primeTimeEnd
-  const days = model.primeTimeDay
-  if (start === undefined || end === undefined || days === undefined || days.length === 0)
-    return Effect.succeed(model)
-
-  const weekday = (["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const)[now.getDay()]
-  if (!days.includes(weekday)) return Effect.succeed(model)
-
-  const secondsOfDay = (value: string) => {
-    const [hours, minutes, seconds] = value.split(":").map(Number)
-    return hours * 3600 + minutes * 60 + seconds
-  }
-  const current = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
-  const from = secondsOfDay(start)
-  const to = secondsOfDay(end)
-  const withinWindow = from <= to ? current >= from && current <= to : current >= from || current <= to
-  if (!withinWindow) return Effect.succeed(model)
-
+  if (!primeTimeActive(model, now)) return Effect.succeed(model)
   return Effect.fail(new ModelPrimeTimeError({ providerID: model.providerID, modelID: model.id }))
 }
 

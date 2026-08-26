@@ -29,14 +29,24 @@
 - [x] Проверка `checkPrimeTime` в том же файле (входит в `Error`-union резолвера)
 - Замечание: известный баг cross-midnight — см. TODO.md
 
-### 4. Интегрировать проверку — частично
-- [x] `locationLayer.resolve`: pipeline `withVariant → checkPrimeTime → fromCatalogModel`
-- [ ] Обработка `ModelPrimeTimeError` в processor.ts и вывод в TUI — не проверено end-to-end
+### 4. Интегрировать проверку — ✅ выполнено
+- [x] `locationLayer.resolve`: pipeline `withVariant → checkPrimeTime → fromCatalogModel` (V2-путь)
+- [x] V1-путь (основной для TUI/server): поля `primeTimeStart/End/Day` в `ConfigProviderV1.Model`
+      (`packages/core/src/v1/config/provider.ts`) + предикат `primeTimeActive` (единая логика окна);
+      поля в runtime `Provider.Model` (`packages/opencode/src/provider/provider.ts`) с мержем из конфига;
+      гейт в начале `LLM.run` (`packages/opencode/src/session/llm.ts`) — fail до любого резолва/сети
+- [x] Обработка в processor.ts: ошибка → `Effect.catch(halt)` → `MessageV2.fromError` →
+      `NamedError.Unknown` → `assistantMessage.error` + `Session.Event.Error` → отображение в TUI;
+      не матчится с ретрай-паттернами → без ретраев
+- [x] Тест end-to-end: `llm.test.ts` "refuses to stream when the model is inside its
+      prime-time window" — конфиг → Provider.Model маппинг полей, drain падает с сообщением
+      "is in prime-time", HTTP-запросы не отправляются
 
-### 5. Тестирование — частично
+### 5. Тестирование — ✅ выполнено
 - [x] Починен test-сим `resolveForTesting`: теперь возвращает маршрутизированную `Model`
-  (зеркалит продакшн-pipeline), тесты variant-overlay проверок route восстановлены
+      (зеркалит продакшн-pipeline), тесты variant-overlay проверок route восстановлены
 - [x] Отдельные тесты поведения prime-time с инъекцией времени (`checkPrimeTime(model, now)`)
+- [x] Интеграционный тест V1-пути в `packages/opencode/test/session/llm.test.ts`
 
 ### 6. Фикс cross-midnight + тесты — ✅ выполнено
 - [x] `checkPrimeTime(model, now)`: сравнение через seconds-of-day, переход через полночь
@@ -63,12 +73,32 @@
 }
 ```
 
-### Логика проверки
-1. Если любое из полей отсутство/пусто — prime-time отключён
+### Логика проверки (предикат `ConfigProviderV1.primeTimeActive`)
+1. Если любое из полей отсутствует/пусто — prime-time отключён
 2. Текущий день недели должен входить в `primeTimeDay` (семантика: день текущего момента,
    т.е. окно 22:00–06:00 требует обоих дней в списке)
-3. Текущее время между `primeTimeStart` и `primeTimeEnd` (переход через полночь — есть баг, см. TODO.md)
-4. При нарушении — `ModelPrimeTimeError`
+3. Сравнение через seconds-of-day; `start <= end` — интервал того же дня (границы inclusive),
+   `start > end` — окно через полночь (`current >= from || current <= to`)
+4. V2-путь: нарушение → `ModelPrimeTimeError`; V1-путь: `Effect.fail(Error)` в `LLM.run`
 
 ### Вывод ошибки
-Сообщение: `Model {providerID}/{modelID} is in prime-time and cannot be used.`
+- V2: `Model {providerID}/{modelID} is in prime-time and cannot be used.`
+- V1 (TUI/server): `Model {providerID}/{modelID} is in prime-time ({start}–{end} on {days}) and cannot be used.`
+
+### Где настраивается (V1)
+`opencode.json` → `provider.<providerID>.models.<modelID>`:
+```json
+{
+  "provider": {
+    "openai": {
+      "models": {
+        "gpt-5.2": {
+          "primeTimeStart": "22:00:00",
+          "primeTimeEnd": "06:00:00",
+          "primeTimeDay": ["mon", "tue", "wed", "thu", "fri", "sat"]
+        }
+      }
+    }
+  }
+}
+```

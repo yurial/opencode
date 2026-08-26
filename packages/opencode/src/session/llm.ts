@@ -1,6 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { llmClient } from "@opencode-ai/core/effect/app-node-platform"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { ConfigProviderV1 } from "@opencode-ai/core/v1/config/provider"
 import { Provider } from "@/provider/provider"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
@@ -83,6 +84,23 @@ const live: Layer.Layer<
     const flags = yield* RuntimeFlags.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
+      // Prime-time gate: refuse before any provider resolution or network work.
+      // The error surfaces to the session processor as a terminal message error.
+      if (ConfigProviderV1.primeTimeActive(input.model)) {
+        yield* Effect.logInfo("model blocked by prime-time", {
+          providerID: input.model.providerID,
+          modelID: input.model.id,
+          "session.id": input.sessionID,
+          primeTimeStart: input.model.primeTimeStart,
+          primeTimeEnd: input.model.primeTimeEnd,
+        })
+        return yield* Effect.fail(
+          new Error(
+            `Model ${input.model.providerID}/${input.model.id} is in prime-time (${input.model.primeTimeStart}–${input.model.primeTimeEnd} on ${(input.model.primeTimeDay ?? []).join(", ")}) and cannot be used.`,
+          ),
+        )
+      }
+
       yield* Effect.logInfo("stream", {
         providerID: input.model.providerID,
         modelID: input.model.id,

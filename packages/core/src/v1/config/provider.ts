@@ -10,6 +10,8 @@ const InterleavedField = Schema.Union([
   Schema.String,
 ])
 
+export const PrimeTimeDay = Schema.Literals(["sun", "mon", "tue", "wed", "thu", "fri", "sat"])
+
 export const Model = Schema.Struct({
   id: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
@@ -19,6 +21,21 @@ export const Model = Schema.Struct({
   reasoning: Schema.optional(Schema.Boolean),
   temperature: Schema.optional(Schema.Boolean),
   tool_call: Schema.optional(Schema.Boolean),
+  primeTimeStart: Schema.optional(
+    Schema.String.annotate({
+      description: "ISO 8601 local time (HH:MM:SS) marking the start of the model's prime-time window",
+    }),
+  ),
+  primeTimeEnd: Schema.optional(
+    Schema.String.annotate({
+      description: "ISO 8601 local time (HH:MM:SS) marking the end of the model's prime-time window",
+    }),
+  ),
+  primeTimeDay: Schema.optional(
+    Schema.mutable(Schema.Array(PrimeTimeDay)).annotate({
+      description: "Weekdays the prime-time window applies to (day of the current moment)",
+    }),
+  ),
   interleaved: Schema.optional(
     Schema.Union([
       Schema.Boolean,
@@ -130,3 +147,47 @@ export const Info = Schema.Struct({
   models: Schema.optional(Schema.Record(Schema.String, Model)),
 }).annotate({ identifier: "ProviderConfig" })
 export type Info = Schema.Schema.Type<typeof Info>
+
+export interface PrimeTimeWindow {
+  readonly primeTimeStart?: string
+  readonly primeTimeEnd?: string
+  readonly primeTimeDay?: ReadonlyArray<string>
+}
+
+const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const
+
+const secondsOfDay = (value: string) => {
+  const [hours = 0, minutes = 0, seconds = 0] = value.split(":").map(Number)
+  return hours * 3600 + minutes * 60 + seconds
+}
+
+/**
+ * Reports whether `now` falls inside the configured prime-time window.
+ *
+ * Used to block provider requests while a model is in prime-time. The window is
+ * active only when all three fields are present and `primeTimeDay` is non-empty;
+ * otherwise the model is never blocked.
+ *
+ * Contract:
+ * - `primeTimeStart`/`primeTimeEnd` are ISO 8601 local times ("HH:MM[:SS]"); a
+ *   missing seconds component is treated as 0. Invalid input never blocks (the
+ *   comparison degrades to NaN, which no interval contains).
+ * - The weekday is the day of the current moment: a 22:00–06:00 window blocks on
+ *   a given day only if that day is listed, so a window crossing midnight needs
+ *   both days listed to cover the whole span.
+ * - When `start <= end` the window is that single day interval (inclusive
+ *   bounds). When `start > end` the window crosses midnight and is active from
+ *   `start` until midnight or from midnight until `end`.
+ */
+export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date()): boolean {
+  const start = window.primeTimeStart
+  const end = window.primeTimeEnd
+  const days = window.primeTimeDay
+  if (start === undefined || end === undefined || days === undefined || days.length === 0) return false
+  if (!days.includes(WEEKDAYS[now.getDay()])) return false
+
+  const current = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
+  const from = secondsOfDay(start)
+  const to = secondsOfDay(end)
+  return from <= to ? current >= from && current <= to : current >= from || current <= to
+}

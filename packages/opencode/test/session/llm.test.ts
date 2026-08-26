@@ -1478,6 +1478,77 @@ describe("session.llm.stream", () => {
   )
 
   it.instance(
+    "refuses to stream when the model is inside its prime-time window",
+    () =>
+      Effect.gen(function* () {
+        const model = loadFixture("openai", "gpt-5.2").model
+        const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
+
+        expect(resolved.primeTimeStart).toBe("00:00:00")
+        expect(resolved.primeTimeEnd).toBe("23:59:59")
+        expect(resolved.primeTimeDay).toHaveLength(7)
+
+        const sessionID = SessionID.make("session-test-prime-time")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const failure = yield* drain({
+          user: {
+            id: MessageID.make("msg_user-prime-time"),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderV2.ID.openai, modelID: resolved.id },
+          } satisfies SessionV1.User,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        }).pipe(Effect.flip)
+
+        expect(failure).toBeInstanceOf(Error)
+        expect((failure as Error).message).toContain("openai/gpt-5.2 is in prime-time")
+        expect(state.queue.length).toBe(0)
+      }),
+    {
+      config: () => {
+        const model = loadFixture("openai", "gpt-5.2").model
+        const { experimental: _experimental, ...configModel } = model
+        return {
+          enabled_providers: ["openai"],
+          provider: {
+            openai: {
+              name: "OpenAI",
+              env: ["OPENAI_API_KEY"],
+              npm: "@ai-sdk/openai",
+              api: "https://unused.test/v1",
+              models: {
+                [model.id]: {
+                  ...JSON.parse(JSON.stringify(configModel)),
+                  primeTimeStart: "00:00:00",
+                  primeTimeEnd: "23:59:59",
+                  primeTimeDay: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"],
+                } as ConfigModel,
+              },
+              options: {
+                apiKey: "test-openai-key",
+                baseURL: "https://unused.test/v1",
+              },
+            },
+          },
+        } satisfies Partial<ConfigV1.Info>
+      },
+    },
+  )
+
+  it.instance(
     "streams OpenAI through native runtime when opted in",
     () =>
       Effect.gen(function* () {
