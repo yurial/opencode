@@ -674,6 +674,8 @@ const layer = Layer.effect(
             Effect.retry(
               SessionRetry.policy({
                 provider: input.model.providerID,
+                // Per-provider retry budget from provider.<id>.options.retries (0-1000000); 5 when unset
+                maxRetries: (yield* config.get()).provider?.[input.model.providerID]?.options?.retries,
                 parse,
                 set: (info) => {
                   return status.set(ctx.sessionID, {

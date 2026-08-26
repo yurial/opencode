@@ -1807,6 +1807,8 @@ const layer = Layer.effect(
         const headerTimeout = options["headerTimeout"] ?? 300_000
         delete options["chunkTimeout"]
         delete options["headerTimeout"]
+        // opencode-level retry budget consumed by the session retry policy; not a valid AI SDK provider option
+        delete options["retries"]
 
         options["fetch"] = async (input: any, init?: BunFetchRequestInit) => {
           const fetchFn = customFetch ?? fetch

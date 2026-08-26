@@ -140,6 +140,10 @@ export const Info = Schema.Struct({
           description:
             "Timeout in milliseconds between streamed SSE chunks for this provider (default: 300000). If no chunk arrives within this window, the request is aborted. Set to false to disable timeout.",
         }),
+        retries: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1000000 }))).annotate({
+          description:
+            "Maximum number of retry attempts for failed LLM requests to this provider (0-1000000; 0 disables retries). Defaults to 5 when unset. Counted per request: 1 initial attempt plus up to this many retries.",
+        }),
       }),
       [Schema.Record(Schema.String, Schema.Any)],
     ),
