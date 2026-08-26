@@ -1,5 +1,25 @@
 # TODO
 
+## PrimeTime (packages/core/src/v1/config/provider.ts — `primeTimeActive`)
+
+- **SQL-миграция для console ModelTable не сгенерирована.** Колонки prime_time_* добавлены в
+  TS-схему (`packages/console/core/src/schema/model.sql.ts`), миграция генерируется отдельным
+  процессом (`chore: generate`).
+
+## Не связано с PrimeTime (предсуществующее на main)
+
+- `packages/schema/test/event-manifest.test.ts`: 2 падения на чистом main
+  (порядок/идентификаторы манифеста событий). Воспроизведено без изменений PrimeTime.
+- `packages/core/test/tool-webfetch.test.ts` ("WebFetchTool registration > returns an error
+  result when HTML-to-Markdown conversion throws"): флакирует при полной нагрузке прогона
+  (в т.ч. с --coverage), воспроизводится на чистом main; изолированный запуск проходит.
+- `packages/opencode/test/provider/header-timeout.test.ts` ("chunkTimeout raises a response
+  stream error when SSE body stalls"): падает и на чистом main, и с изменениями PrimeTime
+  (SSE read timed out); не зависит от ветки.
+
+- ретраить ошибку "Rate limit reached for requests" и "The service may be temporarily overloaded, please try again later" в том числе в субагенте
+- при смене модели нужно перечитывать ее лимит контекста и менять триггер, когда должен вызываться compaction.
+
 ## Config-parameters spec (issue-config-params) findings
 
 Code/spec gaps discovered while documenting the configuration surface. No code

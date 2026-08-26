@@ -23,17 +23,19 @@ export const Model = Schema.Struct({
   tool_call: Schema.optional(Schema.Boolean),
   primeTimeStart: Schema.optional(
     Schema.String.annotate({
-      description: "ISO 8601 local time (HH:MM:SS) marking the start of the model's prime-time window",
+      description:
+        "ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset; no suffix means process-local time) marking the start of the model's prime-time window",
     }),
   ),
   primeTimeEnd: Schema.optional(
     Schema.String.annotate({
-      description: "ISO 8601 local time (HH:MM:SS) marking the end of the model's prime-time window",
+      description:
+        "ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset; no suffix means process-local time) marking the end of the model's prime-time window",
     }),
   ),
   primeTimeDay: Schema.optional(
     Schema.mutable(Schema.Array(PrimeTimeDay)).annotate({
-      description: "Weekdays the prime-time window applies to (day of the current moment)",
+      description: "Weekdays the prime-time window applies to (process-local weekday of the current moment)",
     }),
   ),
   interleaved: Schema.optional(
@@ -160,9 +162,51 @@ export interface PrimeTimeWindow {
 
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const
 
-const secondsOfDay = (value: string) => {
-  const [hours = 0, minutes = 0, seconds = 0] = value.split(":").map(Number)
-  return hours * 3600 + minutes * 60 + seconds
+const SECONDS_PER_DAY = 86400
+
+/**
+ * Strict ISO 8601 time-of-day pattern with an optional explicit offset.
+ *
+ * Captures: hours, minutes, optional seconds, and an optional zone designator
+ * (`Z`, `±HH:MM`, `±HHmm`, or `±HH`). Two-digit components only; anything else
+ * (including `Z` followed by an offset) must not match so callers fail open.
+ */
+const ISO_TIME_PATTERN = /^(\d{2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:?\d{2}|[+-]\d{2})?$/
+
+/**
+ * Parses an ISO 8601 time-of-day string into seconds-of-day on the UTC circle,
+ * normalized to `[0, 86400)`.
+ *
+ * Used to place prime-time window bounds on a single comparison scale:
+ * - `"HH:MM[:SS]"` — local time, converted via the process timezone offset in
+ *   effect at `now`.
+ * - `"HH:MM[:SS]Z"` — UTC.
+ * - `"HH:MM[:SS]±HH:MM"` / `"HH:MM[:SS]±HHmm"` / `"HH:MM[:SS]±HH"` — fixed
+ *   offset east of UTC for `+`, west for `-`.
+ *
+ * Returns `null` for anything malformed: non two-digit components, hours > 23,
+ * minutes/seconds > 59, or offset minutes > 59. Callers treat `null` as "no
+ * window" (fail-open) so garbage never blocks a model.
+ */
+function parseTimeOfDayUtc(value: string, now: Date): number | null {
+  const match = ISO_TIME_PATTERN.exec(value)
+  if (match === null) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  const seconds = Number(match[3] ?? "0")
+  if (hours > 23 || minutes > 59 || seconds > 59) return null
+
+  let secondsOfDay = hours * 3600 + minutes * 60 + seconds
+  const zone = match[4]
+  if (zone === undefined) secondsOfDay += now.getTimezoneOffset() * 60
+  else if (zone !== "Z") {
+    const digits = zone.slice(1).replace(":", "")
+    const offsetHours = Number(digits.slice(0, 2))
+    const offsetMinutes = Number(digits.slice(2).padEnd(2, "0"))
+    if (offsetMinutes > 59) return null
+    secondsOfDay -= (zone[0] === "+" ? 1 : -1) * (offsetHours * 3600 + offsetMinutes * 60)
+  }
+  return ((secondsOfDay % SECONDS_PER_DAY) + SECONDS_PER_DAY) % SECONDS_PER_DAY
 }
 
 /**
@@ -173,15 +217,20 @@ const secondsOfDay = (value: string) => {
  * otherwise the model is never blocked.
  *
  * Contract:
- * - `primeTimeStart`/`primeTimeEnd` are ISO 8601 local times ("HH:MM[:SS]"); a
- *   missing seconds component is treated as 0. Invalid input never blocks (the
- *   comparison degrades to NaN, which no interval contains).
- * - The weekday is the day of the current moment: a 22:00–06:00 window blocks on
- *   a given day only if that day is listed, so a window crossing midnight needs
- *   both days listed to cover the whole span.
- * - When `start <= end` the window is that single day interval (inclusive
- *   bounds). When `start > end` the window crosses midnight and is active from
- *   `start` until midnight or from midnight until `end`.
+ * - `primeTimeStart`/`primeTimeEnd` are ISO 8601 time-of-day strings: "HH:MM[:SS]"
+ *   (process-local time), "HH:MM[:SS]Z" (UTC), or "HH:MM[:SS]±HH:MM"/"±HHmm"/"±HH"
+ *   (fixed offset). Missing seconds default to 0. Any malformed bound (including
+ *   out-of-range components) disables the window entirely (fail-open).
+ * - All bounds and `now` are compared on one scale: seconds-of-day on the UTC
+ *   circle `[0, 86400)`. Offset-less bounds are rotated into that frame using the
+ *   process timezone offset in effect at `now`, so local and explicit-offset
+ *   bounds compose in a single frame.
+ * - The weekday is the local day of the current moment: a 22:00–06:00 window
+ *   blocks on a given day only if that day is listed, so a window crossing
+ *   midnight needs both days listed to cover the whole span.
+ * - When `start <= end` (after normalization) the window is that single interval
+ *   on the UTC circle (inclusive bounds). When `start > end` the window crosses
+ *   midnight and is active from `start` until midnight or from midnight until `end`.
  */
 export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date()): boolean {
   const start = window.primeTimeStart
@@ -190,8 +239,10 @@ export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date())
   if (start === undefined || end === undefined || days === undefined || days.length === 0) return false
   if (!days.includes(WEEKDAYS[now.getDay()])) return false
 
-  const current = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
-  const from = secondsOfDay(start)
-  const to = secondsOfDay(end)
+  const from = parseTimeOfDayUtc(start, now)
+  const to = parseTimeOfDayUtc(end, now)
+  if (from === null || to === null) return false
+
+  const current = Math.floor(now.getTime() / 1000) % SECONDS_PER_DAY
   return from <= to ? current >= from && current <= to : current >= from || current <= to
 }

@@ -148,14 +148,16 @@ const withVariant = (
  *   `primeTimeDay` are all present; a disabled configuration passes the model through
  *   unchanged (same reference).
  * - `now` defaults to the current wall clock; inject a fixed instant for deterministic
- *   checks (tests, batch tooling). All comparisons use the local timezone of `now`.
- * - Day matching uses the weekday of `now` itself, so a 22:00-06:00 window needs both
- *   sides of midnight listed in `primeTimeDay` to cover a full overnight span.
- * - `primeTimeStart`/`primeTimeEnd` are "HH:MM:SS" strings. When the end is not after
- *   the start the window crosses midnight and matches the evening side of the start day
- *   and the early-morning side of the end. Edges are inclusive on both sides.
- * - Malformed time strings compare as absent and fail open (see TODO.md for the pending
- *   validation decision).
+ *   checks (tests, batch tooling).
+ * - Day matching uses the process-local weekday of `now` itself, so a 22:00-06:00 window
+ *   needs both sides of midnight listed in `primeTimeDay` to cover a full overnight span.
+ * - `primeTimeStart`/`primeTimeEnd` are ISO 8601 time-of-day strings with an optional
+ *   explicit offset (`Z`, `±HH:MM`, `±HHmm`, `±HH`); offset-less bounds mean process-local
+ *   time. All bounds are compared on the UTC seconds-of-day circle (see `primeTimeActive`).
+ *   When the end is not after the start the window crosses midnight and matches the evening
+ *   side of the start day and the early-morning side of the end. Edges are inclusive.
+ * - Malformed bounds disable the window and fail open (deliberate contract of
+ *   `primeTimeActive`; the schema still accepts arbitrary strings).
  * - A violation fails with `ModelPrimeTimeError`; otherwise the model passes through.
  */
 export const checkPrimeTime = (model: ModelV2.Info, now: Date = new Date()): Effect.Effect<

@@ -8,6 +8,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { primeTimeActive } from "@opencode-ai/core/v1/config/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "../plugin/fixture"
 
@@ -266,4 +267,168 @@ describe("ConfigProviderPlugin.Plugin", () => {
       }),
     ),
   )
+})
+
+describe("primeTimeActive", () => {
+  // 2026-08-24 is a Monday. Every instant is a fixed UTC epoch; the process
+  // timezone is pinned per case so offset-less (local) bounds are deterministic.
+  const ALL_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+  const prime = (start: string, end: string, days: ReadonlyArray<string>) =>
+    ({ primeTimeStart: start, primeTimeEnd: end, primeTimeDay: days }) as const
+  // Monday at the given UTC wall time.
+  const utc = (hours: number, minutes = 0, seconds = 0) => new Date(Date.UTC(2026, 7, 24, hours, minutes, seconds))
+
+  describe("with local-time bounds", () => {
+    // Europe/Moscow is UTC+3 year-round (no DST), so local wall time = UTC + 3h.
+    const local = (hours: number, minutes = 0, seconds = 0) => utc(hours - 3, minutes, seconds)
+
+    it.effect("blocks inside a same-day window", () =>
+      withEnv({ TZ: "Europe/Moscow" }, () => Effect.sync(() => {
+        expect(primeTimeActive(prime("09:00:00", "18:00:00", ["mon"]), local(12))).toBe(true)
+      })),
+    )
+
+    it.effect("passes outside a same-day window", () =>
+      withEnv({ TZ: "Europe/Moscow" }, () => Effect.sync(() => {
+        expect(primeTimeActive(prime("09:00:00", "18:00:00", ["mon"]), local(20))).toBe(false)
+      })),
+    )
+
+    it.effect("treats window edges as inclusive", () =>
+      withEnv({ TZ: "Europe/Moscow" }, () => Effect.sync(() => {
+        expect(primeTimeActive(prime("09:00:00", "18:00:00", ["mon"]), local(9))).toBe(true)
+        expect(primeTimeActive(prime("09:00:00", "18:00:00", ["mon"]), local(18))).toBe(true)
+      })),
+    )
+
+    it.effect("blocks both sides of a cross-midnight window when both days are listed", () =>
+      withEnv({ TZ: "Europe/Moscow" }, () => Effect.sync(() => {
+        const window = prime("22:00:00", "06:00:00", ["mon", "tue"])
+        expect(primeTimeActive(window, local(23))).toBe(true)
+        // Tuesday 05:00 local is still inside the Monday-listed evening span's window.
+        expect(primeTimeActive(window, new Date(Date.UTC(2026, 7, 25, 2)))).toBe(true)
+      })),
+    )
+
+    it.effect("passes before a cross-midnight window starts", () =>
+      withEnv({ TZ: "Europe/Moscow" }, () => Effect.sync(() => {
+        expect(primeTimeActive(prime("22:00:00", "06:00:00", ["mon"]), local(21))).toBe(false)
+      })),
+    )
+
+    it.effect("passes when the current weekday is not configured", () =>
+      withEnv({ TZ: "Europe/Moscow" }, () => Effect.sync(() => {
+        expect(primeTimeActive(prime("09:00:00", "18:00:00", ["tue"]), local(12))).toBe(false)
+      })),
+    )
+
+    it.effect("supports bounds without seconds and mixes bound styles in one frame", () =>
+      withEnv({ TZ: "Europe/Moscow" }, () => Effect.sync(() => {
+        // 09:30 local = 06:30Z; the Z bound is compared in the same UTC frame.
+        expect(primeTimeActive(prime("09:30", "12:00:00Z", ALL_DAYS), local(11))).toBe(true)
+        expect(primeTimeActive(prime("09:30", "12:00:00Z", ALL_DAYS), utc(13))).toBe(false)
+      })),
+    )
+  })
+
+  describe("with explicit UTC offsets", () => {
+    it.effect("blocks inside a same-day Z window", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        expect(primeTimeActive(prime("09:00:00Z", "18:00:00Z", ["mon"]), utc(12))).toBe(true)
+      })),
+    )
+
+    it.effect("passes outside a same-day Z window", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        expect(primeTimeActive(prime("09:00:00Z", "18:00:00Z", ["mon"]), utc(20))).toBe(false)
+      })),
+    )
+
+    it.effect("blocks a cross-midnight Z window on both sides but not at midday", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        const window = prime("22:00:00Z", "06:00:00Z", ["mon", "tue"])
+        expect(primeTimeActive(window, utc(23))).toBe(true)
+        expect(primeTimeActive(window, new Date(Date.UTC(2026, 7, 25, 2)))).toBe(true)
+        expect(primeTimeActive(window, utc(12))).toBe(false)
+      })),
+    )
+
+    it.effect("honors positive ±HH:MM offsets", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        // 12:00+05:30–20:00+05:30 is 06:30Z–14:30Z.
+        const window = prime("12:00:00+05:30", "20:00:00+05:30", ["mon"])
+        expect(primeTimeActive(window, utc(10))).toBe(true)
+        expect(primeTimeActive(window, utc(16))).toBe(false)
+      })),
+    )
+
+    it.effect("honors negative compact ±HHmm offsets", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        // 09:00-0500–17:00-0500 is 14:00Z–22:00Z; bounds without seconds default to :00.
+        const window = prime("09:00-0500", "17:00-0500", ["mon"])
+        expect(primeTimeActive(window, utc(15))).toBe(true)
+        expect(primeTimeActive(window, utc(12))).toBe(false)
+      })),
+    )
+
+    it.effect("honors positive compact ±HHmm offsets", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        // 10:30+0530–18:30+0530 is 05:00Z–13:00Z.
+        const window = prime("10:30+0530", "18:30+0530", ["mon"])
+        expect(primeTimeActive(window, utc(9))).toBe(true)
+        expect(primeTimeActive(window, utc(4))).toBe(false)
+        expect(primeTimeActive(window, utc(14))).toBe(false)
+      })),
+    )
+
+    it.effect("honors short ±HH offsets", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        // 12:00+07–20:00+07 is 05:00Z–13:00Z; -07 mirrors it across midnight UTC.
+        expect(primeTimeActive(prime("12:00+07", "20:00+07", ["mon"]), utc(10))).toBe(true)
+        expect(primeTimeActive(prime("12:00+07", "20:00+07", ["mon"]), utc(15))).toBe(false)
+        expect(primeTimeActive(prime("12:00-07", "20:00-07", ["mon"]), utc(22))).toBe(true)
+      })),
+    )
+
+    it.effect("wraps cross-midnight windows declared in an explicit zone", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        // 22:00+05:30–06:00+05:30 is 16:30Z–00:30Z, which wraps on the UTC circle.
+        const window = prime("22:00:00+05:30", "06:00:00+05:30", ["mon", "tue"])
+        expect(primeTimeActive(window, utc(23))).toBe(true)
+        expect(primeTimeActive(window, utc(0, 15))).toBe(true)
+        expect(primeTimeActive(window, utc(12))).toBe(false)
+      })),
+    )
+
+    it.effect("normalizes bounds that rotate back across UTC midnight", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        // 00:00+03:00–12:00+03:00 is 21:00Z–09:00Z: the start wraps to the previous UTC day.
+        const window = prime("00:00:00+03:00", "12:00:00+03:00", ["mon", "tue"])
+        expect(primeTimeActive(window, utc(22))).toBe(true)
+        expect(primeTimeActive(window, utc(8))).toBe(true)
+        expect(primeTimeActive(window, utc(10))).toBe(false)
+        expect(primeTimeActive(window, utc(15))).toBe(false)
+      })),
+    )
+
+    it.effect("evaluates offset windows in UTC regardless of the process timezone", () =>
+      withEnv({ TZ: "America/New_York" }, () => Effect.sync(() => {
+        // 12:00Z is 08:00 Monday in New York (UTC-4 in August).
+        expect(primeTimeActive(prime("09:00:00Z", "18:00:00Z", ["mon"]), utc(12))).toBe(true)
+        expect(primeTimeActive(prime("13:00:00Z", "20:00:00Z", ["mon"]), utc(12))).toBe(false)
+      })),
+    )
+  })
+
+  describe("with malformed bounds", () => {
+    it.effect("fails open on garbage, out-of-range components, and bad offsets", () =>
+      withEnv({ TZ: "UTC" }, () => Effect.sync(() => {
+        const now = utc(12)
+        for (const start of ["9am", "", "25:00:00", "09:60:00", "09:00:60", "09:00:00+9:30", "09:00:00Z+01:00", "09:00:00+05:99"]) {
+          expect(primeTimeActive(prime(start, "18:00:00", ALL_DAYS), now)).toBe(false)
+        }
+        expect(primeTimeActive(prime("09:00:00", "garbage", ALL_DAYS), now)).toBe(false)
+      })),
+    )
+  })
 })
