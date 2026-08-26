@@ -22,3 +22,6 @@
 - `packages/opencode/test/provider/header-timeout.test.ts` ("chunkTimeout raises a response
   stream error when SSE body stalls"): падает и на чистом main, и с изменениями PrimeTime
   (SSE read timed out); не зависит от ветки.
+
+- ретраить ошибку "Rate limit reached for requests" и "The service may be temporarily overloaded, please try again later" в том числе в субагенте
+- при смене модели нужно перечитывать ее лимит контекста и менять триггер, когда должен вызываться compaction.
