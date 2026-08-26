@@ -8,7 +8,7 @@ import { Integration } from "@opencode-ai/core/integration"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ProjectV2 } from "@opencode-ai/core/project"
-import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
+import { SessionRunnerModel, resolveForTesting } from "@opencode-ai/core/session/runner/model"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { it } from "./lib/effect"
@@ -129,7 +129,7 @@ describe("SessionRunnerModel", () => {
         location: { directory: AbsolutePath.make("/project") },
       })
 
-      const resolved = yield* SessionRunnerModel.resolve(session, catalog)
+      const resolved = yield* resolveForTesting(session, catalog)
 
       expect(resolved.route.defaults.headers).toMatchObject({ "x-test": "header", "x-variant": "high" })
       expect(resolved.route.defaults.http?.body).toEqual({
@@ -165,7 +165,7 @@ describe("SessionRunnerModel", () => {
         location: { directory: AbsolutePath.make("/project") },
       })
 
-      const resolved = yield* SessionRunnerModel.resolve(session, catalog)
+      const resolved = yield* resolveForTesting(session, catalog)
 
       expect(resolved.route.defaults.http?.body).toEqual({
         custom_extension: { enabled: true },
@@ -193,7 +193,7 @@ describe("SessionRunnerModel", () => {
         location: { directory: AbsolutePath.make("/project") },
       })
 
-      const failure = yield* SessionRunnerModel.resolve(session, catalog).pipe(Effect.flip)
+      const failure = yield* resolveForTesting(session, catalog).pipe(Effect.flip)
 
       expect(failure).toMatchObject({
         _tag: "SessionRunnerModel.VariantUnavailableError",
@@ -225,7 +225,7 @@ describe("SessionRunnerModel", () => {
         location: { directory: AbsolutePath.make("/project") },
       })
 
-      const resolved = yield* SessionRunnerModel.resolve(session, catalog)
+      const resolved = yield* resolveForTesting(session, catalog)
 
       expect(resolved.route.defaults.http?.body).toEqual({
         custom_extension: { enabled: true },

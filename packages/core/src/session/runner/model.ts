@@ -64,11 +64,24 @@ export class UnsupportedApiError extends Schema.TaggedErrorClass<UnsupportedApiE
   }
 }
 
+export class ModelPrimeTimeError extends Schema.TaggedErrorClass<ModelPrimeTimeError>()(
+  "SessionRunnerModel.ModelPrimeTimeError",
+  {
+    providerID: ProviderV2.ID,
+    modelID: ModelV2.ID,
+  },
+) {
+  override get message() {
+    return `Model ${this.providerID}/${this.modelID} is in prime-time and cannot be used.`
+  }
+}
+
 export type Error =
   | ModelNotSelectedError
   | ModelUnavailableError
   | VariantUnavailableError
   | UnsupportedApiError
+  | ModelPrimeTimeError
   | Integration.AuthorizationError
 
 export interface Interface {
@@ -125,6 +138,54 @@ const withVariant = (
   )
 }
 
+const checkPrimeTime = (model: ModelV2.Info): Effect.Effect<ModelV2.Info, ModelPrimeTimeError> => {
+  const start = model.primeTimeStart
+  const end = model.primeTimeEnd
+  const days = model.primeTimeDay
+
+  if (!start || !end || !days || days.length === 0) {
+    return Effect.succeed(model)
+  }
+
+  // Get current date
+  const now = new Date()
+  const currentDayIndex = now.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const dayNames = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const
+  const currentDay = dayNames[currentDayIndex]
+
+  if (!days.includes(currentDay)) {
+    return Effect.succeed(model)
+  }
+
+  // Parse times
+  const [startHours, startMinutes, startSeconds] = start.split(":").map(Number)
+  const [endHours, endMinutes, endSeconds] = end.split(":").map(Number)
+
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startHours, startMinutes, startSeconds)
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), endHours, endMinutes, endSeconds)
+
+  // Handle case where end time is before start time (crosses midnight)
+  let currentTime = now
+  if (endOfDay < startOfDay) {
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    endOfDay.setFullYear(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate())
+    currentTime = new Date(now)
+    currentTime.setDate(currentTime.getDate() + 1)
+  }
+
+  if (currentTime >= startOfDay && currentTime <= endOfDay) {
+    return Effect.fail(
+      new ModelPrimeTimeError({
+        providerID: model.providerID,
+        modelID: model.id,
+      }),
+    )
+  }
+
+  return Effect.succeed(model)
+}
+
 const apiName = (model: ModelV2.Info) =>
   model.api.type === "aisdk" ? `${model.api.type}:${model.api.package}` : model.api.type
 
@@ -169,9 +230,6 @@ export const fromCatalogModel = (
   )
 }
 
-export const resolve = (session: SessionSchema.Info, model: ModelV2.Info, credential?: Credential.Value) =>
-  withVariant(model, session.model?.variant).pipe(Effect.flatMap((model) => fromCatalogModel(model, credential)))
-
 export const supported = (model: ModelV2.Info) =>
   model.api.type === "aisdk" &&
   (model.api.package === "@ai-sdk/openai" ||
@@ -201,18 +259,45 @@ export const locationLayer = Layer.effect(
             modelID: session.model.id,
           })
         if (!selected) return yield* new ModelNotSelectedError({ sessionID: session.id })
+
+        // Check if model is in prime-time
+        yield* checkPrimeTime(selected)
+
         const provider = yield* catalog.provider.get(selected.providerID)
         const connection = yield* integrations.connection.active(
           provider?.integrationID ?? Integration.ID.make(selected.providerID),
         )
-        return yield* resolve(
-          session,
-          selected,
-          connection ? yield* integrations.connection.resolve(connection) : undefined,
+        const credential = connection ? yield* integrations.connection.resolve(connection) : undefined
+        return yield* withVariant(selected, session.model?.variant).pipe(
+          Effect.flatMap((model) => checkPrimeTime(model)),
+          Effect.flatMap((model) => fromCatalogModel(model, credential)),
         )
       }),
     })
   }),
 )
+
+/**
+ * Test-only seam that mirrors the production `locationLayer` resolve pipeline for a
+ * single catalog model: applies the session variant overlay, enforces prime-time, and
+ * maps the catalog model into its native LLM route.
+ *
+ * Contract:
+ * - `session.model?.variant` selects a variant; an explicit unknown variant fails with
+ *   `VariantUnavailableError`, matching production resolution.
+ * - A model inside its prime-time window fails with `ModelPrimeTimeError`.
+ * - A model without a native route fails with `UnsupportedApiError`.
+ * - On success returns the routed `Model` (route, defaults, auth) exactly as the
+ *   production resolver hands it to the LLM client.
+ */
+export const resolveForTesting = (
+  session: SessionSchema.Info,
+  model: ModelV2.Info,
+  credential?: Credential.Value,
+): Effect.Effect<Model, ModelPrimeTimeError | VariantUnavailableError | UnsupportedApiError> =>
+  withVariant(model, session.model?.variant).pipe(
+    Effect.flatMap((model) => checkPrimeTime(model)),
+    Effect.flatMap((model) => fromCatalogModel(model, credential)),
+  )
 
 export const node = makeLocationNode({ service: Service, layer: locationLayer, deps: [Catalog.node, Integration.node] })
