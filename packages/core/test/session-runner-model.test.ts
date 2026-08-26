@@ -344,4 +344,120 @@ describe("SessionRunnerModel", () => {
       expect(SessionRunnerModel.supported(model({ type: "native", settings: {} }))).toBe(false)
     }),
   )
+
+  describe("checkPrimeTime", () => {
+    // 2026-08-24 is a Monday, 2026-08-22 a Saturday.
+    const mondayAt = (hours: number, minutes = 0) => new Date(2026, 7, 24, hours, minutes, 0)
+    const prime = (start: string, end: string, days: NonNullable<ModelV2.Info["primeTimeDay"]>) => ({
+      ...model({ type: "aisdk", package: "@ai-sdk/openai", url: "https://openai.example/v1" }),
+      primeTimeStart: start,
+      primeTimeEnd: end,
+      primeTimeDay: days,
+    })
+
+    it.effect("passes models without prime-time configuration through unchanged", () =>
+      Effect.gen(function* () {
+        const input = model({ type: "aisdk", package: "@ai-sdk/openai", url: "https://openai.example/v1" })
+        expect(yield* SessionRunnerModel.checkPrimeTime(input, mondayAt(12))).toBe(input)
+      }),
+    )
+
+    it.effect("treats an empty weekday list as disabled", () =>
+      Effect.gen(function* () {
+        const input = prime("09:00:00", "18:00:00", [])
+        expect(yield* SessionRunnerModel.checkPrimeTime(input, mondayAt(12))).toBe(input)
+      }),
+    )
+
+    it.effect("passes when the current weekday is not configured", () =>
+      Effect.gen(function* () {
+        const input = prime("09:00:00", "18:00:00", ["sat"])
+        expect(yield* SessionRunnerModel.checkPrimeTime(input, mondayAt(12))).toBe(input)
+      }),
+    )
+
+    it.effect("blocks inside a same-day window", () =>
+      Effect.gen(function* () {
+        const failure = yield* SessionRunnerModel.checkPrimeTime(
+          prime("09:00:00", "18:00:00", ["mon"]),
+          mondayAt(12),
+        ).pipe(Effect.flip)
+
+        expect(failure).toMatchObject({
+          _tag: "SessionRunnerModel.ModelPrimeTimeError",
+          providerID: "test-provider",
+          modelID: "test-model",
+        })
+        expect(failure.message).toBe("Model test-provider/test-model is in prime-time and cannot be used.")
+      }),
+    )
+
+    it.effect("passes outside a same-day window", () =>
+      Effect.gen(function* () {
+        const input = prime("09:00:00", "18:00:00", ["mon"])
+        expect(yield* SessionRunnerModel.checkPrimeTime(input, mondayAt(20))).toBe(input)
+      }),
+    )
+
+    it.effect("treats window edges as inclusive", () =>
+      Effect.gen(function* () {
+        const window = prime("09:00:00", "18:00:00", ["mon"])
+        expect(yield* SessionRunnerModel.checkPrimeTime(window, mondayAt(9)).pipe(Effect.flip)).toMatchObject({
+          _tag: "SessionRunnerModel.ModelPrimeTimeError",
+        })
+        expect(yield* SessionRunnerModel.checkPrimeTime(window, mondayAt(18)).pipe(Effect.flip)).toMatchObject({
+          _tag: "SessionRunnerModel.ModelPrimeTimeError",
+        })
+      }),
+    )
+
+    it.effect("blocks the evening side of a cross-midnight window", () =>
+      Effect.gen(function* () {
+        expect(
+          yield* SessionRunnerModel.checkPrimeTime(prime("22:00:00", "06:00:00", ["mon"]), mondayAt(23)).pipe(
+            Effect.flip,
+          ),
+        ).toMatchObject({ _tag: "SessionRunnerModel.ModelPrimeTimeError" })
+      }),
+    )
+
+    it.effect("blocks the early-morning side of a cross-midnight window", () =>
+      Effect.gen(function* () {
+        expect(
+          yield* SessionRunnerModel.checkPrimeTime(prime("22:00:00", "06:00:00", ["mon"]), mondayAt(5)).pipe(
+            Effect.flip,
+          ),
+        ).toMatchObject({ _tag: "SessionRunnerModel.ModelPrimeTimeError" })
+      }),
+    )
+
+    it.effect("passes before a cross-midnight window starts", () =>
+      Effect.gen(function* () {
+        const input = prime("22:00:00", "06:00:00", ["mon"])
+        expect(yield* SessionRunnerModel.checkPrimeTime(input, mondayAt(21))).toBe(input)
+      }),
+    )
+
+    it.effect("fails model resolution while the model is inside its prime-time window", () =>
+      Effect.gen(function* () {
+        const catalog = prime("00:00:00", "23:59:59", ["sun", "mon", "tue", "wed", "thu", "fri", "sat"])
+        const session = SessionV2.Info.make({
+          id: SessionV2.ID.make("ses_model_prime_time"),
+          projectID: ProjectV2.ID.global,
+          title: "test",
+          model: { id: catalog.id, providerID: catalog.providerID },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
+          location: { directory: AbsolutePath.make("/project") },
+        })
+
+        expect(yield* resolveForTesting(session, catalog).pipe(Effect.flip)).toMatchObject({
+          _tag: "SessionRunnerModel.ModelPrimeTimeError",
+          providerID: "test-provider",
+          modelID: "test-model",
+        })
+      }),
+    )
+  })
 })

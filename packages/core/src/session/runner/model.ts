@@ -138,52 +138,49 @@ const withVariant = (
   )
 }
 
-const checkPrimeTime = (model: ModelV2.Info): Effect.Effect<ModelV2.Info, ModelPrimeTimeError> => {
+/**
+ * Enforces a model's prime-time window: an optional configuration on catalog models that
+ * names weekdays and a daily time range during which the model must not be used.
+ *
+ * Contract:
+ * - Prime-time is disabled unless `primeTimeStart`, `primeTimeEnd`, and a non-empty
+ *   `primeTimeDay` are all present; a disabled configuration passes the model through
+ *   unchanged (same reference).
+ * - `now` defaults to the current wall clock; inject a fixed instant for deterministic
+ *   checks (tests, batch tooling). All comparisons use the local timezone of `now`.
+ * - Day matching uses the weekday of `now` itself, so a 22:00-06:00 window needs both
+ *   sides of midnight listed in `primeTimeDay` to cover a full overnight span.
+ * - `primeTimeStart`/`primeTimeEnd` are "HH:MM:SS" strings. When the end is not after
+ *   the start the window crosses midnight and matches the evening side of the start day
+ *   and the early-morning side of the end. Edges are inclusive on both sides.
+ * - Malformed time strings compare as absent and fail open (see TODO.md for the pending
+ *   validation decision).
+ * - A violation fails with `ModelPrimeTimeError`; otherwise the model passes through.
+ */
+export const checkPrimeTime = (model: ModelV2.Info, now: Date = new Date()): Effect.Effect<
+  ModelV2.Info,
+  ModelPrimeTimeError
+> => {
   const start = model.primeTimeStart
   const end = model.primeTimeEnd
   const days = model.primeTimeDay
-
-  if (!start || !end || !days || days.length === 0) {
+  if (start === undefined || end === undefined || days === undefined || days.length === 0)
     return Effect.succeed(model)
+
+  const weekday = (["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const)[now.getDay()]
+  if (!days.includes(weekday)) return Effect.succeed(model)
+
+  const secondsOfDay = (value: string) => {
+    const [hours, minutes, seconds] = value.split(":").map(Number)
+    return hours * 3600 + minutes * 60 + seconds
   }
+  const current = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
+  const from = secondsOfDay(start)
+  const to = secondsOfDay(end)
+  const withinWindow = from <= to ? current >= from && current <= to : current >= from || current <= to
+  if (!withinWindow) return Effect.succeed(model)
 
-  // Get current date
-  const now = new Date()
-  const currentDayIndex = now.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-  const dayNames = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const
-  const currentDay = dayNames[currentDayIndex]
-
-  if (!days.includes(currentDay)) {
-    return Effect.succeed(model)
-  }
-
-  // Parse times
-  const [startHours, startMinutes, startSeconds] = start.split(":").map(Number)
-  const [endHours, endMinutes, endSeconds] = end.split(":").map(Number)
-
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startHours, startMinutes, startSeconds)
-  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), endHours, endMinutes, endSeconds)
-
-  // Handle case where end time is before start time (crosses midnight)
-  let currentTime = now
-  if (endOfDay < startOfDay) {
-    const tomorrow = new Date(now)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    endOfDay.setFullYear(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate())
-    currentTime = new Date(now)
-    currentTime.setDate(currentTime.getDate() + 1)
-  }
-
-  if (currentTime >= startOfDay && currentTime <= endOfDay) {
-    return Effect.fail(
-      new ModelPrimeTimeError({
-        providerID: model.providerID,
-        modelID: model.id,
-      }),
-    )
-  }
-
-  return Effect.succeed(model)
+  return Effect.fail(new ModelPrimeTimeError({ providerID: model.providerID, modelID: model.id }))
 }
 
 const apiName = (model: ModelV2.Info) =>
@@ -260,7 +257,7 @@ export const locationLayer = Layer.effect(
           })
         if (!selected) return yield* new ModelNotSelectedError({ sessionID: session.id })
 
-        // Check if model is in prime-time
+        // Prime-time is a hard config restriction: fail before any provider or credential work.
         yield* checkPrimeTime(selected)
 
         const provider = yield* catalog.provider.get(selected.providerID)
@@ -269,7 +266,6 @@ export const locationLayer = Layer.effect(
         )
         const credential = connection ? yield* integrations.connection.resolve(connection) : undefined
         return yield* withVariant(selected, session.model?.variant).pipe(
-          Effect.flatMap((model) => checkPrimeTime(model)),
           Effect.flatMap((model) => fromCatalogModel(model, credential)),
         )
       }),
@@ -279,13 +275,14 @@ export const locationLayer = Layer.effect(
 
 /**
  * Test-only seam that mirrors the production `locationLayer` resolve pipeline for a
- * single catalog model: applies the session variant overlay, enforces prime-time, and
- * maps the catalog model into its native LLM route.
+ * single catalog model: enforces prime-time, applies the session variant overlay, and
+ * maps the catalog model into its native LLM route, in production precedence order.
  *
  * Contract:
+ * - A model inside its prime-time window fails with `ModelPrimeTimeError` before any
+ *   variant or route work, matching production resolution.
  * - `session.model?.variant` selects a variant; an explicit unknown variant fails with
- *   `VariantUnavailableError`, matching production resolution.
- * - A model inside its prime-time window fails with `ModelPrimeTimeError`.
+ *   `VariantUnavailableError`.
  * - A model without a native route fails with `UnsupportedApiError`.
  * - On success returns the routed `Model` (route, defaults, auth) exactly as the
  *   production resolver hands it to the LLM client.
@@ -295,8 +292,8 @@ export const resolveForTesting = (
   model: ModelV2.Info,
   credential?: Credential.Value,
 ): Effect.Effect<Model, ModelPrimeTimeError | VariantUnavailableError | UnsupportedApiError> =>
-  withVariant(model, session.model?.variant).pipe(
-    Effect.flatMap((model) => checkPrimeTime(model)),
+  checkPrimeTime(model).pipe(
+    Effect.flatMap((model) => withVariant(model, session.model?.variant)),
     Effect.flatMap((model) => fromCatalogModel(model, credential)),
   )
 

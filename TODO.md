@@ -2,21 +2,17 @@
 
 ## PrimeTime (packages/core/src/session/runner/model.ts)
 
-- **checkPrimeTime: cross-midnight fail-open.** Для окна с `end < start` (например 22:00–06:00)
-  вечерние моменты не блокируются: код сдвигает `currentTime` на +1 день вместо того, чтобы
-  только продлить `endOfDay` на завтра. Пример: пн 23:00 при окне 22:00–06:00 и `mon` в списке —
-  модель пропускается. Минимальный фикс: убрать сдвиг `currentTime`, сравнивать `now` с
-  `startOfDay`/`endOfDay` (продлённым на завтра). Предложено, ожидает подтверждения.
 - **Таймзона не определена.** Проверка использует локальное время процесса. Нужно решение:
   UTC, локальная таймзона сервера или таймзона workspace.
 - **Малформированные значения отключают prime-time.** `primeTimeStart`/`primeTimeEnd` — произвольные
-  строки (`Schema.String`); формат без секунд или с мусором даёт Invalid Date, сравнения всегда
-  false → ограничение молча не действует. Решение: валидация формата в схеме или fail-closed.
-- **Нет тестов поведения prime-time.** `checkPrimeTime` читает системные часы — для
-  детерминированных тестов нужна инъекция времени (экспорт `checkPrimeTime(model, now)` или
-  параметр в `resolveForTesting`).
+  строки (`Schema.String`); формат без секунд или с мусором даёт NaN в seconds-of-day → сравнения
+  false → ограничение молча не действует (fail-open, зафиксирован в контракте `checkPrimeTime`).
+  Решение: валидация формата в схеме или fail-closed.
 
 ## Не связано с PrimeTime (предсуществующее на main)
 
 - `packages/schema/test/event-manifest.test.ts`: 2 падения на чистом main
   (порядок/идентификаторы манифеста событий). Воспроизведено без изменений PrimeTime.
+- `packages/core/test/tool-webfetch.test.ts` ("WebFetchTool registration > returns an error
+  result when HTML-to-Markdown conversion throws"): флакирует при полной нагрузке прогона
+  (в т.ч. с --coverage), воспроизводится на чистом main; изолированный запуск проходит.

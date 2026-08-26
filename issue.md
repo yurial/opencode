@@ -2,10 +2,14 @@
 
 ## Стек проверки (ветка issue-primetime-models, worktree ~/wt/issue-primetime-models)
 - `bun typecheck`: packages/core ✅, packages/schema ✅, packages/console/core ✅, packages/opencode ✅
-- `bun test` packages/core: 1090 pass / 0 fail (включая session-runner-model.test.ts — 13/13)
+- `bun test` packages/core: 1100 pass / 0 fail (session-runner-model.test.ts — 23/23,
+  включая 10 prime-time тестов); при полной нагрузке флакит посторонний tool-webfetch.test.ts
+  (предсуществующее, см. TODO.md)
 - `bun test` packages/console/core: 14 pass / 0 fail
 - `bun test` packages/schema: 2 падения в test/event-manifest.test.ts — предсуществующие,
   воспроизводятся на чистом main, не связаны с PrimeTime (см. TODO.md)
+- Покрытие `src/session/runner/model.ts`: branch 90.75% (main) → 92.23%; `checkPrimeTime` — 100%;
+  оставшиеся дыры — те же, что на main (message-геттеры ошибок, ветки locationLayer)
 - Клиентский SDK не затронут: ModelV2 отсутствует в packages/client/src/generated* и protocol, regen не нужен
 
 ## Задачи
@@ -31,9 +35,17 @@
 
 ### 5. Тестирование — частично
 - [x] Починен test-сим `resolveForTesting`: теперь возвращает маршрутизированную `Model`
-  (зеркалит продакшн-pipeline), тесты variant-overlay проверок route восстановлены (13/13)
-- [ ] Отдельные тесты поведения prime-time (нужна инъекция времени — см. TODO.md)
-- [ ] Фикс cross-midnight бага — предложен, ожидает подтверждения (см. TODO.md)
+  (зеркалит продакшн-pipeline), тесты variant-overlay проверок route восстановлены
+- [x] Отдельные тесты поведения prime-time с инъекцией времени (`checkPrimeTime(model, now)`)
+
+### 6. Фикс cross-midnight + тесты — ✅ выполнено
+- [x] `checkPrimeTime(model, now)`: сравнение через seconds-of-day, переход через полночь
+      как `current >= from || current <= to`
+- [x] Экспортирована `checkPrimeTime` с инъекцией времени
+- [x] Убран дубль проверки в `locationLayer` (одна проверка до provider/credential lookup;
+      `resolveForTesting` зеркалирует тот же порядок)
+- [x] Тесты: same-day в/вне окна, cross-midnight вечер/утро/до старта, inclusive-границы,
+      день не в списке, без конфигурации, всегда-блокирующая модель через `resolveForTesting`
 
 ## Реализация
 
