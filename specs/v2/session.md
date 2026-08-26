@@ -229,3 +229,7 @@ V2 plan:
 - remove the dedicated `session.init` endpoint
 - rely on the normal `/init` command flow instead
 - avoid reintroducing `Session.initialize`-style special cases in the session service layer
+
+## Used by
+
+- config-v2 — parity status of config-consuming runtime behavior (instructions consumption status).

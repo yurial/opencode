@@ -397,3 +397,7 @@ Work through the groups in this order unless a dependency between decisions beco
 9. Integrations
 10. Conversation Lifecycle
 11. Deprecated And Experimental Settings
+
+## Used by
+
+- config-v2 — derives its parameter reference from this ledger's keep/remove/redesign decisions without duplicating them.
