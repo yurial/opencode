@@ -322,3 +322,7 @@ policy changes
 - One internal rebuild produces at most one `Catalog.Event.Updated` notification.
 - Deferred plugin activation avoids blocking readiness and only rebuilds catalog for catalog transform changes.
 - Debouncing those rebuilds needs an additional batching interface or an activation coordinator that installs multiple transforms before exposing updates.
+
+## Used by
+
+- config-v2 — catalog/config reload lifecycle consuming the config entry list (its R5 defers to this spec).

@@ -289,3 +289,7 @@ Equivalent v2 policy:
   },
 }
 ```
+
+## Used by
+
+- config-v2 — policy statement shape, matching, and ordering semantics referenced by its R4 and the policies table.

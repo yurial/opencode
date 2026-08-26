@@ -54,3 +54,10 @@ discovered while documenting the configuration surface. No code was changed
    values in other case variants also work; the config-v1 spec documents env
    values as uppercase-only per the map keys (minor inconsistency risk, no
    action taken).
+
+9. **Subagents (task tool) intermittently return empty results.**
+   Subagent runs periodically complete with no final message ("stall"):
+   observed 2026-08-26 in this environment — 7 flash-agent launches returned
+   empty; resuming the same session via task_id worked. Symptom: task
+   state=completed with an empty task_result. Deferred by the user until the
+   current task is finished; root cause not yet investigated.

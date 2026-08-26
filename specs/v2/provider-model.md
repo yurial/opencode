@@ -398,3 +398,7 @@ export type Hooks = {
   }
 }
 ```
+
+## Used by
+
+- config-v2 — provider/model/variant option patching and catalog interaction for its `providers` tables.
