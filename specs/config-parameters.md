@@ -38,6 +38,9 @@ content of built-in agents/commands/skills.
   project instance, produced by the precedence rules in this spec.
 - config-v1/managed-config: administrator-authored config from a system
   managed directory or macOS managed preferences (MDM).
+- config-v1/prime-time: a model-level usage window combining `primeTimeStart`,
+  `primeTimeEnd`, and `primeTimeDay`; while the process clock is inside the
+  window (R17) the model must not be used.
 - config-v1/remote-config: config fetched from a well-known URL of an
   authenticated server or from an active organization account.
 - config-v1/tui-config: a `tui.json`/`tui.jsonc` document configuring the
@@ -159,6 +162,8 @@ Known tool keys: `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`,
 | `provider.<id>.models.<mid>` | object | see model fields | — | Model override/definition |
 | Model `id`/`name`/`family`/`release_date` | string | unvalidated | — | Metadata |
 | Model `attachment`/`reasoning`/`temperature`/`tool_call`/`experimental` | boolean | — | catalog | Capability flags |
+| Model `primeTimeStart` / `primeTimeEnd` | string | ISO 8601 time-of-day `HH:MM[:SS]` (omitted seconds = `0`), optionally suffixed `Z`, `±HH:MM`, `±HHmm`, or `±HH`; no suffix = process-local time; any malformed bound disables the window (fail-open, R17) | none | Prime-time window bounds; while the window is active the model cannot be used (R18) |
+| Model `primeTimeDay` | string[] | subset of `sun`..`sat`; missing or empty disables the window | none | Weekdays the prime-time window applies to (process-local weekday of the current moment) |
 | Model `interleaved` | bool \| `reasoning` \| `reasoning_content` \| `reasoning_text` \| string \| `{field}` | any | catalog | Interleaved thinking field |
 | Model `cost.{input,output,cache_read,cache_write}` | finite number | per-Mtok pricing | catalog | Cost metadata |
 | Model `cost.context_over_200k` | object | same cost fields | none | Tiered pricing above 200k context |
@@ -452,6 +457,36 @@ Other commands: `agent generate` (`--path`, `--description`,
 - R16. The models.dev catalog is fetched from `OPENCODE_MODELS_URL` (cached
   5 minutes, refreshed every 60 minutes), or read from `OPENCODE_MODELS_PATH`;
   fetching is disabled by `OPENCODE_DISABLE_MODELS_FETCH`.
+- R17. A model prime-time window (config-v1/prime-time) is active only when
+  `primeTimeStart`, `primeTimeEnd`, and a non-empty `primeTimeDay` are all
+  present on the merged model entry; otherwise the model is never blocked.
+  Bounds are ISO 8601 time-of-day strings `HH:MM[:SS]` (omitted seconds
+  default to `0`) with an optional zone suffix `Z`, `±HH:MM`, `±HHmm`, or
+  `±HH`; a suffix-less bound denotes process-local time. Every bound is
+  placed on one comparison scale — seconds-of-day on the UTC circle
+  `[0, 86400)`: a local bound is rotated by the process timezone offset in
+  effect at the evaluation instant, an offset bound is shifted by its offset
+  (e.g. `12:00+07`–`20:00+07` is 05:00–13:00 UTC), and the result is
+  normalized modulo 86400. The window matches when the process-local weekday
+  of the evaluation instant is listed in `primeTimeDay` and the current
+  seconds-of-day lies inside the bounds, both ends inclusive: `start <= end`
+  is a single interval (`start == end` matches exactly one second-of-day);
+  `start > end` crosses midnight — active from `start` to day end and from
+  day start to `end`, so a full overnight span such as 22:00–06:00 needs
+  both weekdays listed. Any malformed bound — a non two-digit component,
+  hours > 23, minutes or seconds > 59, offset minutes > 59, or a zone suffix
+  after `Z` — disables the window entirely; the model stays usable
+  (fail-open). Offset hours are not range-checked and wrap through the
+  modulo normalization.
+- R18. On the V1 request path the three fields propagate from the config model
+  entry onto the runtime model per field — the config value wins, otherwise
+  the provider's existing model entry keeps its value. A request whose model
+  is inside an active window fails before provider resolution,
+  authentication, or any network request with the error
+  `Model {providerID}/{modelID} is in prime-time ({start}–{end} on {days}) and cannot be used.`;
+  the session retry policy does not classify this error as
+  retryable, and it surfaces to the session processor as a terminal message
+  error.
 
 ## Constraints
 
@@ -484,3 +519,5 @@ None. This spec is the root of the V1 configuration surface.
 
 - config-v2 — cites V1 key names and legacy normalization behavior as the
   migration source for the V2 surface.
+- config-v2-provider-model — adopts config-v1/prime-time window semantics
+  (R17) for the `ModelV2.Info` prime-time fields and resolver enforcement.

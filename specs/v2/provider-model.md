@@ -184,6 +184,9 @@ export class Info extends Schema.Class<Info>("ModelV2.Info")({
   status: Schema.Literals(["alpha", "beta", "deprecated", "active"]),
   enabled: Schema.Boolean,
   limit: Limit,
+  primeTimeStart: Schema.String.pipe(Schema.optional),
+  primeTimeEnd: Schema.String.pipe(Schema.optional),
+  primeTimeDay: Schema.Array(Schema.Literals(["sun", "mon", "tue", "wed", "thu", "fri", "sat"])).pipe(Schema.optional),
 }) {
   static empty(providerID: ProviderV2.ID, modelID: ID) {
     return new Info({
@@ -282,6 +285,33 @@ aisdk:@ai-sdk/anthropic
 Native endpoint URLs are complete endpoint URLs and are split into base URL plus request path when building an LLM route. AI SDK endpoint URLs remain base URLs. The adapter preserves model headers and body options, environment-backed provider credentials, direct model API keys, and selected Session variant overlays.
 
 Unsupported routes fail explicitly with `SessionRunnerModel.UnsupportedEndpointError`. In particular, `openai/responses` with WebSocket transport must not silently downgrade to HTTP. Google, Azure, Bedrock, OpenRouter-specific behavior, GitHub Copilot, Vertex, gateway adapters, and signed authentication remain future provider slices.
+
+## Prime-Time Enforcement
+
+`ModelV2.Info` carries an optional usage window: `primeTimeStart` and `primeTimeEnd` are ISO 8601 time-of-day strings (the schema accepts arbitrary strings; validity is decided during window evaluation) and `primeTimeDay` is an array of weekday literals `sun`..`sat`. Window activation, bound formats, the UTC seconds-of-day comparison, midnight crossing, and fail-open handling are the config-v1/prime-time contract (config-v1 R17); the V2 path evaluates the same predicate instead of restating the rules.
+
+```ts
+export class ModelPrimeTimeError extends Schema.TaggedErrorClass<ModelPrimeTimeError>()(
+  "SessionRunnerModel.ModelPrimeTimeError",
+  {
+    providerID: ProviderV2.ID,
+    modelID: ModelV2.ID,
+  },
+) {
+  override get message() {
+    return `Model ${this.providerID}/${this.modelID} is in prime-time and cannot be used.`
+  }
+}
+
+export const checkPrimeTime = (model: ModelV2.Info, now: Date = new Date()): Effect.Effect<
+  ModelV2.Info,
+  ModelPrimeTimeError
+>
+```
+
+`checkPrimeTime` passes a model through unchanged when its window is disabled or inactive — any field missing, an empty `primeTimeDay`, malformed bounds, or the current instant outside the window — and fails with `ModelPrimeTimeError` otherwise. `now` may be injected for deterministic checks.
+
+The Location model resolver enforces the window as a hard configuration restriction: immediately after model selection, before provider lookup, credential resolution, variant overlay, or route building. A blocked model never reaches the LLM client.
 
 ## Plugin Interface
 
@@ -398,6 +428,11 @@ export type Hooks = {
   }
 }
 ```
+
+## Dependencies
+
+- config-v1 (R17) — config-v1/prime-time window semantics evaluated for the
+  `ModelV2.Info` prime-time fields by `checkPrimeTime`.
 
 ## Used by
 
