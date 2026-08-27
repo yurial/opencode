@@ -1758,7 +1758,8 @@ export type ProviderConfig = {
      * Timeout in milliseconds between streamed SSE chunks for this provider (default: 300000). If no chunk arrives within this window, the request is aborted. Set to false to disable timeout.
      */
     chunkTimeout?: number | false
-    [key: string]: unknown | string | boolean | number | false | number | false | number | false | undefined
+    retries?: number
+    [key: string]: unknown | string | boolean | number | false | number | false | number | number | undefined
   }
   models?: {
     [key: string]: {
@@ -1770,6 +1771,18 @@ export type ProviderConfig = {
       reasoning?: boolean
       temperature?: boolean
       tool_call?: boolean
+      /**
+       * ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset; no suffix means process-local time) marking the start of the model's prime-time window
+       */
+      primeTimeStart?: string
+      /**
+       * ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset; no suffix means process-local time) marking the end of the model's prime-time window
+       */
+      primeTimeEnd?: string
+      /**
+       * Weekdays the prime-time window applies to (process-local weekday of the current moment)
+       */
+      primeTimeDay?: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
       interleaved?:
         | boolean
         | "reasoning"
@@ -2108,6 +2121,9 @@ export type Model = {
     [key: string]: string
   }
   release_date: string
+  primeTimeStart?: string
+  primeTimeEnd?: string
+  primeTimeDay?: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -4848,6 +4864,9 @@ export type ModelV2Info = {
     input?: number
     output: number
   }
+  primeTimeStart?: string
+  primeTimeEnd?: string
+  primeTimeDay?: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
 }
 
 export type ProviderAisdk = {
