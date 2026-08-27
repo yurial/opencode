@@ -1772,15 +1772,15 @@ export type ProviderConfig = {
       temperature?: boolean
       tool_call?: boolean
       /**
-       * ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset; no suffix means process-local time) marking the start of the model's prime-time window
+       * ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset) marking the start of the model's prime-time window; start and end must both carry the same offset suffix or both omit it
        */
       primeTimeStart?: string
       /**
-       * ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset; no suffix means process-local time) marking the end of the model's prime-time window
+       * ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset) marking the end of the model's prime-time window; start and end must both carry the same offset suffix or both omit it
        */
       primeTimeEnd?: string
       /**
-       * Weekdays the prime-time window applies to (process-local weekday of the current moment)
+       * Weekdays the prime-time window applies to (weekday of the current moment in the window's timezone)
        */
       primeTimeDay?: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
       interleaved?:
