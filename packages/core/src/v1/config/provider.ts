@@ -12,7 +12,55 @@ const InterleavedField = Schema.Union([
 
 export const PrimeTimeDay = Schema.Literals(["sun", "mon", "tue", "wed", "thu", "fri", "sat"])
 
-export const Model = Schema.Struct({
+/**
+ * Strict ISO 8601 time-of-day pattern with an optional explicit offset.
+ *
+ * Captures: hours (`00`-`23`), minutes (`00`-`59`), optional seconds
+ * (`00`-`59`), and an optional zone designator (`Z`, `±HH:MM`, `±HHmm`, or
+ * `±HH`; offset minutes `00`-`59`, offset hours two digits without a range
+ * limit). Anything else must not match so schema validation rejects it at
+ * config load.
+ */
+const ISO_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?(Z|[+-]\d{2}(?::?[0-5]\d)?)?$/
+
+/**
+ * Schema filter enforcing the strict prime-time bound format per field, so
+ * malformed values fail config load instead of silently disabling the window.
+ *
+ * The attached arbitrary candidate generates well-formed bounds for
+ * `Schema.toArbitrary` (property-based config tests); without it the base
+ * string generator almost never satisfies the pattern and rejection sampling
+ * diverges.
+ */
+const isIsoTimeOfDay = Schema.makeFilter<string>(
+  (value) =>
+    ISO_TIME_PATTERN.test(value)
+      ? undefined
+      : `Invalid prime-time bound '${value}': expected HH:MM[:SS] with an optional Z or ±HH:MM/±HHmm/±HH offset`,
+  {
+    arbitrary: {
+      candidate: {
+        make: (fc) => {
+          const two = (n: number) => String(n).padStart(2, "0")
+          const zones = ["Z", "+03:00", "-05:00", "+0530", "+07"]
+          return fc
+            .tuple(
+              fc.integer({ min: 0, max: 23 }),
+              fc.integer({ min: 0, max: 59 }),
+              fc.integer({ min: 0, max: 59 }),
+              fc.integer({ min: 0, max: zones.length }),
+            )
+            .map(([hours, minutes, seconds, zone]) => {
+              const base = `${two(hours)}:${two(minutes)}:${two(seconds)}`
+              return zone < zones.length ? base + zones[zone] : base
+            })
+        },
+      },
+    },
+  },
+)
+
+const modelFields = Schema.Struct({
   id: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   family: Schema.optional(Schema.String),
@@ -24,18 +72,18 @@ export const Model = Schema.Struct({
   primeTimeStart: Schema.optional(
     Schema.String.annotate({
       description:
-        "ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset; no suffix means process-local time) marking the start of the model's prime-time window",
-    }),
+        "ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset) marking the start of the model's prime-time window; start and end must both carry the same offset suffix or both omit it",
+    }).check(isIsoTimeOfDay),
   ),
   primeTimeEnd: Schema.optional(
     Schema.String.annotate({
       description:
-        "ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset; no suffix means process-local time) marking the end of the model's prime-time window",
-    }),
+        "ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset) marking the end of the model's prime-time window; start and end must both carry the same offset suffix or both omit it",
+    }).check(isIsoTimeOfDay),
   ),
   primeTimeDay: Schema.optional(
     Schema.mutable(Schema.Array(PrimeTimeDay)).annotate({
-      description: "Weekdays the prime-time window applies to (process-local weekday of the current moment)",
+      description: "Weekdays the prime-time window applies to (weekday of the current moment in the window's timezone)",
     }),
   ),
   interleaved: Schema.optional(
@@ -97,6 +145,29 @@ export const Model = Schema.Struct({
     ).annotate({ description: "Variant-specific configuration" }),
   ),
 })
+
+/**
+ * Cross-field prime-time zone-consistency check: `primeTimeStart` and
+ * `primeTimeEnd` must both carry a zone suffix with the same effective offset
+ * (`Z` equals `+00:00`; `+03` equals `+03:00` and `+0300`), or both omit the
+ * suffix, so the window has exactly one timezone. Violations fail config load
+ * with a schema decode error.
+ */
+const primeTimeZonesConsistent = Schema.makeFilter<Schema.Schema.Type<typeof modelFields>>((model) => {
+  const zone = (value: string | undefined) =>
+    value === undefined ? undefined : (parseTimeOfDay(value)?.offsetMinutes ?? null)
+  const start = zone(model.primeTimeStart)
+  const end = zone(model.primeTimeEnd)
+  if (start === undefined || end === undefined) return undefined
+  if (start === null && end === null) return undefined
+  if (start === null || end === null)
+    return "primeTimeStart and primeTimeEnd must both carry a zone suffix (Z, ±HH:MM, ±HHmm, or ±HH) or both omit it"
+  if (start !== end)
+    return `primeTimeStart (${model.primeTimeStart}) and primeTimeEnd (${model.primeTimeEnd}) must use the same timezone offset`
+  return undefined
+})
+
+export const Model = modelFields.check(primeTimeZonesConsistent)
 
 export const Info = Schema.Struct({
   api: Schema.optional(Schema.String),
@@ -165,84 +236,82 @@ const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const
 const SECONDS_PER_DAY = 86400
 
 /**
- * Strict ISO 8601 time-of-day pattern with an optional explicit offset.
- *
- * Captures: hours, minutes, optional seconds, and an optional zone designator
- * (`Z`, `±HH:MM`, `±HHmm`, or `±HH`). Two-digit components only; anything else
- * (including `Z` followed by an offset) must not match so callers fail open.
+ * One parsed prime-time bound: wall-clock seconds-of-day in `[0, 86400)` and
+ * the explicit zone offset in minutes east of UTC, or `null` when the bound
+ * has no suffix (process-local).
  */
-const ISO_TIME_PATTERN = /^(\d{2}):(\d{2})(?::(\d{2}))?(Z|[+-]\d{2}:?\d{2}|[+-]\d{2})?$/
-
-/**
- * Parses an ISO 8601 time-of-day string into seconds-of-day on the UTC circle,
- * normalized to `[0, 86400)`.
- *
- * Used to place prime-time window bounds on a single comparison scale:
- * - `"HH:MM[:SS]"` — local time, converted via the process timezone offset in
- *   effect at `now`.
- * - `"HH:MM[:SS]Z"` — UTC.
- * - `"HH:MM[:SS]±HH:MM"` / `"HH:MM[:SS]±HHmm"` / `"HH:MM[:SS]±HH"` — fixed
- *   offset east of UTC for `+`, west for `-`.
- *
- * Returns `null` for anything malformed: non two-digit components, hours > 23,
- * minutes/seconds > 59, or offset minutes > 59. Callers treat `null` as "no
- * window" (fail-open) so garbage never blocks a model.
- */
-function parseTimeOfDayUtc(value: string, now: Date): number | null {
-  const match = ISO_TIME_PATTERN.exec(value)
-  if (match === null) return null
-  const hours = Number(match[1])
-  const minutes = Number(match[2])
-  const seconds = Number(match[3] ?? "0")
-  if (hours > 23 || minutes > 59 || seconds > 59) return null
-
-  let secondsOfDay = hours * 3600 + minutes * 60 + seconds
-  const zone = match[4]
-  if (zone === undefined) secondsOfDay += now.getTimezoneOffset() * 60
-  else if (zone !== "Z") {
-    const digits = zone.slice(1).replace(":", "")
-    const offsetHours = Number(digits.slice(0, 2))
-    const offsetMinutes = Number(digits.slice(2).padEnd(2, "0"))
-    if (offsetMinutes > 59) return null
-    secondsOfDay -= (zone[0] === "+" ? 1 : -1) * (offsetHours * 3600 + offsetMinutes * 60)
-  }
-  return ((secondsOfDay % SECONDS_PER_DAY) + SECONDS_PER_DAY) % SECONDS_PER_DAY
+interface PrimeTimeBound {
+  readonly secondsOfDay: number
+  readonly offsetMinutes: number | null
 }
 
 /**
- * Reports whether `now` falls inside the configured prime-time window.
+ * Parses an ISO 8601 time-of-day string into wall-clock seconds-of-day plus
+ * its zone designator. Component ranges are enforced by `ISO_TIME_PATTERN`.
+ *
+ * Returns `null` for anything malformed. The V1 config schema rejects such
+ * values at load time; callers treat `null` as "no window" only as a backstop
+ * for values that bypass the schema.
+ */
+function parseTimeOfDay(value: string): PrimeTimeBound | null {
+  const match = ISO_TIME_PATTERN.exec(value)
+  if (match === null) return null
+  const secondsOfDay = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] ?? "0")
+  const zone = match[4]
+  if (zone === undefined) return { secondsOfDay, offsetMinutes: null }
+  if (zone === "Z") return { secondsOfDay, offsetMinutes: 0 }
+  const digits = zone.slice(1).replace(":", "")
+  const totalMinutes = Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2).padEnd(2, "0"))
+  return { secondsOfDay, offsetMinutes: (zone[0] === "+" ? 1 : -1) * totalMinutes }
+}
+
+/**
+ * Reports whether `now` falls inside the configured prime-time window,
+ * evaluated in the window's timezone.
  *
  * Used to block provider requests while a model is in prime-time. The window is
  * active only when all three fields are present and `primeTimeDay` is non-empty;
  * otherwise the model is never blocked.
  *
  * Contract:
- * - `primeTimeStart`/`primeTimeEnd` are ISO 8601 time-of-day strings: "HH:MM[:SS]"
- *   (process-local time), "HH:MM[:SS]Z" (UTC), or "HH:MM[:SS]±HH:MM"/"±HHmm"/"±HH"
- *   (fixed offset). Missing seconds default to 0. Any malformed bound (including
- *   out-of-range components) disables the window entirely (fail-open).
- * - All bounds and `now` are compared on one scale: seconds-of-day on the UTC
- *   circle `[0, 86400)`. Offset-less bounds are rotated into that frame using the
- *   process timezone offset in effect at `now`, so local and explicit-offset
- *   bounds compose in a single frame.
- * - The weekday is the local day of the current moment: a 22:00–06:00 window
- *   blocks on a given day only if that day is listed, so a window crossing
- *   midnight needs both days listed to cover the whole span.
- * - When `start <= end` (after normalization) the window is that single interval
- *   on the UTC circle (inclusive bounds). When `start > end` the window crosses
- *   midnight and is active from `start` until midnight or from midnight until `end`.
+ * - `primeTimeStart`/`primeTimeEnd` are ISO 8601 time-of-day strings "HH:MM[:SS]"
+ *   with an optional zone suffix `Z`, `±HH:MM`, `±HHmm`, or `±HH`. The V1 config
+ *   schema rejects malformed bounds and zone-inconsistent pairs at load time;
+ *   this predicate additionally treats them as "no window" (fail-open backstop
+ *   for values that bypass the schema).
+ * - The window timezone is the shared explicit offset of both bounds, or the
+ *   process timezone when neither bound has a suffix. Both the weekday and the
+ *   seconds-of-day of `now` are computed in that timezone: the instant is
+ *   shifted by the explicit offset (or read through the process timezone)
+ *   before deriving weekday and wall-clock time.
+ * - The window matches when the window-timezone weekday of `now` is listed in
+ *   `primeTimeDay` and the window-timezone seconds-of-day lies inside the
+ *   bounds, both ends inclusive. When `start <= end` the window is that single
+ *   interval; when `start > end` it crosses midnight and is active from
+ *   `start` until day end or from day start until `end`, so a full overnight
+ *   span such as 22:00–06:00 needs both weekdays listed (in the window
+ *   timezone).
  */
 export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date()): boolean {
   const start = window.primeTimeStart
   const end = window.primeTimeEnd
   const days = window.primeTimeDay
   if (start === undefined || end === undefined || days === undefined || days.length === 0) return false
-  if (!days.includes(WEEKDAYS[now.getDay()])) return false
 
-  const from = parseTimeOfDayUtc(start, now)
-  const to = parseTimeOfDayUtc(end, now)
-  if (from === null || to === null) return false
+  const from = parseTimeOfDay(start)
+  const to = parseTimeOfDay(end)
+  if (from === null || to === null || from.offsetMinutes !== to.offsetMinutes) return false
 
-  const current = Math.floor(now.getTime() / 1000) % SECONDS_PER_DAY
-  return from <= to ? current >= from && current <= to : current >= from || current <= to
+  // Weekday and wall-clock time of `now` in the window's timezone: an explicit
+  // offset shifts the instant; a suffix-less window uses the process timezone.
+  const epochSeconds = Math.floor(now.getTime() / 1000)
+  const offsetSeconds = from.offsetMinutes === null ? -now.getTimezoneOffset() * 60 : from.offsetMinutes * 60
+  const weekday =
+    from.offsetMinutes === null ? now.getDay() : new Date((epochSeconds + from.offsetMinutes * 60) * 1000).getUTCDay()
+  if (!days.includes(WEEKDAYS[weekday])) return false
+
+  const secondsOfDay = (((epochSeconds + offsetSeconds) % SECONDS_PER_DAY) + SECONDS_PER_DAY) % SECONDS_PER_DAY
+  return from.secondsOfDay <= to.secondsOfDay
+    ? secondsOfDay >= from.secondsOfDay && secondsOfDay <= to.secondsOfDay
+    : secondsOfDay >= from.secondsOfDay || secondsOfDay <= to.secondsOfDay
 }

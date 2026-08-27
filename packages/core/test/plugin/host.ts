@@ -299,5 +299,6 @@ function modelInfo(value: ModelV2.Info | ModelV2.MutableInfo) {
     time: { ...value.time },
     cost: value.cost.map((cost) => ({ ...cost, tier: cost.tier && { ...cost.tier }, cache: { ...cost.cache } })),
     limit: { ...value.limit },
+    primeTimeDay: value.primeTimeDay && [...value.primeTimeDay],
   }
 }
