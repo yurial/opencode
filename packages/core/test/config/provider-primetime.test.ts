@@ -72,6 +72,14 @@ describe("ConfigProviderV1 prime-time model schema", () => {
     expect(decode({ primeTimeEnd: "18:00" }).primeTimeEnd).toBe("18:00")
   })
 
+  test("accepts a boolean primeTimeRetry flag and defaults to absent", () => {
+    expect(decode({ primeTimeRetry: true }).primeTimeRetry).toBe(true)
+    expect(decode({ primeTimeRetry: false }).primeTimeRetry).toBe(false)
+    expect(decode({}).primeTimeRetry).toBeUndefined()
+    expect(() => decode({ primeTimeRetry: "yes" })).toThrow()
+    expect(decodeInfo({ models: { m1: { primeTimeRetry: true } } }).models?.m1?.primeTimeRetry).toBe(true)
+  })
+
   test("enforces the same rules through the provider Info schema", () => {
     expect(() => decodeInfo({ models: { m1: { primeTimeStart: "09:00", primeTimeEnd: "18:00Z" } } })).toThrow()
     expect(() =>

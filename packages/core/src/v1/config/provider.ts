@@ -86,6 +86,12 @@ const modelFields = Schema.Struct({
       description: "Weekdays the prime-time window applies to (weekday of the current moment in the window's timezone)",
     }),
   ),
+  primeTimeRetry: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "When true, an active prime-time window fails retryably with the retry scheduled at the window end instead of standard backoff; absent or false keeps the terminal error",
+    }),
+  ),
   interleaved: Schema.optional(
     Schema.Union([
       Schema.Boolean,
@@ -314,4 +320,60 @@ export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date())
   return from.secondsOfDay <= to.secondsOfDay
     ? secondsOfDay >= from.secondsOfDay && secondsOfDay <= to.secondsOfDay
     : secondsOfDay >= from.secondsOfDay || secondsOfDay <= to.secondsOfDay
+}
+
+/**
+ * Returns the epoch-millisecond instant of the configured window's end: the
+ * first instant at which `primeTimeActive` no longer matches, or `undefined`
+ * when the window is inactive, unconfigured, malformed, or never ends (a span
+ * covering every second of listed days, such as 00:00:00–23:59:59 on all
+ * weekdays).
+ *
+ * Used to schedule a prime-time-blocked retry for `primeTimeRetry` models: the
+ * delay is the time remaining until this instant.
+ */
+export function primeTimeWindowEnd(window: PrimeTimeWindow, now: Date = new Date()): number | undefined {
+  const start = window.primeTimeStart
+  const end = window.primeTimeEnd
+  const days = window.primeTimeDay
+  if (start === undefined || end === undefined || days === undefined || days.length === 0) return undefined
+  const from = parseTimeOfDay(start)
+  const to = parseTimeOfDay(end)
+  if (from === null || to === null || from.offsetMinutes !== to.offsetMinutes) return undefined
+  if (!primeTimeActive(window, now)) return undefined
+
+  // Epoch second at which the active span containing `instant` ends, computed
+  // in the window's timezone with the same offset rules as `primeTimeActive`.
+  // The end bound still matches (inclusive), so the first non-matching second
+  // is one past it.
+  const spanEndSeconds = (instant: Date): number => {
+    const offsetSeconds = from.offsetMinutes === null ? -instant.getTimezoneOffset() * 60 : from.offsetMinutes * 60
+    const localSeconds = Math.floor(instant.getTime() / 1000) + offsetSeconds
+    const localDay = Math.floor(localSeconds / SECONDS_PER_DAY)
+    const localSecondsOfDay = localSeconds - localDay * SECONDS_PER_DAY
+    // A same-day span, or the morning half of an overnight span, ends one
+    // second past the end bound on the current local day.
+    if (from.secondsOfDay <= to.secondsOfDay || localSecondsOfDay <= to.secondsOfDay)
+      return localDay * SECONDS_PER_DAY + to.secondsOfDay + 1 - offsetSeconds
+    // Evening half of an overnight span: it runs through midnight and only
+    // continues when the next local weekday is listed; otherwise it ends at
+    // that midnight.
+    const nextDay = localDay + 1
+    return days.includes(WEEKDAYS[(nextDay + 4) % 7])
+      ? nextDay * SECONDS_PER_DAY + to.secondsOfDay + 1 - offsetSeconds
+      : nextDay * SECONDS_PER_DAY - offsetSeconds
+  }
+
+  // Verify the computed boundary against the predicate itself and step forward
+  // while it is still active: a window covering (almost) the whole day continues
+  // into the next listed weekday's span, and a process-local window crossing a
+  // DST transition shifts the boundary. Each step advances at least a full day
+  // and the weekday cycle repeats weekly, so a window still active after eight
+  // steps never ends.
+  let target = spanEndSeconds(now)
+  for (let index = 0; index < 8; index++) {
+    if (!primeTimeActive(window, new Date(target * 1000))) return target * 1000
+    target = spanEndSeconds(new Date(target * 1000))
+  }
+  return undefined
 }

@@ -8,7 +8,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { ProviderV2 } from "@opencode-ai/core/provider"
-import { primeTimeActive } from "@opencode-ai/core/v1/config/provider"
+import { primeTimeActive, primeTimeWindowEnd } from "@opencode-ai/core/v1/config/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "../plugin/fixture"
 
@@ -269,14 +269,15 @@ describe("ConfigProviderPlugin.Plugin", () => {
   )
 })
 
+// 2026-08-24 is a Monday. Every instant is a fixed UTC epoch; the process
+// timezone is pinned per case so offset-less (local) bounds are deterministic.
+const ALL_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+const prime = (start: string, end: string, days: ReadonlyArray<string>) =>
+  ({ primeTimeStart: start, primeTimeEnd: end, primeTimeDay: days }) as const
+// Monday at the given UTC wall time.
+const utc = (hours: number, minutes = 0, seconds = 0) => new Date(Date.UTC(2026, 7, 24, hours, minutes, seconds))
+
 describe("primeTimeActive", () => {
-  // 2026-08-24 is a Monday. Every instant is a fixed UTC epoch; the process
-  // timezone is pinned per case so offset-less (local) bounds are deterministic.
-  const ALL_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
-  const prime = (start: string, end: string, days: ReadonlyArray<string>) =>
-    ({ primeTimeStart: start, primeTimeEnd: end, primeTimeDay: days }) as const
-  // Monday at the given UTC wall time.
-  const utc = (hours: number, minutes = 0, seconds = 0) => new Date(Date.UTC(2026, 7, 24, hours, minutes, seconds))
 
   describe("with local-time bounds", () => {
     // Europe/Moscow is UTC+3 year-round (no DST), so local wall time = UTC + 3h.
@@ -534,4 +535,125 @@ describe("primeTimeActive", () => {
       ),
     )
   })
+})
+
+describe("primeTimeWindowEnd", () => {
+  // The first instant at which the R17 predicate no longer matches. Verified
+  // against the predicate itself: active just before the boundary, inactive at
+  // and after it.
+  const endsAt = (window: Parameters<typeof primeTimeWindowEnd>[0], now: Date) => {
+    const end = primeTimeWindowEnd(window, now)
+    if (end === undefined) return undefined
+    expect(primeTimeActive(window, now)).toBe(true)
+    expect(primeTimeActive(window, new Date(end))).toBe(false)
+    expect(primeTimeActive(window, new Date(end - 1))).toBe(true)
+    return end
+  }
+
+  it.effect("returns undefined for an unconfigured window", () =>
+    withEnv({ TZ: "UTC" }, () =>
+      Effect.sync(() => {
+        expect(primeTimeWindowEnd({}, utc(12))).toBeUndefined()
+        expect(primeTimeWindowEnd({ primeTimeStart: "09:00:00", primeTimeEnd: "18:00:00" }, utc(12))).toBeUndefined()
+        expect(primeTimeWindowEnd(prime("09:00:00", "18:00:00", []), utc(12))).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect("returns undefined when the window is inactive at now", () =>
+    withEnv({ TZ: "UTC" }, () =>
+      Effect.sync(() => {
+        expect(endsAt(prime("09:00:00Z", "18:00:00Z", ["mon"]), utc(20))).toBeUndefined()
+        expect(endsAt(prime("09:00:00Z", "18:00:00Z", ["mon"]), utc(8))).toBeUndefined()
+        expect(endsAt(prime("22:00:00Z", "06:00:00Z", ["mon"]), utc(12))).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect("treats malformed and zone-inconsistent bounds as an inactive window", () =>
+    withEnv({ TZ: "UTC" }, () =>
+      Effect.sync(() => {
+        expect(endsAt(prime("09:30", "12:00:00Z", ALL_DAYS), utc(11))).toBeUndefined()
+        expect(endsAt(prime("09:00+03:00", "18:00+05:00", ALL_DAYS), utc(12))).toBeUndefined()
+        expect(endsAt(prime("garbage", "18:00:00", ALL_DAYS), utc(12))).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect("ends a same-day window one second past the end bound", () =>
+    withEnv({ TZ: "UTC" }, () =>
+      Effect.sync(() => {
+        const window = prime("09:00:00Z", "18:00:00Z", ["mon"])
+        expect(endsAt(window, utc(12))).toBe(Date.UTC(2026, 7, 24, 18, 0, 1))
+        // The end bound itself still matches (inclusive); the first
+        // non-matching millisecond instant is the next whole second.
+        expect(endsAt(window, utc(17, 59, 59))).toBe(Date.UTC(2026, 7, 24, 18, 0, 1))
+        expect(endsAt(window, utc(18, 0, 0))).toBe(Date.UTC(2026, 7, 24, 18, 0, 1))
+      }),
+    ),
+  )
+
+  it.effect("ends a cross-midnight window at the end bound on the following day", () =>
+    withEnv({ TZ: "UTC" }, () =>
+      Effect.sync(() => {
+        const window = prime("22:00:00Z", "06:00:00Z", ["mon", "tue"])
+        // Monday evening span continues through Tuesday's listed morning half.
+        expect(endsAt(window, utc(23))).toBe(Date.UTC(2026, 7, 25, 6, 0, 1))
+        // Tuesday morning half ends the same day.
+        expect(endsAt(window, new Date(Date.UTC(2026, 7, 25, 2)))).toBe(Date.UTC(2026, 7, 25, 6, 0, 1))
+      }),
+    ),
+  )
+
+  it.effect("drops an overnight span at midnight when the following weekday is not listed", () =>
+    withEnv({ TZ: "UTC" }, () =>
+      Effect.sync(() => {
+        const window = prime("22:00:00Z", "06:00:00Z", ["mon"])
+        expect(endsAt(window, utc(23))).toBe(Date.UTC(2026, 7, 25, 0, 0, 0))
+      }),
+    ),
+  )
+
+  it.effect("honors explicit offsets different from the process timezone", () =>
+    withEnv({ TZ: "America/New_York" }, () =>
+      Effect.sync(() => {
+        // 12:00+05:30–20:00+05:30 is 06:30Z–14:30Z.
+        const window = prime("12:00:00+05:30", "20:00:00+05:30", ["mon"])
+        expect(endsAt(window, utc(10))).toBe(Date.UTC(2026, 7, 24, 14, 30, 1))
+      }),
+    ),
+  )
+
+  it.effect("keeps the process-local wall clock for suffix-less windows", () =>
+    withEnv({ TZ: "Europe/Moscow" }, () =>
+      Effect.sync(() => {
+        // Europe/Moscow is UTC+3 year-round, so local 18:00:01 is 15:00:01Z.
+        expect(endsAt(prime("09:00:00", "18:00:00", ["mon"]), utc(9))).toBe(Date.UTC(2026, 7, 24, 15, 0, 1))
+      }),
+    ),
+  )
+
+  it.effect("returns undefined for a window that never ends", () =>
+    withEnv({ TZ: "UTC" }, () =>
+      Effect.sync(() => {
+        // Every second of every day is inside the window.
+        expect(endsAt(prime("00:00:00", "23:59:59", ALL_DAYS), utc(12))).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect("continues a near-full-day span across listed days to the first gap", () =>
+    withEnv({ TZ: "UTC" }, () =>
+      Effect.sync(() => {
+        // 06:00Z–05:59:59Z covers 06:00Z through next-day 05:59:59Z. With Monday
+        // and Tuesday listed the span chains: Mon 12:00Z ends Wed 00:00:00Z,
+        // where the unlisted Wednesday drops it.
+        const chained = prime("06:00:00Z", "05:59:59Z", ["mon", "tue"])
+        expect(endsAt(chained, utc(12))).toBe(Date.UTC(2026, 7, 26, 0, 0, 0))
+        // With only Monday listed the span stops at Tuesday midnight.
+        const single = prime("06:00:00Z", "05:59:59Z", ["mon"])
+        expect(endsAt(single, utc(12))).toBe(Date.UTC(2026, 7, 25, 0, 0, 0))
+      }),
+    ),
+  )
 })

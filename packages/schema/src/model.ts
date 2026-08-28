@@ -86,6 +86,7 @@ export const Info = Schema.Struct({
   primeTimeStart: Schema.String.pipe(optional),
   primeTimeEnd: Schema.String.pipe(optional),
   primeTimeDay: Schema.Array(Schema.Literals(["sun", "mon", "tue", "wed", "thu", "fri", "sat"])).pipe(optional),
+  primeTimeRetry: Schema.Boolean.pipe(optional),
 })
   .annotate({ identifier: "ModelV2.Info" })
   .pipe(

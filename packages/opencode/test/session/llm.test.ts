@@ -1549,6 +1549,159 @@ describe("session.llm.stream", () => {
   )
 
   it.instance(
+    "fails retryably at the window end when primeTimeRetry is set",
+    () =>
+      Effect.gen(function* () {
+        const model = loadFixture("openai", "gpt-5.2").model
+        const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
+        expect(resolved.primeTimeRetry).toBe(true)
+
+        const sessionID = SessionID.make("session-test-prime-time-retry")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const failure = yield* drain({
+          user: {
+            id: MessageID.make("msg_user-prime-time-retry"),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderV2.ID.openai, modelID: resolved.id },
+          } satisfies SessionV1.User,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        }).pipe(Effect.flip)
+
+        expect(SessionV1.APIError.isInstance(failure)).toBe(true)
+        if (!SessionV1.APIError.isInstance(failure)) throw new Error("expected APIError")
+        expect(failure.data.isRetryable).toBe(true)
+        expect(failure.data.message).toContain("openai/gpt-5.2 is in prime-time")
+        // The config window (built below) ends about an hour after it was
+        // written, so the synthetic retry-after points at that instant.
+        const retryAfterMs = Number.parseFloat(failure.data.responseHeaders?.["retry-after-ms"] ?? "")
+        expect(retryAfterMs).toBeGreaterThan(3_500_000)
+        expect(retryAfterMs).toBeLessThanOrEqual(3_601_000)
+        expect(state.queue.length).toBe(0)
+      }),
+    {
+      config: () => {
+        const model = loadFixture("openai", "gpt-5.2").model
+        const { experimental: _experimental, ...configModel } = model
+        const wallClock = (d: Date) =>
+          [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":")
+        return {
+          enabled_providers: ["openai"],
+          provider: {
+            openai: {
+              name: "OpenAI",
+              env: ["OPENAI_API_KEY"],
+              npm: "@ai-sdk/openai",
+              api: "https://unused.test/v1",
+              models: {
+                [model.id]: {
+                  ...JSON.parse(JSON.stringify(configModel)),
+                  // Active now and ending in roughly an hour, whatever the
+                  // wall clock is when the test runs.
+                  primeTimeStart: wallClock(new Date(Date.now() - 60_000)),
+                  primeTimeEnd: wallClock(new Date(Date.now() + 3_600_000)),
+                  primeTimeDay: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"],
+                  primeTimeRetry: true,
+                } as ConfigModel,
+              },
+              options: {
+                apiKey: "test-openai-key",
+                baseURL: "https://unused.test/v1",
+              },
+            },
+          },
+        } satisfies Partial<ConfigV1.Info>
+      },
+    },
+  )
+
+  it.instance(
+    "keeps a never-ending retryable window retryable without a window-end hint",
+    () =>
+      Effect.gen(function* () {
+        const model = loadFixture("openai", "gpt-5.2").model
+        const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(model.id))
+
+        const sessionID = SessionID.make("session-test-prime-time-retry-forever")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const failure = yield* drain({
+          user: {
+            id: MessageID.make("msg_user-prime-time-retry-forever"),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderV2.ID.openai, modelID: resolved.id },
+          } satisfies SessionV1.User,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        }).pipe(Effect.flip)
+
+        // 00:00:00–23:59:59 on all days never ends, so there is no window-end
+        // instant: the error stays retryable but carries no retry-after hint
+        // and standard backoff exhausts the budget into the terminal error.
+        expect(SessionV1.APIError.isInstance(failure)).toBe(true)
+        if (!SessionV1.APIError.isInstance(failure)) throw new Error("expected APIError")
+        expect(failure.data.isRetryable).toBe(true)
+        expect(failure.data.responseHeaders).toBeUndefined()
+        expect(state.queue.length).toBe(0)
+      }),
+    {
+      config: () => {
+        const model = loadFixture("openai", "gpt-5.2").model
+        const { experimental: _experimental, ...configModel } = model
+        return {
+          enabled_providers: ["openai"],
+          provider: {
+            openai: {
+              name: "OpenAI",
+              env: ["OPENAI_API_KEY"],
+              npm: "@ai-sdk/openai",
+              api: "https://unused.test/v1",
+              models: {
+                [model.id]: {
+                  ...JSON.parse(JSON.stringify(configModel)),
+                  primeTimeStart: "00:00:00",
+                  primeTimeEnd: "23:59:59",
+                  primeTimeDay: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"],
+                  primeTimeRetry: true,
+                } as ConfigModel,
+              },
+              options: {
+                apiKey: "test-openai-key",
+                baseURL: "https://unused.test/v1",
+              },
+            },
+          },
+        } satisfies Partial<ConfigV1.Info>
+      },
+    },
+  )
+
+  it.instance(
     "streams OpenAI through native runtime when opted in",
     () =>
       Effect.gen(function* () {

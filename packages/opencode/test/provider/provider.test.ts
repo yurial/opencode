@@ -196,6 +196,32 @@ it.instance(
 )
 
 it.instance(
+  "primeTimeRetry propagates from config onto the runtime model",
+  Effect.gen(function* () {
+    const providers = yield* list
+    const custom = providers[ProviderV2.ID.make("custom-provider")]
+    expect(custom.models["flagged"].primeTimeRetry).toBe(true)
+    expect(custom.models["unflagged"].primeTimeRetry).toBeUndefined()
+  }),
+  {
+    config: {
+      provider: {
+        "custom-provider": {
+          name: "Custom Provider",
+          npm: "@ai-sdk/openai-compatible",
+          api: "https://api.custom.com/v1",
+          models: {
+            flagged: { name: "Flagged", primeTimeRetry: true, limit: { context: 128000, output: 4096 } },
+            unflagged: { name: "Unflagged", limit: { context: 128000, output: 4096 } },
+          },
+          options: { apiKey: "custom-key" },
+        },
+      },
+    },
+  },
+)
+
+it.instance(
   "custom provider with npm package",
   Effect.gen(function* () {
     const providers = yield* list

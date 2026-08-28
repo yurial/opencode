@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { ConfigProviderV1 } from "@opencode-ai/core/v1/config/provider"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import type { NamedError } from "@opencode-ai/core/util/error"
 import { APICallError } from "ai"
@@ -295,6 +296,45 @@ describe("session.retry.retryable", () => {
     expect(SessionRetry.retryable(request, retryProvider)).toEqual({
       message: "Provider response headers timed out after 10000ms",
     })
+  })
+
+  test("passes prime-time gate APIError instances through fromError unchanged", () => {
+    const error = new SessionV1.APIError({
+      message: "Model p/m is in prime-time (22:00–06:00 on mon) and cannot be used.",
+      isRetryable: true,
+      responseHeaders: { "retry-after-ms": "1801000" },
+    })
+    const result = MessageV2.fromError(error, { providerID })
+    expect(SessionV1.APIError.isInstance(result)).toBe(true)
+    if (!SessionV1.APIError.isInstance(result)) throw new Error("expected APIError")
+    expect(result.data.isRetryable).toBe(true)
+    expect(result.data.message).toContain("is in prime-time")
+    expect(result.data.responseHeaders?.["retry-after-ms"]).toBe("1801000")
+  })
+
+  test("keeps the default prime-time failure terminal", () => {
+    const result = MessageV2.fromError(
+      new Error("Model p/m is in prime-time (22:00–06:00 on mon) and cannot be used."),
+      { providerID },
+    )
+    expect(result.name).toBe("UnknownError")
+    expect(SessionRetry.retryable(result, retryProvider)).toBeUndefined()
+  })
+
+  test("schedules the prime-time gate retry at the window end", () => {
+    // 22:00Z–23:00Z Monday; blocked at 22:30Z, so the retry lands at 23:00:01Z
+    // (the first second past the inclusive end bound).
+    const now = new Date(Date.UTC(2026, 7, 24, 22, 30, 0))
+    const windowEnd = ConfigProviderV1.primeTimeWindowEnd(
+      { primeTimeStart: "22:00:00Z", primeTimeEnd: "23:00:00Z", primeTimeDay: ["mon"] },
+      now,
+    )
+    if (windowEnd === undefined) throw new Error("expected a window end")
+    const ms = windowEnd - now.getTime()
+    expect(ms).toBe(30 * 60 * 1000 + 1000)
+    const error = apiError({ "retry-after-ms": String(ms) })
+    expect(SessionRetry.retryable(error, retryProvider)).toEqual({ message: "boom" })
+    expect(SessionRetry.delay(1, error)).toBe(ms)
   })
 
   test("retries websocket stream transport errors", () => {

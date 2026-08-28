@@ -1092,6 +1092,7 @@ export const Model = Schema.Struct({
   primeTimeStart: optional(Schema.String),
   primeTimeEnd: optional(Schema.String),
   primeTimeDay: optional(Schema.mutable(Schema.Array(ConfigProviderV1.PrimeTimeDay))),
+  primeTimeRetry: optional(Schema.Boolean),
   variants: optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Any))),
 }).annotate({ identifier: "Model" })
 export type Model = Types.DeepMutable<Schema.Schema.Type<typeof Model>>
@@ -1570,6 +1571,7 @@ const layer = Layer.effect(
               primeTimeStart: model.primeTimeStart ?? existingModel?.primeTimeStart,
               primeTimeEnd: model.primeTimeEnd ?? existingModel?.primeTimeEnd,
               primeTimeDay: model.primeTimeDay ?? existingModel?.primeTimeDay,
+              primeTimeRetry: model.primeTimeRetry ?? existingModel?.primeTimeRetry,
               variants: {},
             }
             const variants =

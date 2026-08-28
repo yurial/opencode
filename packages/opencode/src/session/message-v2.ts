@@ -608,6 +608,10 @@ export function fromError(
   ctx: { providerID: ProviderV2.ID; aborted?: boolean },
 ): NonNullable<Assistant["error"]> {
   switch (true) {
+    // Already a canonical APIError instance (e.g. the prime-time retry gate):
+    // pass it through so isRetryable and retry-after headers survive parsing.
+    case APIError.isInstance(e):
+      return e.toObject()
     case e instanceof DOMException && e.name === "AbortError":
       return new AbortedError(
         { message: e.message },

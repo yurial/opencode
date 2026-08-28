@@ -85,19 +85,33 @@ const live: Layer.Layer<
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       // Prime-time gate: refuse before any provider resolution or network work.
-      // The error surfaces to the session processor as a terminal message error.
+      // By default the error surfaces to the session processor as a terminal
+      // message error; with `primeTimeRetry` it is a retryable APIError whose
+      // synthetic retry-after schedules the attempt at the window end.
       if (ConfigProviderV1.primeTimeActive(input.model)) {
+        const message = `Model ${input.model.providerID}/${input.model.id} is in prime-time (${input.model.primeTimeStart}–${input.model.primeTimeEnd} on ${(input.model.primeTimeDay ?? []).join(", ")}) and cannot be used.`
         yield* Effect.logInfo("model blocked by prime-time", {
           providerID: input.model.providerID,
           modelID: input.model.id,
           "session.id": input.sessionID,
           primeTimeStart: input.model.primeTimeStart,
           primeTimeEnd: input.model.primeTimeEnd,
+          primeTimeRetry: input.model.primeTimeRetry,
         })
+        if (!input.model.primeTimeRetry) {
+          return yield* Effect.fail(new Error(message))
+        }
+        const windowEnd = ConfigProviderV1.primeTimeWindowEnd(input.model)
         return yield* Effect.fail(
-          new Error(
-            `Model ${input.model.providerID}/${input.model.id} is in prime-time (${input.model.primeTimeStart}–${input.model.primeTimeEnd} on ${(input.model.primeTimeDay ?? []).join(", ")}) and cannot be used.`,
-          ),
+          new SessionV1.APIError({
+            message,
+            isRetryable: true,
+            // A window that never ends (every second of listed days) omits the
+            // hint; standard backoff then exhausts the retry budget into the
+            // terminal error.
+            responseHeaders:
+              windowEnd === undefined ? undefined : { "retry-after-ms": String(windowEnd - Date.now()) },
+          }),
         )
       }
 
