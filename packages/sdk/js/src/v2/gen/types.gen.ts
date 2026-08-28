@@ -1783,6 +1783,10 @@ export type ProviderConfig = {
        * Weekdays the prime-time window applies to (weekday of the current moment in the window's timezone)
        */
       primeTimeDay?: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
+      /**
+       * When true, an active prime-time window fails retryably with the retry scheduled at the window end instead of standard backoff; absent or false keeps the terminal error
+       */
+      primeTimeRetry?: boolean
       interleaved?:
         | boolean
         | "reasoning"
@@ -2124,6 +2128,7 @@ export type Model = {
   primeTimeStart?: string
   primeTimeEnd?: string
   primeTimeDay?: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
+  primeTimeRetry?: boolean
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -4867,6 +4872,7 @@ export type ModelV2Info = {
   primeTimeStart?: string
   primeTimeEnd?: string
   primeTimeDay?: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
+  primeTimeRetry?: boolean
 }
 
 export type ProviderAisdk = {

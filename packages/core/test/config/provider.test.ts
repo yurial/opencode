@@ -633,6 +633,30 @@ describe("primeTimeWindowEnd", () => {
     ),
   )
 
+  it.effect("lands on the exact window end across a DST spring-forward", () =>
+    withEnv({ TZ: "America/New_York" }, () =>
+      Effect.sync(() => {
+        // 2026-03-08 is the US spring-forward day: 02:00 EST jumps to 03:00 EDT
+        // (07:00Z), so local 04:00:01 is 08:00:01Z, not the stale-offset
+        // 09:00:01Z a conversion via the offset at `now` would produce.
+        const window = prime("01:00:00", "04:00:00", ["sun"])
+        expect(endsAt(window, new Date(Date.UTC(2026, 2, 8, 6, 1)))).toBe(Date.UTC(2026, 2, 8, 8, 0, 1))
+      }),
+    ),
+  )
+
+  it.effect("steps across a DST fall-back when the wall-clock end repeats", () =>
+    withEnv({ TZ: "America/New_York" }, () =>
+      Effect.sync(() => {
+        // 2026-11-01 is the US fall-back day: 02:00 EDT repeats as 01:00 EST
+        // (06:00Z). Local 01:00–02:00 stays active through the repeated hour
+        // and only ends at 02:00:01 EST = 07:00:01Z.
+        const window = prime("01:00:00", "02:00:00", ["sun"])
+        expect(endsAt(window, new Date(Date.UTC(2026, 10, 1, 5, 30)))).toBe(Date.UTC(2026, 10, 1, 7, 0, 1))
+      }),
+    ),
+  )
+
   it.effect("returns undefined for a window that never ends", () =>
     withEnv({ TZ: "UTC" }, () =>
       Effect.sync(() => {

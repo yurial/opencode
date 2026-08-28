@@ -370,9 +370,26 @@ export function primeTimeWindowEnd(window: PrimeTimeWindow, now: Date = new Date
   // DST transition shifts the boundary. Each step advances at least a full day
   // and the weekday cycle repeats weekly, so a window still active after eight
   // steps never ends.
+  //
+  // When the target is already inactive it may still overshoot the true
+  // boundary: on a spring-forward day the wall-clock end converts back to epoch
+  // with the offset at `now` (pre-transition), landing past the first
+  // non-matching instant. Bisect between the last known-active instant and the
+  // target to the exact second at which the predicate flips; for every
+  // non-DST case the target is adjacent to the active anchor, so the search
+  // degenerates to returning the target unchanged.
+  let anchor = Math.floor(now.getTime() / 1000)
   let target = spanEndSeconds(now)
   for (let index = 0; index < 8; index++) {
-    if (!primeTimeActive(window, new Date(target * 1000))) return target * 1000
+    if (!primeTimeActive(window, new Date(target * 1000))) {
+      while (target - anchor > 1) {
+        const mid = Math.floor((anchor + target) / 2)
+        if (primeTimeActive(window, new Date(mid * 1000))) anchor = mid
+        else target = mid
+      }
+      return target * 1000
+    }
+    anchor = target
     target = spanEndSeconds(new Date(target * 1000))
   }
   return undefined

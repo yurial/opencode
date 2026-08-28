@@ -1983,6 +1983,10 @@ export type ModelsListOutput = {
     readonly status: "alpha" | "beta" | "deprecated" | "active"
     readonly enabled: boolean
     readonly limit: { readonly context: number; readonly input?: number; readonly output: number }
+    readonly primeTimeStart?: string
+    readonly primeTimeEnd?: string
+    readonly primeTimeDay?: ReadonlyArray<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
+    readonly primeTimeRetry?: boolean
   }>
 }
 

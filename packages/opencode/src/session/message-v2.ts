@@ -610,7 +610,9 @@ export function fromError(
   switch (true) {
     // Already a canonical APIError instance (e.g. the prime-time retry gate):
     // pass it through so isRetryable and retry-after headers survive parsing.
-    case APIError.isInstance(e):
+    // A real class check, unlike NamedError's structural isInstance, so plain
+    // `{ name: "APIError" }` impostors cannot slip through.
+    case e instanceof APIError:
       return e.toObject()
     case e instanceof DOMException && e.name === "AbortError":
       return new AbortedError(
