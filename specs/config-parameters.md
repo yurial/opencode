@@ -505,7 +505,12 @@ Other commands: `agent generate` (`--path`, `--description`,
   seconds-of-day and weekday of the current instant, so an overnight span ends
   at the end bound, or at midnight when the following weekday is not listed) —
   not the standard exponential backoff, which exhausts its attempt budget
-  within minutes and cannot outwait a window. The provider `options.retries`
+  within minutes and cannot outwait a window. Exception: when no window end
+  exists — the R17 window predicate matches at every instant, for example
+  `00:00:00`–`23:59:59` on all seven days — the retryable failure carries no
+  retry-after hint and the delay falls back to the standard exponential
+  backoff, which exhausts the attempt budget into the terminal message error
+  above. The provider `options.retries`
   budget still applies unchanged as the cap on total attempts (1 initial
   attempt + `retries` retries); a retry firing while the window is still
   active fails and is rescheduled under the same rule, and once the budget is
