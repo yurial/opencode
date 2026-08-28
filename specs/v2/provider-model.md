@@ -187,6 +187,7 @@ export class Info extends Schema.Class<Info>("ModelV2.Info")({
   primeTimeStart: Schema.String.pipe(Schema.optional),
   primeTimeEnd: Schema.String.pipe(Schema.optional),
   primeTimeDay: Schema.Array(Schema.Literals(["sun", "mon", "tue", "wed", "thu", "fri", "sat"])).pipe(Schema.optional),
+  primeTimeRetry: Schema.Boolean.pipe(Schema.optional),
 }) {
   static empty(providerID: ProviderV2.ID, modelID: ID) {
     return new Info({
@@ -288,7 +289,7 @@ Unsupported routes fail explicitly with `SessionRunnerModel.UnsupportedEndpointE
 
 ## Prime-Time Enforcement
 
-`ModelV2.Info` carries an optional usage window: `primeTimeStart` and `primeTimeEnd` are ISO 8601 time-of-day strings and `primeTimeDay` is an array of weekday literals `sun`..`sat`. The V2 schema keeps the fields as plain strings; when the values originate from V1 configuration, their format and zone consistency are validated as configuration load errors before they can reach the catalog (config-v1 R17). Window activation, bound formats, the window-timezone weekday and seconds-of-day comparison, midnight crossing, and malformed/inconsistent handling are the config-v1/prime-time contract (config-v1 R17); the V2 path evaluates the same predicate instead of restating the rules.
+`ModelV2.Info` carries an optional usage window: `primeTimeStart` and `primeTimeEnd` are ISO 8601 time-of-day strings and `primeTimeDay` is an array of weekday literals `sun`..`sat`. The V2 schema keeps the fields as plain strings; when the values originate from V1 configuration, their format and zone consistency are validated as configuration load errors before they can reach the catalog (config-v1 R17). Window activation, bound formats, the window-timezone weekday and seconds-of-day comparison, midnight crossing, and malformed/inconsistent handling are the config-v1/prime-time contract (config-v1 R17); the V2 path evaluates the same predicate instead of restating the rules. `ModelV2.Info` also carries `primeTimeRetry` as an optional plain boolean under the same pattern: whether the resulting block is terminal or retryable — and, when retryable, that the retry is scheduled at the window end with the provider retry budget as the attempt cap — is the config-v1 contract (config-v1 R18), not restated on the V2 path.
 
 ```ts
 export class ModelPrimeTimeError extends Schema.TaggedErrorClass<ModelPrimeTimeError>()(
@@ -431,8 +432,9 @@ export type Hooks = {
 
 ## Dependencies
 
-- config-v1 (R17) — config-v1/prime-time window semantics evaluated for the
-  `ModelV2.Info` prime-time fields by `checkPrimeTime`.
+- config-v1 (R17, R18) — config-v1/prime-time window semantics evaluated for the
+  `ModelV2.Info` prime-time fields by `checkPrimeTime`, and the terminal vs
+  retryable classification of the resulting block for `primeTimeRetry`.
 
 ## Used by
 

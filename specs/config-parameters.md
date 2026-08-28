@@ -41,6 +41,9 @@ content of built-in agents/commands/skills.
 - config-v1/prime-time: a model-level usage window combining `primeTimeStart`,
   `primeTimeEnd`, and `primeTimeDay`; while the current instant, evaluated in
   the window's timezone (R17), is inside the window the model must not be used.
+  With `primeTimeRetry: true` on the model entry the resulting block is
+  retryable and the retry waits until the window ends (R18); the default
+  (absent or `false`) keeps the terminal error.
 - config-v1/remote-config: config fetched from a well-known URL of an
   authenticated server or from an active organization account.
 - config-v1/tui-config: a `tui.json`/`tui.jsonc` document configuring the
@@ -164,6 +167,7 @@ Known tool keys: `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`,
 | Model `attachment`/`reasoning`/`temperature`/`tool_call`/`experimental` | boolean | — | catalog | Capability flags |
 | Model `primeTimeStart` / `primeTimeEnd` | string | ISO 8601 time-of-day `HH:MM[:SS]` (omitted seconds = `0`), optionally suffixed `Z`, `±HH:MM`, `±HHmm`, or `±HH`; malformed values, a suffix on only one bound, or differing suffix offsets are config load errors; both bounds without a suffix mean process-local time (R17) | none | Prime-time window bounds; while the window is active the model cannot be used (R18) |
 | Model `primeTimeDay` | string[] | subset of `sun`..`sat`; missing or empty disables the window | none | Weekdays the prime-time window applies to (weekday of the current moment in the window's timezone, R17) |
+| Model `primeTimeRetry` | boolean | — | `false` | When `true`, an active prime-time window fails retryably with the retry scheduled at the window end instead of standard backoff; absent or `false` keeps the terminal error (R18) |
 | Model `interleaved` | bool \| `reasoning` \| `reasoning_content` \| `reasoning_text` \| string \| `{field}` | any | catalog | Interleaved thinking field |
 | Model `cost.{input,output,cache_read,cache_write}` | finite number | per-Mtok pricing | catalog | Cost metadata |
 | Model `cost.context_over_200k` | object | same cost fields | none | Tiered pricing above 200k context |
@@ -487,13 +491,25 @@ Other commands: `agent generate` (`--path`, `--description`,
   bounds as an inactive window.
 - R18. On the V1 request path the three fields propagate from the config model
   entry onto the runtime model per field — the config value wins, otherwise
-  the provider's existing model entry keeps its value. A request whose model
+  the provider's existing model entry keeps its value — and `primeTimeRetry`
+  propagates the same way. A request whose model
   is inside an active window fails before provider resolution,
   authentication, or any network request with the error
   `Model {providerID}/{modelID} is in prime-time ({start}–{end} on {days}) and cannot be used.`;
-  the session retry policy does not classify this error as
-  retryable, and it surfaces to the session processor as a terminal message
-  error.
+  by default (`primeTimeRetry` absent or `false`) the session retry policy
+  does not classify this error as retryable, and it surfaces to the session
+  processor as a terminal message error. With `primeTimeRetry: true` the same
+  failure is classified as retryable: the retry delay is a synthetic
+  retry-after equal to the time remaining until the window ends — the first
+  instant at which the R17 window predicate no longer matches (window-timezone
+  seconds-of-day and weekday of the current instant, so an overnight span ends
+  at the end bound, or at midnight when the following weekday is not listed) —
+  not the standard exponential backoff, which exhausts its attempt budget
+  within minutes and cannot outwait a window. The provider `options.retries`
+  budget still applies unchanged as the cap on total attempts (1 initial
+  attempt + `retries` retries); a retry firing while the window is still
+  active fails and is rescheduled under the same rule, and once the budget is
+  exhausted the error surfaces as the terminal message error above.
 
 ## Constraints
 
@@ -527,4 +543,5 @@ None. This spec is the root of the V1 configuration surface.
 - config-v2 — cites V1 key names and legacy normalization behavior as the
   migration source for the V2 surface.
 - config-v2-provider-model — adopts config-v1/prime-time window semantics
-  (R17) for the `ModelV2.Info` prime-time fields and resolver enforcement.
+  (R17) for the `ModelV2.Info` prime-time fields and resolver enforcement,
+  and the retryable-block semantics (R18) for `primeTimeRetry`.

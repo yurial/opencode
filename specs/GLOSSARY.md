@@ -7,7 +7,7 @@
 | config-v1/global-config | Config documents read from the XDG config directory, overridable via OPENCODE_CONFIG_DIR | config-v1 |
 | config-v1/instance-config | The merged effective configuration for one project instance | config-v1 |
 | config-v1/managed-config | Administrator-authored config from a system managed directory or macOS managed preferences | config-v1 |
-| config-v1/prime-time | Model-level usage window (primeTimeStart, primeTimeEnd, primeTimeDay), evaluated in the window's timezone (explicit offset shared by both bounds, or process-local when neither has one), during which the model must not be used | config-v1 (R17) |
+| config-v1/prime-time | Model-level usage window (primeTimeStart, primeTimeEnd, primeTimeDay), evaluated in the window's timezone (explicit offset shared by both bounds, or process-local when neither has one), during which the model must not be used; with primeTimeRetry the block is retryable and the retry waits until the window ends, otherwise it is terminal | config-v1 (R17, R18) |
 | config-v1/project-config | Config documents discovered by walking from the working directory up to the worktree root | config-v1 |
 | config-v1/remote-config | Config fetched from a well-known URL of an authenticated server or an organization account | config-v1 |
 | config-v1/tui-config | A tui.json/tui.jsonc document configuring the terminal UI | config-v1 |
