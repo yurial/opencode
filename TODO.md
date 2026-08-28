@@ -28,12 +28,6 @@
   hey-api native formatting that the script's final prettier step normalizes away. Needs a
   separate `chore(sdk): regenerate legacy JS SDK` commit (deliberately not included in the
   build fix).
-- **`packages/sdk/js` build does not re-emit `dist/` after the first run (pre-existing).**
-  The script runs `rm -rf dist && bun tsc`, but `composite`/`incremental` state lives in
-  `packages/sdk/js/tsconfig.tsbuildinfo`, which survives the `rm -rf dist`; a warm tree
-  makes `tsc` a no-op and `dist/` stays absent/stale. In-repo consumers are unaffected
-  (package exports point at `src/*.ts`), but `files: ["dist"]` publishing from a warm tree
-  would pack a stale/missing dist.
 
 - ретраить ошибку "Rate limit reached for requests" и "The service may be temporarily overloaded, please try again later" в том числе в субагенте
 - при смене модели нужно перечитывать ее лимит контекста и менять триггер, когда должен вызываться compaction.
