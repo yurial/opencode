@@ -84,6 +84,13 @@ export function formatAssistantHeader(
 }
 
 export function formatPart(part: Part, options: TranscriptOptions): string {
+  // R11 (specs/tui-session-display.md): meta parts are session-screen truth,
+  // never copied or exported transcript content. Explicit type check, never a
+  // fall-through.
+  if (part.type === "meta") {
+    return ""
+  }
+
   if (part.type === "text" && !part.synthetic) {
     return `${part.text}\n\n`
   }

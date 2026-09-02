@@ -16,6 +16,26 @@ export function createDebouncedSignal<T>(value: T, ms: number): [Accessor<T>, (v
   return [get, debounced]
 }
 
+const [now, setNow] = createSignal(Date.now())
+let nowSubscribers = 0
+let nowTimer: ReturnType<typeof setInterval> | undefined
+
+// One shared wall-clock tick for live elapsed-time displays (the reasoning
+// timer): a single 1s interval no matter how many parts tick, started on the
+// first subscriber and stopped once the last one unmounts.
+export function useNow(): Accessor<number> {
+  nowSubscribers++
+  setNow(Date.now())
+  if (!nowTimer) nowTimer = setInterval(() => setNow(Date.now()), 1000)
+  onCleanup(() => {
+    nowSubscribers--
+    if (nowSubscribers > 0 || !nowTimer) return
+    clearInterval(nowTimer)
+    nowTimer = undefined
+  })
+  return now
+}
+
 export function createFadeIn(show: Accessor<boolean>, enabled: Accessor<boolean>) {
   const [alpha, setAlpha] = createSignal(show() ? 1 : 0)
   let revealed = show()
