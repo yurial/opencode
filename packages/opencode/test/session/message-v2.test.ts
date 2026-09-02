@@ -1044,9 +1044,10 @@ describe("session.message-v2.toModelMessage", () => {
     expect(JSON.stringify(result)).not.toContain("no_kv_space")
   })
 
-  test("includes aborted assistant messages only when they have non-step-start/reasoning content", async () => {
+  test("includes aborted assistant messages only when they have non-step-start/reasoning/meta content", async () => {
     const assistantID1 = "m-assistant-1"
     const assistantID2 = "m-assistant-2"
+    const assistantID3 = "m-assistant-3"
 
     const aborted = new SessionV1.AbortedError({
       message: "aborted",
@@ -1081,6 +1082,25 @@ describe("session.message-v2.toModelMessage", () => {
             type: "reasoning",
             text: "thinking",
             time: { start: 0 },
+          },
+        ] as SessionV1.Part[],
+      },
+      {
+        // R10: meta parts are display-only, so an aborted message holding only
+        // reasoning + meta parts carries no provider content and must be excluded.
+        info: assistantInfo(assistantID3, "m-parent", aborted),
+        parts: [
+          {
+            ...basePart(assistantID3, "c1"),
+            type: "reasoning",
+            text: "thinking",
+            time: { start: 0 },
+          },
+          {
+            ...basePart(assistantID3, "c2"),
+            type: "meta",
+            kind: "stream-retry",
+            payload: { attempt: 1, error: "Provider is overloaded" },
           },
         ] as SessionV1.Part[],
       },

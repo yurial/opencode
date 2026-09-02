@@ -636,9 +636,10 @@ const layer = Layer.effect(
         const error = parse(e)
         // R12 (specs/tui-session-display.md): a terminal stream failure persists one
         // stream-error meta part; user-initiated aborts (the MessageAbortedError class)
-        // persist none. Additive only — R13 keeps the error record, events, and toasts
-        // below untouched.
-        if (!SessionV1.AbortedError.isInstance(error)) {
+        // persist none, and neither does context overflow — auto-compaction recovers
+        // it, so it is not terminal. Additive only — R13 keeps the error record,
+        // events, and toasts below untouched.
+        if (!SessionV1.AbortedError.isInstance(error) && !SessionV1.ContextOverflowError.isInstance(error)) {
           yield* writeMeta("stream-error", { error: errorMessage(e) })
         }
         if (SessionV1.ContextOverflowError.isInstance(error)) {

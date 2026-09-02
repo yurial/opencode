@@ -252,7 +252,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         msg.info.error &&
         !(
           AbortedError.isInstance(msg.info.error) &&
-          msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
+          msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning" && part.type !== "meta")
         )
       ) {
         continue

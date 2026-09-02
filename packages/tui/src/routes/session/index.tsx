@@ -1665,12 +1665,11 @@ export function ReasoningHeader(props: {
     props.open
       ? RGBA.fromValues(theme.warning.r, theme.warning.g, theme.warning.b, theme.thinkingOpacity)
       : theme.warning
-  // The opentui JSX transform evaluates interpolations that reference `props`
-  // only once per branch render, so the live timer (R5) reads the immutable
-  // `start` captured below and keeps only the shared wall-clock signal
-  // reactive. The finalized branches (R6) read `props.end` at branch
-  // activation — after the server has persisted it — so they render the fixed
-  // duration derived solely from the persisted timestamps (R7).
+  // `start` is captured because it is immutable per part; reading it once
+  // avoids needless prop reads as the timer ticks. Reactivity flows through
+  // the shared `now()` signal (R5). `props.end` reads in the finalized
+  // branches (R6) are reactive and safe: they render the fixed duration
+  // derived solely from the persisted timestamps (R7).
   const start = props.start
   const liveDuration = () => Locale.duration(Math.max(0, now() - start))
 
