@@ -28,6 +28,7 @@ import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, 
 import { Prompt, type PromptRef } from "../../component/prompt"
 import type {
   AssistantMessage,
+  MetaPart,
   Part,
   Provider,
   ToolPart,
@@ -70,6 +71,7 @@ import * as Model from "../../util/model"
 import { formatTranscript } from "../../util/transcript"
 import { sessionEpilogue } from "../../util/presentation"
 import { setPreLayoutSiblingMargin } from "../../util/layout"
+import { useNow } from "../../util/signal"
 import { useTuiConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
 import { nextThinkingMode, reasoningSummary, useThinkingMode, type ThinkingMode } from "../../context/thinking"
@@ -1579,6 +1581,7 @@ const PART_MAPPING = {
   text: TextPart,
   tool: ToolPart,
   reasoning: ReasoningPart,
+  meta: MetaPartLine,
 }
 
 const INLINE_TOOL_ICON_WIDTH = 2
@@ -1599,10 +1602,6 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
   // Flips independently of the parent message completing.
   const isDone = createMemo(() => props.part.time.end !== undefined)
   const inMinimal = createMemo(() => ctx.thinkingMode() === "hide")
-  const duration = createMemo(() => {
-    const end = props.part.time.end
-    return end === undefined ? 0 : Math.max(0, end - props.part.time.start)
-  })
   const summary = createMemo(() => reasoningSummary(content()))
   const syntax = createSyntaxStyleMemo(() => generateSubtleSyntax(theme))
 
@@ -1611,68 +1610,97 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
     setExpanded((prev) => !prev)
   }
 
+  // R4 (specs/tui-session-display.md): empty reasoning parts always render the
+  // header with its timer line; there is just no body to reveal.
   return (
-    <Show when={content() || opaque()}>
-      <box
-        ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
-        paddingLeft={3}
-        marginTop={1}
-        flexDirection="column"
-        flexShrink={0}
-      >
-        <box onMouseUp={toggle}>
-          <ReasoningHeader
-            toggleable={inMinimal() && !opaque()}
-            open={!inMinimal() || expanded()}
-            done={isDone()}
-            title={summary().title}
-            duration={isDone() ? Locale.duration(duration()) : undefined}
-            encrypted={opaque()}
+    <box
+      ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
+      paddingLeft={3}
+      marginTop={1}
+      flexDirection="column"
+      flexShrink={0}
+    >
+      <box onMouseUp={toggle}>
+        <ReasoningHeader
+          toggleable={inMinimal() && content().length > 0}
+          open={!inMinimal() || expanded()}
+          done={isDone()}
+          title={summary().title}
+          empty={content().length === 0}
+          start={props.part.time.start}
+          end={props.part.time.end}
+          encrypted={opaque()}
+        />
+      </box>
+      <Show when={!opaque() && (!inMinimal() || expanded()) && summary().body}>
+        <box paddingLeft={inMinimal() ? 2 : 0} marginTop={1}>
+          <code
+            filetype="markdown"
+            drawUnstyledText={false}
+            streaming={true}
+            syntaxStyle={syntax()}
+            content={summary().body}
+            conceal={ctx.conceal()}
+            fg={theme.textMuted}
           />
         </box>
-        <Show when={!opaque() && (!inMinimal() || expanded()) && summary().body}>
-          <box paddingLeft={inMinimal() ? 2 : 0} marginTop={1}>
-            <code
-              filetype="markdown"
-              drawUnstyledText={false}
-              streaming={true}
-              syntaxStyle={syntax()}
-              content={summary().body}
-              conceal={ctx.conceal()}
-              fg={theme.textMuted}
-            />
-          </box>
-        </Show>
-      </box>
-    </Show>
+      </Show>
+    </box>
   )
 }
 
-function ReasoningHeader(props: {
+export function ReasoningHeader(props: {
   toggleable: boolean
   open: boolean
   done: boolean
   title: string | null
-  duration?: string
+  empty: boolean
+  start: number
+  end?: number
   encrypted?: boolean
 }) {
   const { theme } = useTheme()
+  const now = useNow()
   const fg = () =>
     props.open
       ? RGBA.fromValues(theme.warning.r, theme.warning.g, theme.warning.b, theme.thinkingOpacity)
       : theme.warning
+  // `start` is captured because it is immutable per part; reading it once
+  // avoids needless prop reads as the timer ticks. Reactivity flows through
+  // the shared `now()` signal (R5). `props.end` reads in the finalized
+  // branches (R6) are reactive and safe: they render the fixed duration
+  // derived solely from the persisted timestamps (R7).
+  const start = props.start
+  const liveDuration = () => Locale.duration(Math.max(0, now() - start))
+
   const completed = () => {
-    if (props.encrypted) return `Thought${props.duration ? ` · ${props.duration}` : ""}`
-    const detail = [props.title, props.duration].filter(Boolean).join(" · ")
-    return `${props.toggleable ? (props.open ? "- " : "+ ") : ""}Thought${detail ? `: ${detail}` : ""}`
+    if (props.encrypted) return `Thought${props.end === undefined ? "" : ` · ${Locale.duration(Math.max(0, props.end - start))}`}`
+    const detail = props.title ? `: ${props.title}` : ""
+    const duration = props.end === undefined ? "" : ` · ${Locale.duration(Math.max(0, props.end - start))}`
+    return `${props.toggleable ? (props.open ? "- " : "+ ") : ""}Thought${detail}${duration}`
   }
 
   return (
     <Switch>
+      <Match when={!props.done && props.empty}>
+        <box flexDirection="row">
+          <Spinner color={fg()}>{"Reasoning: " + liveDuration()}</Spinner>
+        </box>
+      </Match>
       <Match when={!props.done}>
         <box flexDirection="row">
           <Spinner color={fg()}>{props.title ? "Thinking: " + props.title : "Thinking"}</Spinner>
         </box>
+      </Match>
+      <Match when={props.empty && props.encrypted}>
+        <text fg={fg()} wrapMode="none">
+          {completed()}
+        </text>
+      </Match>
+      <Match when={props.empty}>
+        <text fg={fg()} wrapMode="none">
+          {"Reasoning: " + Locale.duration(Math.max(0, (props.end ?? 0) - start))}
+        </text>
       </Match>
       <Match when={true}>
         <text fg={fg()} wrapMode="none">
@@ -1680,6 +1708,30 @@ function ReasoningHeader(props: {
         </text>
       </Match>
     </Switch>
+  )
+}
+
+// R9 (specs/tui-session-display.md): each persisted meta part renders as one
+// accumulated transcript line — no dedup, no expiry, a pure projection of the
+// persisted parts in part order.
+export function MetaPartLine(props: { last: boolean; part: MetaPart; message: AssistantMessage }) {
+  const { theme } = useTheme()
+  const line = createMemo(() => {
+    const error = typeof props.part.payload.error === "string" ? props.part.payload.error : ""
+    if (props.part.kind === "stream-retry")
+      return {
+        text: `Retry ${typeof props.part.payload.attempt === "number" ? props.part.payload.attempt : 1}: ${error}`,
+        fg: theme.warning,
+      }
+    if (props.part.kind === "stream-error") return { text: `Stream error: ${error}`, fg: theme.error }
+    return { text: props.part.kind, fg: theme.textMuted }
+  })
+  return (
+    <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3} marginTop={1} flexShrink={0}>
+      <text fg={line().fg} wrapMode="none">
+        {line().text}
+      </text>
+    </box>
   )
 }
 

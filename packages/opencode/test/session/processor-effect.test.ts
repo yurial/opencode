@@ -800,6 +800,10 @@ it.live("session.processor effect tests compact on structured context overflow",
         expect(value).toBe("compact")
         expect(yield* llm.calls).toBe(1)
         expect(handle.message.error).toBeUndefined()
+        // R12: context overflow is recovered by auto-compaction, so it is not
+        // terminal and persists no stream-error meta part.
+        const parts = yield* MessageV2.parts(msg.id)
+        expect(metas(parts)).toStrictEqual([])
       }),
     { config: (url) => providerCfg(url) },
   ),
@@ -1167,5 +1171,173 @@ itFragmentFailure.live("session.processor effect tests retain partial legacy par
         expect(seen.filter((type) => type.startsWith("session.next."))).toEqual([])
       }),
     { config: cfg },
+  ),
+)
+
+const metas = (parts: SessionV1.Part[]) => parts.filter((part): part is SessionV1.MetaPart => part.type === "meta")
+
+it.live(
+  "session.processor effect tests persist one stream-retry meta part per attempt",
+  () =>
+    provideTmpdirServer(
+      ({ dir, llm }) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+
+          yield* llm.error(503, { error: "boom" })
+          yield* llm.error(503, { error: "boom" })
+          yield* llm.text("after")
+
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "retry metas")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+          const handle = yield* processors.create({
+            assistantMessage: msg,
+            sessionID: chat.id,
+            model: mdl,
+          })
+
+          const value = yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies SessionV1.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "retry metas" }],
+            tools: {},
+          })
+
+          const parts = yield* MessageV2.parts(msg.id)
+          const retries = metas(parts).filter((part) => part.kind === "stream-retry")
+
+          expect(value).toBe("continue")
+          expect(yield* llm.calls).toBe(3)
+          // Parts come back in part-id order, so attempts must be strictly incrementing (R12).
+          expect(retries.map((part) => part.payload.attempt)).toStrictEqual([1, 2])
+          for (const part of retries) {
+            expect(typeof part.payload.error).toBe("string")
+            expect(part.payload.error.length).toBeGreaterThan(0)
+            expect(part.messageID).toBe(msg.id)
+          }
+          expect(handle.message.error).toBeUndefined()
+        }),
+      { config: (url) => providerCfg(url) },
+    ),
+  // Two real retries with exponential backoff take ~6-7.5s; bun's default 5s is not enough.
+  { timeout: 30000 },
+)
+
+it.live("session.processor effect tests persist stream-error meta part on terminal failure", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.error(400, { error: { message: "no_kv_space" } })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "terminal meta")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies SessionV1.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "terminal meta" }],
+          tools: {},
+        })
+
+        const parts = yield* MessageV2.parts(msg.id)
+        const streamErrors = metas(parts).filter((part) => part.kind === "stream-error")
+
+        expect(value).toBe("stop")
+        expect(yield* llm.calls).toBe(1)
+        // R13: the persisted error record is unchanged and additive meta parts appear alongside it.
+        expect(handle.message.error?.name).toBe("APIError")
+        expect(streamErrors).toHaveLength(1)
+        expect(typeof streamErrors[0]?.payload.error).toBe("string")
+        expect(streamErrors[0]?.payload.error.length).toBeGreaterThan(0)
+        expect(streamErrors[0]?.messageID).toBe(msg.id)
+        expect(metas(parts).some((part) => part.kind === "stream-retry")).toBe(false)
+      }),
+    { config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests persist no meta parts for aborts", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.hang
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "abort meta")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies SessionV1.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "abort meta" }],
+            tools: {},
+          })
+          .pipe(Effect.forkChild)
+
+        yield* llm.wait(1)
+        yield* Fiber.interrupt(run)
+
+        const exit = yield* Fiber.await(run)
+        const parts = yield* MessageV2.parts(msg.id)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+        }
+        expect(handle.message.error?.name).toBe("MessageAbortedError")
+        // R12: user-initiated aborts persist no meta part.
+        expect(metas(parts)).toStrictEqual([])
+      }),
+    { config: (url) => providerCfg(url) },
   ),
 )

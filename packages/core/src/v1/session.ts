@@ -17,6 +17,7 @@ export {
   Format,
   Info,
   MessageID,
+  MetaPart,
   OutputFormatJsonSchema,
   OutputFormatText,
   Part,

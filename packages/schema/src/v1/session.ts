@@ -230,6 +230,17 @@ export type RetryPart = Omit<Types.DeepMutable<Schema.Schema.Type<typeof RetryPa
   error: APIError
 }
 
+// R8 (specs/tui-session-display.md): generic persisted meta part for display-only
+// session information, keyed by `kind`. Order derives from the shared part id
+// ordering, so there is no dedicated timestamp field.
+export const MetaPart = Schema.Struct({
+  ...partBase,
+  type: Schema.Literal("meta"),
+  kind: Schema.String.check(Schema.isNonEmpty()),
+  payload: Schema.Record(Schema.String, Schema.Any),
+}).annotate({ identifier: "MetaPart" })
+export type MetaPart = Types.DeepMutable<Schema.Schema.Type<typeof MetaPart>>
+
 export const StepStartPart = Schema.Struct({
   ...partBase,
   type: Schema.Literal("step-start"),
@@ -366,6 +377,7 @@ export const Part = Schema.Union([
   PatchPart,
   AgentPart,
   RetryPart,
+  MetaPart,
   CompactionPart,
 ]).annotate({ discriminator: "type", identifier: "Part" })
 export type Part =
@@ -380,6 +392,7 @@ export type Part =
   | PatchPart
   | AgentPart
   | RetryPart
+  | MetaPart
   | CompactionPart
 
 const AssistantErrorSchema = Schema.Union([
