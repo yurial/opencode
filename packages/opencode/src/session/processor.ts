@@ -213,6 +213,22 @@ const layer = Layer.effect(
         delete ctx.reasoningMap[reasoningID]
       })
 
+      // R8/R12 (specs/tui-session-display.md): meta parts persist display-only stream
+      // errors and retry attempts on the assistant message in whose run they arose.
+      // Persistence degradation must not change the run's outcome (worst case is a
+      // missing transcript line), so write failures are ignored.
+      const writeMeta = (kind: string, payload: Record<string, unknown>) =>
+        session
+          .updatePart({
+            id: PartID.ascending(),
+            messageID: ctx.assistantMessage.id,
+            sessionID: ctx.assistantMessage.sessionID,
+            type: "meta",
+            kind,
+            payload,
+          })
+          .pipe(Effect.ignore)
+
       const ensureToolCall = Effect.fn("SessionProcessor.ensureToolCall")(function* (input: {
         id: string
         name: string
@@ -618,6 +634,13 @@ const layer = Layer.effect(
           stack: e instanceof Error ? e.stack : undefined,
         })
         const error = parse(e)
+        // R12 (specs/tui-session-display.md): a terminal stream failure persists one
+        // stream-error meta part; user-initiated aborts (the MessageAbortedError class)
+        // persist none. Additive only — R13 keeps the error record, events, and toasts
+        // below untouched.
+        if (!SessionV1.AbortedError.isInstance(error)) {
+          yield* writeMeta("stream-error", { error: errorMessage(e) })
+        }
         if (SessionV1.ContextOverflowError.isInstance(error)) {
           if ((yield* config.get()).compaction?.auto === false && !ctx.assistantMessage.summary) {
             ctx.assistantMessage.error = error
@@ -677,15 +700,19 @@ const layer = Layer.effect(
                 // Per-provider retry budget from provider.<id>.options.retries (0-1000000); 5 when unset
                 maxRetries: (yield* config.get()).provider?.[input.model.providerID]?.options?.retries,
                 parse,
-                set: (info) => {
-                  return status.set(ctx.sessionID, {
-                    type: "retry",
-                    attempt: info.attempt,
-                    message: info.message,
-                    action: info.action,
-                    next: info.next,
-                  })
-                },
+                set: (info) =>
+                  Effect.gen(function* () {
+                    yield* status.set(ctx.sessionID, {
+                      type: "retry",
+                      attempt: info.attempt,
+                      message: info.message,
+                      action: info.action,
+                      next: info.next,
+                    })
+                    // R12 (specs/tui-session-display.md): every retry attempt persists one
+                    // stream-retry meta part with the attempt number and error description.
+                    yield* writeMeta("stream-retry", { attempt: info.attempt, error: info.message })
+                  }),
               }),
             ),
             Effect.catch(halt),

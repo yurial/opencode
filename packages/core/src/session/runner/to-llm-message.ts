@@ -72,6 +72,10 @@ const assistant = (message: SessionMessage.Assistant, model: Model) => {
     String(message.model.providerID) === String(model.provider) && String(message.model.id) === String(model.id)
   const reuseProviderMetadata = sameModel && message.error === undefined
   const content = message.content.flatMap((item): ContentPart[] => {
+    // R10 (specs/tui-session-display.md): meta parts are display-only and never enter
+    // provider context. AssistantContent has no meta variant today, so the widened
+    // comparison keeps this explicit guard live if the schema ever grows one.
+    if ((item.type as string) === "meta") return []
     if (item.type === "text") return [{ type: "text", text: item.text }]
     if (item.type === "reasoning")
       return sameModel

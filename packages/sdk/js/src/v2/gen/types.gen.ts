@@ -614,6 +614,17 @@ export type RetryPart = {
   }
 }
 
+export type MetaPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "meta"
+  kind: string
+  payload: {
+    [key: string]: unknown
+  }
+}
+
 export type CompactionPart = {
   id: string
   sessionID: string
@@ -636,6 +647,7 @@ export type Part =
   | PatchPart
   | AgentPart
   | RetryPart
+  | MetaPart
   | CompactionPart
 
 export type Prompt = {

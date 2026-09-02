@@ -47,6 +47,29 @@ describe("toLLMMessages", () => {
     expect(messages.map((message) => message.id)).toEqual([id("text"), id("reasoning")])
   })
 
+  test("drops meta content from provider messages (R10)", () => {
+    // Simulates schema drift below the SessionMessage decode boundary: a meta item
+    // inside assistant content must never reach provider context, even if the
+    // content union ever grows a meta variant (R10).
+    const drifted = {
+      id: id("assistant-meta"),
+      type: "assistant",
+      agent: "build",
+      model: { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") },
+      content: [
+        SessionMessage.AssistantText.make({ type: "text", id: "text-1", text: "Visible" }),
+        { type: "meta", kind: "stream-error", payload: { error: "boom" } },
+      ],
+      time: { created, completed: created },
+    } as unknown as SessionMessage.Assistant
+
+    const messages = toLLMMessages([drifted], model)
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.content).toEqual([{ type: "text", text: "Visible" }])
+    expect(JSON.stringify(messages)).not.toContain("boom")
+  })
+
   test("maps every top-level V2 Session message type", () => {
     const file = FileAttachment.make({ uri: "data:image/png;base64,aGVsbG8=", mime: "image/png", name: "hello.png" })
     const messages = toLLMMessages(

@@ -202,6 +202,9 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         parts: [],
       }
       for (const part of msg.parts) {
+        // R10 (specs/tui-session-display.md): meta parts are display-only and never
+        // enter provider context; explicit check, never fall-through.
+        if (part.type === "meta") continue
         // User message parts should never be empty
         if (part.type === "text" && !part.ignored && part.text !== "")
           userMessage.parts.push({
@@ -275,6 +278,9 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         return part.metadata?.anthropic?.signature != null
       })
       for (const part of msg.parts) {
+        // R10 (specs/tui-session-display.md): meta parts are display-only and never
+        // enter provider context; explicit check, never fall-through.
+        if (part.type === "meta") continue
         if (part.type === "text") {
           const text = part.text === "" && hasSignedReasoning ? " " : part.text
           assistantMessage.parts.push({

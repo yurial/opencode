@@ -988,6 +988,62 @@ describe("session.message-v2.toModelMessage", () => {
     expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
+  test("excludes meta parts from the provider request payload (R10)", async () => {
+    const userID = "m-user-meta"
+    const assistantID = "m-assistant-meta"
+
+    const input: SessionV1.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run tool",
+          },
+          {
+            ...basePart(userID, "u2"),
+            type: "meta",
+            kind: "stream-retry",
+            payload: { attempt: 1, error: "Provider is overloaded" },
+          },
+        ] as SessionV1.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "text",
+            text: "done",
+          },
+          {
+            ...basePart(assistantID, "a2"),
+            type: "meta",
+            kind: "stream-error",
+            payload: { error: "no_kv_space" },
+          },
+        ] as SessionV1.Part[],
+      },
+    ]
+
+    const result = await MessageV2.toModelMessages(input, model)
+
+    expect(result).toStrictEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "run tool" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      },
+    ])
+    expect(JSON.stringify(result)).not.toContain("meta")
+    expect(JSON.stringify(result)).not.toContain("stream-retry")
+    expect(JSON.stringify(result)).not.toContain("no_kv_space")
+  })
+
   test("includes aborted assistant messages only when they have non-step-start/reasoning content", async () => {
     const assistantID1 = "m-assistant-1"
     const assistantID2 = "m-assistant-2"
