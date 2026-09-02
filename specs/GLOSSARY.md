@@ -17,3 +17,7 @@
 | config-v2/entry-list | Ordered list of documents and directory entries, lowest priority first, returned by the V2 config service | config-v2 |
 | config-v2/location | The open project directory plus its project root; V2 config is read once per Location open | config-v2 |
 | config-v2/patch-options | Request options authored as partial records (headers, body, aisdk) merged over catalog defaults | config-v2 |
+| tui-session-display/empty-reasoning-part | A reasoning part whose text is empty after trimming and after dropping provider placeholder payloads; it carries no renderable body | tui-session-display |
+| tui-session-display/meta-part | A generic persisted session part (dedicated meta type, kind + opaque payload) stored in the session database and replayed with history, rendered as transcript lines, and permanently excluded from provider context and copied/exported transcripts | tui-session-display |
+| tui-session-display/reasoning-timer | Elapsed-time indicator of a reasoning part, derived only from its recorded start and end timestamps; live while unfinalized, fixed afterwards | tui-session-display |
+| tui-session-display/thinking-mode | The reasoning display mode of the session screen: "show" renders reasoning bodies, "hide" collapses them to header lines; persisted TUI-locally | tui-session-display |

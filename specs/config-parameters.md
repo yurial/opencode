@@ -550,3 +550,6 @@ None. This spec is the root of the V1 configuration surface.
 - config-v2-provider-model — adopts config-v1/prime-time window semantics
   (R17) for the `ModelV2.Info` prime-time fields and resolver enforcement,
   and the retryable-block semantics (R18) for `primeTimeRetry`.
+- tui-session-display — binds the `display_thinking` keybind (default unset)
+  to the `session.toggle.thinking` command and routes user rebinding of it
+  through this spec's `keybinds.<command>` channel of the TUI config file.
