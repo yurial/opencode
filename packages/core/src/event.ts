@@ -3,7 +3,7 @@ export * as EventV2 from "./event"
 import { Cause, Context, Effect, Layer, Option, PubSub, Queue, Schema, Stream } from "effect"
 import { Event } from "@opencode-ai/schema/event"
 import type { Data, Definition, Payload } from "@opencode-ai/schema/event"
-import { and, asc, eq, gt, inArray } from "drizzle-orm"
+import { and, asc, eq, gt, inArray, lte } from "drizzle-orm"
 import { Database } from "./database/database"
 import { EventSequenceTable, EventTable } from "./event/sql"
 import { Location } from "./location"
@@ -29,6 +29,26 @@ export const latestSequence = Effect.fn("EventV2.latestSequence")(function* (
     .get()
     .pipe(Effect.orDie)
   return row?.seq ?? -1
+})
+
+/**
+ * Deletes durable event rows at or below the per-aggregate prune floors
+ * (specs/event-retention.md R4). Only the `event` table is touched: the
+ * per-aggregate `event_sequence` counter is preserved, so surviving rows may
+ * have `seq` gaps, sequence allocation is unaffected, and replay of a pruned
+ * `seq` re-inserts it without moving the counter (R9). Errors are left on the
+ * channel so callers can prune best-effort and continue (R6).
+ */
+export const prune = Effect.fn("EventV2.prune")(function* (
+  db: Database.Interface["db"],
+  floors: Iterable<readonly [aggregateID: string, floor: number]>,
+) {
+  for (const [aggregateID, floor] of floors) {
+    yield* db
+      .delete(EventTable)
+      .where(and(eq(EventTable.aggregate_id, aggregateID), lte(EventTable.seq, floor)))
+      .run()
+  }
 })
 
 export type SerializedEvent = {
@@ -259,6 +279,12 @@ export const layerWith = (options?: LayerOptions) =>
                               }),
                             )
                           }
+                          // A replayed seq at or below the preserved counter either matches
+                          // exactly (idempotent no-op), diverges (rejected), or is missing
+                          // because it was pruned below the sync watermark floor
+                          // (specs/event-retention.md R4) — a pruned seq re-inserts at its
+                          // original seq below, without moving the counter (R9).
+                          let prunedReplay = false
                           if (input && input.seq <= latest) {
                             const stored = yield* db
                               .select()
@@ -281,18 +307,21 @@ export const layerWith = (options?: LayerOptions) =>
                               }
                               return
                             }
-                            yield* Effect.die(
-                              new InvalidDurableEventError({
-                                type: event.type,
-                                message: `Replay diverged at aggregate ${aggregateID} sequence ${input.seq}`,
-                              }),
-                            )
+                            if (stored) {
+                              yield* Effect.die(
+                                new InvalidDurableEventError({
+                                  type: event.type,
+                                  message: `Replay diverged at aggregate ${aggregateID} sequence ${input.seq}`,
+                                }),
+                              )
+                            }
+                            prunedReplay = true
                           }
                           if (input && row?.ownerID && row.ownerID !== input.ownerID) {
                             return
                           }
                           const seq = input?.seq ?? latest + 1
-                          if (input && seq !== latest + 1) {
+                          if (input && !prunedReplay && seq !== latest + 1) {
                             yield* Effect.die(
                               new InvalidDurableEventError({
                                 type: event.type,
@@ -317,22 +346,30 @@ export const layerWith = (options?: LayerOptions) =>
                             ...event,
                             durable: { aggregateID, seq, version: durable.version },
                           } as Payload
-                          for (const projector of list) {
-                            yield* projector(committed)
+                          // R9: a re-inserted pruned row restores only the durable log row —
+                          // projections were never pruned (R4) and re-running them would
+                          // double-apply already-projected events.
+                          if (!prunedReplay) {
+                            for (const projector of list) {
+                              yield* projector(committed)
+                            }
                           }
                           if (commit) yield* commit(seq)
-                          yield* db
-                            .insert(EventSequenceTable)
-                            .values([{ aggregate_id: aggregateID, seq, owner_id: input?.ownerID }])
-                            .onConflictDoUpdate({
-                              target: EventSequenceTable.aggregate_id,
-                              set: {
-                                seq,
-                                ...(input?.ownerID && row?.ownerID == null ? { owner_id: input.ownerID } : {}),
-                              },
-                            })
-                            .run()
-                            .pipe(Effect.orDie)
+                          // R9: a re-inserted pruned row must not move the preserved counter.
+                          if (!prunedReplay) {
+                            yield* db
+                              .insert(EventSequenceTable)
+                              .values([{ aggregate_id: aggregateID, seq, owner_id: input?.ownerID }])
+                              .onConflictDoUpdate({
+                                target: EventSequenceTable.aggregate_id,
+                                set: {
+                                  seq,
+                                  ...(input?.ownerID && row?.ownerID == null ? { owner_id: input.ownerID } : {}),
+                                },
+                              })
+                              .run()
+                              .pipe(Effect.orDie)
+                          }
                           yield* db
                             .insert(EventTable)
                             .values([
