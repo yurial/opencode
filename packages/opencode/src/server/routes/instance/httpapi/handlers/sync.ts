@@ -14,6 +14,7 @@ import { or } from "drizzle-orm"
 import { Effect, Scope } from "effect"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
+import { SyncWatermark } from "./sync-watermark"
 import { HistoryPayload, ReplayPayload, SessionPayload } from "../groups/sync"
 
 export const syncHandlers = HttpApiBuilder.group(InstanceHttpApi, "sync", (handlers) =>
@@ -69,8 +70,24 @@ export const syncHandlers = HttpApiBuilder.group(InstanceHttpApi, "sync", (handl
       return { sessionID: ctx.payload.sessionID }
     })
 
+    // event-retention/window: process memory only (specs/event-retention.md R7).
+    const watermarks = SyncWatermark.make()
+
     const history = Effect.fn("SyncHttpApi.history")(function* (ctx: { payload: typeof HistoryPayload.Type }) {
       const exclude = Object.entries(ctx.payload)
+      // R5 ordering: record the posted map (R2) before any pruning, so the
+      // requester's own watermark protects it from its own prune.
+      const now = Date.now()
+      watermarks.record(ctx.payload, now)
+      // R3/R4: delete durable rows at or below the floor. R1: this only ever
+      // runs while handling a history request. R6: best-effort — a prune
+      // failure is logged with the floors and never fails the request.
+      const floors = watermarks.floors(now)
+      yield* EventV2.prune(db, floors).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError("sync watermark prune failed", { floors: Object.fromEntries(floors), cause }),
+        ),
+      )
       return yield* db
         .select()
         .from(EventTable)

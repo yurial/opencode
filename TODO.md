@@ -112,7 +112,7 @@ was changed (docs-only task).
 - `packages/schema/test/event-manifest.test.ts`: 2 падения на чистом main
   (порядок/идентификаторы манифеста событий). Воспроизведено без изменений PrimeTime.
 - `packages/core/test/tool-webfetch.test.ts` ("WebFetchTool registration > returns an error
-  result when HTML-to-Markdown conversion throws"): флакирует при полной нагрузке прогона
+  result when HTML-to-Markdown conversion throws"): флакает при полной нагрузке прогона
   (в т.ч. с --coverage), воспроизводится на чистом main; изолированный запуск проходит.
 - `packages/opencode/test/provider/header-timeout.test.ts` ("chunkTimeout raises a response
   stream error when SSE body stalls"): падает и на чистом main, и с изменениями PrimeTime
@@ -120,3 +120,9 @@ was changed (docs-only task).
 
 - ретраить ошибку "Rate limit reached for requests" и "The service may be temporarily overloaded, please try again later" в том числе в субагенте
 - при смене модели нужно перечитывать ее лимит контекста и менять триггер, когда должен вызываться compaction.
+
+## issue-event-prune follow-ups (event-retention, revue 2c0b9ed8e1)
+
+- R6: нет теста на сбой prune (нужен fault injection) — проверить, что запрос sync не падает.
+- R5: нет end-to-end теста на unlisted aggregate с частичным выжившим хвостом (пример из спеки: запрос {s1:7} получает s2 c seq>=5).
+- Производительность: DELETE на каждый /sync/history по всему floor map — большинство после первой чистки нулевые; рассмотреть кэш "уже вычищено до seq".
