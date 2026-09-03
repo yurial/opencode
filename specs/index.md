@@ -3,6 +3,7 @@
 | Path | Reference | Status | Summary |
 |---|---|---|---|
 | specs/config-parameters.md | config-v1 | stable | V1 configurable parameters: keys, values, channels, merge precedence |
+| specs/event-retention.md | event-retention | draft | Sync-mode retention: pruning durable event rows below the in-memory watermark floor |
 | specs/project.md | project-api | stable | Legacy per-project HTTP API sketch |
 | specs/tui-package.md | tui-package | draft | TUI extraction into @opencode-ai/tui package |
 | specs/tui-session-display.md | tui-session-display | draft | Session screen: thinking mode, reasoning timer, persisted context-excluded meta parts |

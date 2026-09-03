@@ -17,6 +17,10 @@
 | config-v2/entry-list | Ordered list of documents and directory entries, lowest priority first, returned by the V2 config service | config-v2 |
 | config-v2/location | The open project directory plus its project root; V2 config is read once per Location open | config-v2 |
 | config-v2/patch-options | Request options authored as partial records (headers, body, aisdk) merged over catalog defaults | config-v2 |
+| event-retention/prune-floor | For one aggregate, the minimum watermark for that aggregate over the maps currently in the window; aggregates absent from every live map have no floor and are never pruned | event-retention (R3) |
+| event-retention/watermark | The per-aggregate value inside a posted map: a non-negative integer declaring the highest event seq the replica already possesses for that aggregate | event-retention |
+| event-retention/watermark-map | The complete record a replica posts as the /sync/history request payload, mapping aggregate IDs to watermark values | event-retention |
+| event-retention/window | The server's in-memory bounded collection of the most recently posted maps, each stamped with receipt time; bounded by SYNC_WATERMARK_WINDOW_SIZE and SYNC_WATERMARK_TTL | event-retention (R2) |
 | tui-session-display/empty-reasoning-part | A reasoning part whose text is empty after trimming and after dropping provider placeholder payloads; it carries no renderable body | tui-session-display |
 | tui-session-display/meta-part | A generic persisted session part (dedicated meta type, kind + opaque payload) stored in the session database and replayed with history, rendered as transcript lines, and permanently excluded from provider context and copied/exported transcripts | tui-session-display |
 | tui-session-display/reasoning-timer | Elapsed-time indicator of a reasoning part, derived only from its recorded start and end timestamps; live while unfinalized, fixed afterwards | tui-session-display |
