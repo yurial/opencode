@@ -25,3 +25,12 @@
 | tui-session-display/meta-part | A generic persisted session part (dedicated meta type, kind + opaque payload) stored in the session database and replayed with history, rendered as transcript lines, and permanently excluded from provider context and copied/exported transcripts | tui-session-display |
 | tui-session-display/reasoning-timer | Elapsed-time indicator of a reasoning part, derived only from its recorded start and end timestamps; live while unfinalized, fixed afterwards | tui-session-display |
 | tui-session-display/thinking-mode | The reasoning display mode of the session screen: "show" renders reasoning bodies, "hide" collapses them to header lines; persisted TUI-locally | tui-session-display |
+| tui-theme/ThemeJson | The theme JSON file composed of `$schema`, `defs`, and `theme` | tui-theme |
+| tui-theme/VGA | The fixed ansiToRgba table mapping integer values 0–255 to RGBA; the terminal palette is never read | tui-theme (R3) |
+| tui-theme/defs | Named constants declared in the theme file's `defs` section; a bare name in a value resolves as a `defs` reference first, then as a `theme` key | tui-theme (R2) |
+| tui-theme/fadeColor | The fade-in α animation, `fadeColor(color, α)`, applied to the prompt meta line (agent name, model) | tui-theme |
+| tui-theme/hover | Pointer hover over a card row; the row swaps its idle color pair for the hover pair | tui-theme (T10) |
+| tui-theme/key | One of the 52 color keys plus `thinkingOpacity` mapped onto UI elements | tui-theme |
+| tui-theme/scope | A tree-sitter highlight scope; scope names are external tree-sitter identifiers | tui-theme |
+| tui-theme/selectedForeground | The foreground color over a highlighted surface: `selectedListItemText` if set, otherwise black/white by luminance over a transparent background, otherwise `background` | tui-theme (R6) |
+| tui-theme/tint | The base + overlay α blend (prompt highlight, logo, bg-pulse, question model variant, diff-viewer fade) | tui-theme |

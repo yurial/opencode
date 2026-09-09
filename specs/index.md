@@ -7,6 +7,7 @@
 | specs/project.md | project-api | stable | Legacy per-project HTTP API sketch |
 | specs/tui-package.md | tui-package | draft | TUI extraction into @opencode-ai/tui package |
 | specs/tui-session-display.md | tui-session-display | draft | Session screen: thinking mode, reasoning timer, persisted context-excluded meta parts |
+| specs/tui-theme.md | tui-theme | stable | TUI theme parameters: ThemeJson structure, value resolution, fallbacks, and the key → UI element mapping |
 | specs/v2/config-parameters.md | config-v2 | draft | V2 configurable parameters: keys, values, implementation status |
 | specs/v2/config.md | config-v2-review | draft | V2 config review ledger: keep/remove/redesign per legacy group |
 | specs/v2/provider-model.md | config-v2-provider-model | draft | V2 provider/model catalog schemas and runner adaptation |
