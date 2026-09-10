@@ -719,6 +719,3 @@ These represent invariant violations, not operator-recoverable conditions.
 
 - config-v2-session — intended-API and parity source for this as-built document.
 - event-retention — pruning contract applied to the same durable event log.
-
-(Index row for this file was intentionally not added by the authoring task; add
-`specs/core-session.md | core-session | draft | …` when integrating.)
