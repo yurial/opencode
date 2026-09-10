@@ -3,7 +3,9 @@
 | Path | Reference | Status | Summary |
 |---|---|---|---|
 | specs/config-parameters.md | config-v1 | stable | V1 configurable parameters: keys, values, channels, merge precedence |
+| specs/core-tools-permissions.md | core-tools-permissions | draft | V1 tool system and permission flow: tool contract, registry, invocation, ask/reply rules |
 | specs/event-retention.md | event-retention | draft | Sync-mode retention: pruning durable event rows below the in-memory watermark floor |
+| specs/provider-models.md | provider-models | stable | Provider/LLM layer behavior: model catalog sources, variants, auth, streaming contract, retries, V2 catalog |
 | specs/project.md | project-api | stable | Legacy per-project HTTP API sketch |
 | specs/tui-package.md | tui-package | draft | TUI extraction into @opencode-ai/tui package |
 | specs/tui-session-display.md | tui-session-display | draft | Session screen: thinking mode, reasoning timer, persisted context-excluded meta parts |
