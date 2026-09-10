@@ -156,7 +156,9 @@ constants and relies on no other spec's terms, interfaces, or constraints.
 
 ## Used by
 
-None. No other spec currently cites this reference.
+- storage-events — implements this spec's R1–R9 via `EventV2.prune`, the
+  `SyncWatermark` window, and the `/sync/history` handler, and reuses its
+  watermark terms (watermark-map, watermark, prune-floor, window).
 
 ## Verification
 
