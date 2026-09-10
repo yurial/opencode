@@ -32,7 +32,7 @@ sessions.active()
   -> absence means inactive; activity is not durable across process restarts
 ```
 
-`session_input` is the durable admission inbox. `PromptAdmitted` records and projects accepted input so pending queue state can be replayed, replicated, and observed by clients. Admitted inputs remain outside model-visible Session history until the serialized runner publishes `Prompted`. Its projector atomically writes the visible user message and marks the inbox row promoted in the same event transaction. The V1-to-V2 shadow bridge publishes the same `Prompted` event for already-visible V1 prompts.
+`session_input` is the durable admission inbox. `PromptAdmitted` records and projects accepted input so pending queue state can be replayed, replicated, and observed by clients. Admitted inputs remain outside model-visible Session history until the serialized runner publishes `Prompted`. Its projector atomically writes the visible user message and marks the inbox row promoted in the same event transaction. As built there is no V1-to-V2 shadow bridge: `session.next.prompted` is published only by V2 inbox promotion, so already-visible V1 prompts never publish it (the previously documented bridge never shipped).
 
 `admittedSeq` is the durable Session event sequence of `PromptAdmitted`. Clients may use the admission event to represent queued input before `Prompted` makes it part of visible conversation history.
 
@@ -79,7 +79,7 @@ Client            Runner                         System Context Registry       C
    │                 ├─ Baseline + chronological history ─────────────────────────────────────────────────────────────────────────▶
 ```
 
-Agent and model selection are provider-turn scoped. A switch admitted after the current safe provider-turn boundary applies to the next provider turn without restarting the current turn or replacing the baseline. Agent-specific skill guidance remains a Context Source, so changed guidance is admitted as a chronological System message. A completed compaction causes the next provider attempt to render a fresh baseline directly from current complete context. A Session move clears the epoch so the destination Location initializes a complete baseline on its next run.
+Agent and model selection are provider-turn scoped. A switch admitted after the current safe provider-turn boundary applies to the next provider turn without restarting the current turn or replacing the baseline. Agent-specific skill guidance remains a Context Source, so changed guidance is admitted as a chronological System message. A completed compaction causes the next provider attempt to render a fresh baseline directly from current complete context. As built, a Session move does not clear the epoch: the `session.next.moved` projector rewrites only the Session's directory, path, and workspace identity, so the existing baseline keeps applying after a move until a replacement is triggered by other means. The `SessionContextEpoch.reset` helper written for the intended clear exists but has no caller (dead code).
 
 ```text
 Session                            Epoch
@@ -93,7 +93,7 @@ Session                            Epoch
    ├─ completed compaction ──────────▶
    │                                 ├─ render fresh baseline
    │                                 │
-   ├─ clear after Location move ─────▶
+   ├─ Location move ─────────────────▶ epoch unchanged
 ```
 
 Ambient project discovery canonicalizes and contains traversal within the project root and honors `OPENCODE_DISABLE_PROJECT_CONFIG`. An unavailable observation preserves the previously admitted value. A confirmed partial instruction removal emits the complete remaining aggregate with explicit supersession text; removing the final instruction emits a revocation message.

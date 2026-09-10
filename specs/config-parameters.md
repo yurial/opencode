@@ -87,7 +87,7 @@ Resource directories inside every config directory: `agent(s)/`, `mode(s)/`,
 | `username` | string | unvalidated | `os.userInfo().username`, fallback `user` | Display name in conversations |
 | `model` | string | `provider/model-id`; unvalidated until model resolution | none | Default model |
 | `small_model` | string | same format | none | Utility model (title generation) |
-| `default_agent` | string | primary agent name; invalid value falls back to `build` | `build` | Default agent |
+| `default_agent` | string | primary agent name; an invalid value (unknown, subagent, or hidden) throws an `Error` at use time — no `build` fallback (only an unset value selects the first visible primary, normally `build`) | `build` | Default agent |
 | `subagent_depth` | int ≥ 0 | non-negative | 1 | Max subagent nesting depth |
 | `share` | enum | `manual` \| `auto` \| `disabled` | runtime default | Session sharing behavior |
 | `autoshare` | boolean | deprecated alias | — | `true` + no `share` → `share: "auto"` |

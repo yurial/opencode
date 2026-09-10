@@ -2,9 +2,18 @@
 
 | Path | Reference | Status | Summary |
 |---|---|---|---|
+| specs/app-desktop-cli.md | app-desktop-cli | draft | Web/desktop app, Electron wrapper, shared ui package, and the new lildax CLI: entry points, v1/v2 server compatibility, sidecar/daemon hosting, packaging |
+| specs/config-agents.md | config-agents | stable | V1 config/agent/skill/command runtime: discovery-and-merge pipeline, agent schema and resolution, skill and command discovery, hot-reload (instance disposal) semantics |
 | specs/config-parameters.md | config-v1 | stable | V1 configurable parameters: keys, values, channels, merge precedence |
+| specs/core-session.md | core-session | draft | As-built V2 session and prompt lifecycle: durable admission and delivery modes, serialized execution and the provider-turn runner, context epochs, compaction, revert, V1 boundary |
+| specs/core-tools-permissions.md | core-tools-permissions | draft | V1 tool system and permission flow: tool contract, registry, invocation, ask/reply rules |
 | specs/event-retention.md | event-retention | draft | Sync-mode retention: pruning durable event rows below the in-memory watermark floor |
+| specs/integrations.md | integrations | draft | V1 integrations: LSP/MCP hosts, formatters, IDE detection, sharing, git/snapshot/worktree, plugin host, ACP adapter, experimental control-plane workspaces |
+| specs/provider-models.md | provider-models | stable | Provider/LLM layer behavior: model catalog sources, variants, auth, streaming contract, retries, V2 catalog |
 | specs/project.md | project-api | stable | Legacy per-project HTTP API sketch |
+| specs/server-api-sdk.md | server-api-sdk | draft | Protocol/Server/Client/SDK stack as built: HttpApi groups and middleware, V2 handlers and transports (SSE/WebSocket), hosting entrypoints, client and legacy SDK generation |
+| specs/storage-events.md | storage-events | stable | SQLite storage and events: database and migration runtime, JSON file storage, EventV2 durable log (projectors, replay, ownership), bridge/SSE delivery, experimental workspace sync |
+| specs/tui-architecture.md | tui-architecture | stable | TUI architecture and runtime: launch hosts and worker model, provider tree, routes/keymap/commands, legacy Sync and V2 Data stores, prompt/permission/question flows |
 | specs/tui-package.md | tui-package | draft | TUI extraction into @opencode-ai/tui package |
 | specs/tui-session-display.md | tui-session-display | draft | Session screen: thinking mode, reasoning timer, persisted context-excluded meta parts |
 | specs/tui-theme.md | tui-theme | stable | TUI theme parameters: ThemeJson structure, value resolution, fallbacks, and the key → UI element mapping |
