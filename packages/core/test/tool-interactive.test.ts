@@ -32,7 +32,7 @@ const result = (overrides: { jobID: string } & Partial<InteractiveJob.Result>): 
 })
 
 /** Scripted InteractiveJobs fake: records which methods the tool executed and replays scripted results. */
-const fakeJobs = (script: ReadonlyArray<InteractiveJob.Result>, state: { calls: string[] }) => {
+const fakeJobs = (script: ReadonlyArray<InteractiveJob.Result>, state: { calls: string[]; starts: InteractiveJobs.StartRequest[] }) => {
   const queue = [...script]
   const shift = () => {
     const next = queue.shift()
@@ -43,7 +43,15 @@ const fakeJobs = (script: ReadonlyArray<InteractiveJob.Result>, state: { calls: 
   return Layer.succeed(
     InteractiveJobs.Service,
     InteractiveJobs.Service.of({
-      start: () => record("interactive_start").pipe(Effect.andThen(Effect.sync(shift))),
+      start: (request) =>
+        record("interactive_start").pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              state.starts.push(request)
+              return shift()
+            }),
+          ),
+        ),
       write: () => record("interactive_write").pipe(Effect.andThen(Effect.sync(shift))),
       wait: () => record("interactive_wait").pipe(Effect.andThen(Effect.sync(shift))),
       cancel: () => record("interactive_cancel").pipe(Effect.andThen(Effect.sync(shift))),
@@ -56,12 +64,17 @@ const fakeJobs = (script: ReadonlyArray<InteractiveJob.Result>, state: { calls: 
 const withTools = <A, E, R>(
   body: (
     registry: ToolRegistry.Interface,
-    harness: { readonly assertions: PermissionV2.AssertInput[]; readonly calls: string[]; deny: boolean },
+    harness: {
+      readonly assertions: PermissionV2.AssertInput[]
+      readonly calls: string[]
+      readonly starts: InteractiveJobs.StartRequest[]
+      deny: boolean
+    },
   ) => Effect.Effect<A, E, R>,
   script: ReadonlyArray<InteractiveJob.Result> = [],
 ) => {
   const assertions: PermissionV2.AssertInput[] = []
-  const harness = { assertions, calls: new Array<string>(), deny: false }
+  const harness = { assertions, calls: new Array<string>(), starts: new Array<InteractiveJobs.StartRequest>(), deny: false }
   const permission = Layer.succeed(
     PermissionV2.Service,
     PermissionV2.Service.of({
@@ -167,6 +180,19 @@ describe("InteractiveTool", () => {
         expect(harness.assertions.map((input) => input.action)).toEqual(["interactive"])
         expect(harness.calls).toEqual([])
       }),
+    ))
+
+  it.live("start passes the model-supplied timeout through to the job store (spec R7)", () =>
+    withTools(
+      (registry, harness) =>
+        Effect.gen(function* () {
+          yield* Effect.exit(settleTool(registry, call(InteractiveTool.START, { command: "gdb ./a.out", timeout: 45_000 })))
+          yield* Effect.exit(settleTool(registry, call(InteractiveTool.START, { command: "python3 -i" })))
+          expect(harness.starts).toHaveLength(2)
+          expect(harness.starts[0]?.timeout).toBe(45_000)
+          expect(harness.starts[1]?.timeout).toBeUndefined()
+        }),
+      [result({ jobID: "ijob_1" }), result({ jobID: "ijob_2" })],
     ))
 
   it.live("toModelOutput renders the output, status line, exit, reason, and truncation marker", () =>

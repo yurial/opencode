@@ -122,4 +122,50 @@ describe("InteractiveSpool", () => {
         }),
       new ConfigInteractive.Info({ max_spool_bytes: 16 }),
     ))
+
+  it.live("an empty slice is not truncated unless bytes were elided by a cut or the spool cap (spec R25/I5)", () =>
+    withSpool(({ spool, jobID }) =>
+      Effect.gen(function* () {
+        yield* spool.open(jobID)
+        yield* spool.append(jobID, bytes("hello\n"))
+
+        // the cursor advanced past delivered bytes with no elision: not truncated
+        const first = yield* spool.slice(jobID, 0, undefined, wide)
+        expect(first.truncated).toBe(false)
+        const empty = yield* spool.slice(jobID, first.nextCursor, undefined, wide)
+        expect(empty.text).toBe("")
+        expect(empty.truncated).toBe(false)
+
+        // a cut elides bytes; an empty follow-up read now reports truncated
+        yield* spool.append(jobID, bytes("0123456789"))
+        const cut = yield* spool.slice(jobID, empty.nextCursor, undefined, { maxLines: 10_000, maxBytes: 4 })
+        expect(cut.truncated).toBe(true)
+        const afterCut = yield* spool.slice(jobID, cut.nextCursor, undefined, wide)
+        expect(afterCut.text).toBe("")
+        expect(afterCut.truncated).toBe(true)
+
+        // fresh bytes delivered without a cut are not marked truncated
+        yield* spool.append(jobID, bytes("more\n"))
+        const fresh = yield* spool.slice(jobID, afterCut.nextCursor, undefined, wide)
+        expect(fresh.text).toBe("more\n")
+        expect(fresh.truncated).toBe(false)
+      }),
+    ))
+
+  it.live("an empty slice past the spool cap reports truncated", () =>
+    withSpool(
+      ({ spool, jobID }) =>
+        Effect.gen(function* () {
+          yield* spool.open(jobID)
+          yield* spool.append(jobID, bytes("0123456789"))
+          yield* spool.append(jobID, bytes("ABCDEFGHIJ"))
+
+          const stored = yield* spool.slice(jobID, 0, undefined, wide)
+          expect(stored.text).toBe("0123456789ABCDEF")
+          const past = yield* spool.slice(jobID, 16, undefined, wide)
+          expect(past.text).toBe("")
+          expect(past.truncated).toBe(true)
+        }),
+      new ConfigInteractive.Info({ max_spool_bytes: 16 }),
+    ))
 })

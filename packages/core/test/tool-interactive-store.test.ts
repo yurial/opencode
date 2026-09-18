@@ -93,9 +93,86 @@ const failWith = <A, E>(effect: Effect.Effect<A, E>) =>
 const quiet = new ConfigInteractive.Info({ quiet_window_ms: 40 })
 const chunk = (maxBytes: number) => new ConfigToolOutput.Info({ max_lines: 10_000, max_bytes: maxBytes })
 
+/**
+ * Boots the job stack against a FIXED data directory (instead of a fresh
+ * tmpdir), so several boots can share one ledger file — used by the startup
+ * sweep test (spec R30/I9).
+ */
+const withJobsOn = <A, E, R>(data: string, body: (services: Services) => Effect.Effect<A, E, R>) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const runtime = fakeProcess()
+      const graph = AppNodeBuilder.build(
+        LayerNode.group([
+          InteractiveJobs.node,
+          InteractiveSpool.node,
+          InteractiveLedger.node,
+          InteractiveGovernor.node,
+          FSUtil.node,
+        ]),
+        [
+          [Location.node, Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(data) })))],
+          [Global.node, Global.layerWith({ data })],
+          [Config.node, configLayer()],
+          [InteractiveProcess.node, runtime.layer],
+        ],
+      )
+      return yield* Effect.gen(function* () {
+        return yield* body({
+          jobs: yield* InteractiveJobs.Service,
+          spool: yield* InteractiveSpool.Service,
+          governor: yield* InteractiveGovernor.Service,
+          ledger: yield* InteractiveLedger.Service,
+          runtime,
+          dataDir: data,
+        })
+      }).pipe(Effect.provide(graph))
+    }),
+  )
+
+/** POSIX process-group leader that dies on SIGTERM; for ledger sweep assertions. */
+const spawnSleeper = () => {
+  const proc = Bun.spawn({ cmd: ["setsid", "sleep", "30"] })
+  return { pgid: proc.pid, exited: Effect.promise(() => proc.exited.then(() => undefined)) }
+}
+
 const it = testEffect(Layer.empty)
 
 describe("InteractiveJobs", () => {
+  if (process.platform !== "win32") {
+    it.live("booting the store layer sweeps ledger-recorded orphans before the first spawn (spec R30/I9)", () =>
+      Effect.acquireUseRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) =>
+          Effect.gen(function* () {
+            // boot 1: record a live process group into the ledger, then close
+            const orphan = yield* withJobsOn(tmp.path, ({ ledger }) =>
+              Effect.gen(function* () {
+                const sleeper = spawnSleeper()
+                yield* ledger.record({ jobID: "ijob_orphan", sessionID, pgid: sleeper.pgid, startedAt: Date.now() })
+                return sleeper
+              }),
+            )
+            // boot 2: the layer build must reap the orphan before any spawn
+            yield* withJobsOn(tmp.path, ({ jobs, ledger }) =>
+              Effect.gen(function* () {
+                // the boot sweep already dropped the rows
+                expect(yield* ledger.sweep()).toBe(0)
+                const started = yield* jobs.start({ sessionID, command: "one" })
+                expect(started.status).toBe("waiting")
+                yield* jobs.killAll({ reason: "session-close" })
+              }),
+            )
+            // the orphan died by SIGTERM from the boot sweep
+            yield* Effect.race(
+              orphan.exited,
+              Effect.sleep(Duration.seconds(3)).pipe(Effect.andThen(Effect.die("orphan was not reaped by the boot sweep"))),
+            )
+          }),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      ))
+  }
+
   it.live("start settles waiting at quiescence with ascending ijob_ ids and full budget state", () =>
     withJobs(
       ({ jobs, runtime, dataDir }) =>
@@ -499,6 +576,118 @@ describe("InteractiveJobs", () => {
           expect(survivor.status).toBe("waiting")
 
           yield* jobs.killAll({ reason: "session-close" })
+        }),
+      { interactive: quiet },
+    ))
+
+  it.live("interrupting a call mid-settle kills the job with reason interrupt and releases the claim (spec R32/I10)", () =>
+    withJobs(
+      ({ jobs }) =>
+        Effect.gen(function* () {
+          const started = yield* jobs.start({ sessionID, command: "./hang" })
+          expect(started.status).toBe("waiting")
+
+          // a wait parks on its deadline — it cannot settle early through the
+          // quiescence path — so the interrupt lands deterministically mid-settle
+          const inFlight = yield* Effect.forkChild(jobs.wait({ sessionID, jobID: started.jobID, timeout: 5000 }))
+          yield* Effect.sleep(Duration.millis(100))
+          yield* jobs.cancelInFlight({ sessionID, reason: "interrupt" })
+
+          const interruptedExit = yield* Fiber.await(inFlight)
+          if (!Exit.isSuccess(interruptedExit)) return yield* Effect.die("expected the in-flight wait to settle")
+          expect(interruptedExit.value.status).toBe("cancelled")
+          expect(interruptedExit.value.reason).toBe("interrupt")
+
+          // the claim was released: the terminal replay does not report busy and
+          // names the interrupt reason
+          const replay = yield* jobs.wait({ sessionID, jobID: started.jobID, timeout: 1000 })
+          expect(replay.status).toBe("cancelled")
+          expect(replay.reason).toBe("interrupt")
+        }),
+      { interactive: quiet },
+    ))
+
+  it.live("a start call counts as in flight for the interrupt kill (spec I10)", () =>
+    withJobs(
+      ({ jobs, runtime }) =>
+        Effect.gen(function* () {
+          // the child stays silent, so the start's quiescence window runs the
+          // full 300ms from the fresh lastByteAt taken at job creation
+          const inFlightStart = yield* Effect.forkChild(jobs.start({ sessionID, command: "./hang" }))
+          yield* Effect.sleep(Duration.millis(100))
+          expect(runtime.spawned).toHaveLength(1)
+          yield* jobs.cancelInFlight({ sessionID, reason: "interrupt" })
+
+          const interruptedExit = yield* Fiber.await(inFlightStart)
+          if (!Exit.isSuccess(interruptedExit)) return yield* Effect.die("expected the in-flight start to settle")
+          expect(interruptedExit.value.status).toBe("cancelled")
+          expect(interruptedExit.value.reason).toBe("interrupt")
+          expect(runtime.spawned[0]?.child.exited).toBe(true)
+        }),
+      { interactive: new ConfigInteractive.Info({ quiet_window_ms: 300 }) },
+    ))
+
+  it.live("a non-mine call that finds the job free claims it and still releases on settle (spec R19)", () =>
+    withJobs(
+      ({ jobs }) =>
+        Effect.gen(function* () {
+          const started = yield* jobs.start({ sessionID, command: "./repl" })
+          const first = yield* Effect.forkChild(jobs.write({ sessionID, jobID: started.jobID, input: "a\n" }))
+          // constructed while the first call holds the intent, so it runs non-mine
+          const second = jobs.write({ sessionID, jobID: started.jobID, input: "b\n" })
+
+          const firstExit = yield* Fiber.await(first)
+          if (!Exit.isSuccess(firstExit)) return yield* Effect.die("expected the first write to settle")
+          expect(firstExit.value.status).toBe("waiting")
+
+          const secondResult = yield* second
+          expect(secondResult.status).toBe("waiting")
+
+          // the non-mine call released its claim: the job is not permanently busy
+          const third = yield* jobs.write({ sessionID, jobID: started.jobID, input: "c\n" })
+          expect(third.status).toBe("waiting")
+
+          yield* jobs.killAll({ reason: "session-close" })
+        }),
+      {
+        interactive: quiet,
+        runtime: { schedule: [{ bytes: "repl> ", delayMs: 4 }], respond: (input) => ({ bytes: `got: ${input}` }) },
+      },
+    ))
+
+  it.live("concurrent starts reserve max_jobs slots synchronously and never oversubscribe (spec R9)", () =>
+    withJobs(
+      ({ jobs }) =>
+        Effect.gen(function* () {
+          const exits = yield* Effect.all(
+            [1, 2, 3].map((n) => Effect.exit(jobs.start({ sessionID, command: `cmd ${n}` }))),
+            { concurrency: "unbounded" },
+          )
+          const succeeded = exits.filter(Exit.isSuccess)
+          const failed = exits.filter(Exit.isFailure)
+          expect(succeeded).toHaveLength(2)
+          expect(failed).toHaveLength(1)
+          for (const exit of failed) {
+            const error = Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+            expect(error?._tag).toBe("InteractiveGovernor.TooManyJobsError")
+          }
+          yield* jobs.killAll({ reason: "session-close" })
+        }),
+      { interactive: new ConfigInteractive.Info({ quiet_window_ms: 40, max_jobs: 2 }) },
+    ))
+
+  it.live("a start-supplied timeout becomes the job lifetime (spec R7/R20)", () =>
+    withJobs(
+      ({ jobs, runtime }) =>
+        Effect.gen(function* () {
+          const started = yield* jobs.start({ sessionID, command: "./hang", timeout: 60 })
+          expect(started.status).toBe("waiting")
+
+          yield* Effect.sleep(Duration.millis(250))
+          const expired = yield* jobs.wait({ sessionID, jobID: started.jobID, timeout: 2000 })
+          expect(expired.status).toBe("cancelled")
+          expect(expired.reason).toBe("lifetime")
+          expect(runtime.spawned[0]?.child.exited).toBe(true)
         }),
       { interactive: quiet },
     ))

@@ -1,7 +1,6 @@
 export * as InteractiveJobs from "./store"
 
-import { Deferred, Duration, Effect, Exit, Layer, Stream } from "effect"
-import { Context, Schema } from "effect"
+import { Context, Deferred, Duration, Effect, Exit, Layer, Schema, Stream } from "effect"
 import { Config } from "../../config"
 import { makeLocationNode } from "../../effect/app-node"
 import { Location } from "../../location"
@@ -286,6 +285,11 @@ const layer = Layer.effect(
     const config = yield* Config.Service
     const location = yield* Location.Service
 
+    // startup sweep (spec R30/I9): kill every ledger-recorded orphan process
+    // group before this Location can spawn any new job; best-effort, a failing
+    // sweep must not keep the Location's job store from booting
+    yield* ledger.sweep().pipe(Effect.ignore)
+
     const context = yield* Effect.context()
     const runFork = Effect.runForkWith(context)
 
@@ -450,21 +454,26 @@ const layer = Layer.effect(
       }
     }
 
-    const claim = (live: Live, mine: boolean, call: string) =>
-      Effect.sync(() => {
-        if (mine) live.intent = undefined
+    /**
+     * Atomically checks that the job is free and takes the call's claim in one
+     * synchronous step, so no contender can interleave between check and claim
+     * (spec R19). The caller must release via `release(live)` — on EVERY exit,
+     * including the non-mine path that found the job free, or the job stays
+     * permanently busy after an interrupted settle.
+     */
+    const claimOrBusy = (live: Live, jobID: string, call: string, mine: boolean): Effect.Effect<void, BusyJobError> =>
+      Effect.suspend(() => {
+        if (live.inFlight !== undefined || (live.intent !== undefined && !mine))
+          return Effect.fail(new BusyJobError({ jobID, call: live.inFlight ?? live.intent ?? "unknown" }))
+        live.intent = undefined
         live.inFlight = call
+        return Effect.void
       })
 
     const release = (live: Live) =>
       Effect.sync(() => {
         live.inFlight = undefined
       })
-
-    const requireFree = (live: Live, jobID: string, mine: boolean) =>
-      live.inFlight !== undefined || (live.intent !== undefined && !mine)
-        ? Effect.fail(new BusyJobError({ jobID, call: live.inFlight ?? live.intent ?? "unknown" }))
-        : Effect.void
 
     // -- settle engine (spec R10) ---------------------------------------------
 
@@ -664,79 +673,123 @@ const layer = Layer.effect(
 
     // -- operations -------------------------------------------------------------
 
+    // Slots reserved by in-flight `start` calls whose job is not yet registered
+    // in `jobs`; without them two concurrent starts could both pass the
+    // max_jobs check and oversubscribe the Session (spec R9 TOCTOU).
+    const pending = new Map<SessionSchema.ID, number>()
+
+    /** Check-and-reserve one max_jobs slot in a single synchronous step (spec R9). */
+    const admitStart = (sessionID: SessionSchema.ID, limit: number) =>
+      Effect.suspend(() => {
+        const live = liveJobIDs(sessionID)
+        if (live.length + (pending.get(sessionID) ?? 0) >= limit)
+          return Effect.fail(new InteractiveGovernor.TooManyJobsError({ liveJobIDs: live }))
+        pending.set(sessionID, (pending.get(sessionID) ?? 0) + 1)
+        return Effect.void
+      })
+
+    /** Drops the reserved slot; the live job counts through `liveJobIDs` from here on. */
+    const releaseStart = (sessionID: SessionSchema.ID) =>
+      Effect.sync(() => {
+        const count = (pending.get(sessionID) ?? 0) - 1
+        if (count <= 0) pending.delete(sessionID)
+        else pending.set(sessionID, count)
+      })
+
     const start = Effect.fn("InteractiveJobs.start")(function* (request: StartRequest) {
       const budgets = yield* governor.budgets()
-      yield* governor.assertStartAllowed(liveJobIDs(request.sessionID))
-      const id = InteractiveJob.ID.create()
-      // the spool exists before the child spawns, so every result names a real file (spec R24)
-      const spoolPath = yield* spool.open(id).pipe(Effect.orDie)
-      const spawned = yield* runtime
-        .spawn({ command: request.command, shell: yield* shell(), cwd: request.workdir ?? location.directory })
-        .pipe(Effect.catch((spawnError) => Effect.succeed({ spawnError })))
-      // spawn failure settles as a terminal `failed` result, not an opaque error (spec R8)
-      if ("spawnError" in spawned) {
-        return {
-          jobID: id,
-          status: "failed" as const,
-          output: spawned.spawnError.message,
-          truncated: false,
-          outputPath: spoolPath,
-          exchanges: 1,
-          exchangesRemaining: Math.max(0, budgets.maxExchanges - 1),
+      yield* admitStart(request.sessionID, budgets.maxJobs)
+      let registered = false
+      return yield* Effect.gen(function* () {
+        const id = InteractiveJob.ID.create()
+        // the spool exists before the child spawns, so every result names a real file (spec R24)
+        const spoolPath = yield* spool.open(id).pipe(Effect.orDie)
+        const spawned = yield* runtime
+          .spawn({ command: request.command, shell: yield* shell(), cwd: request.workdir ?? location.directory })
+          .pipe(Effect.catch((spawnError) => Effect.succeed({ spawnError })))
+        // spawn failure settles as a terminal `failed` result, not an opaque error (spec R8)
+        if ("spawnError" in spawned) {
+          return {
+            jobID: id,
+            status: "failed" as const,
+            output: spawned.spawnError.message,
+            truncated: false,
+            outputPath: spoolPath,
+            exchanges: 1,
+            exchangesRemaining: Math.max(0, budgets.maxExchanges - 1),
+          }
         }
-      }
-      const child = spawned
-      const startedAt = Date.now()
-      const live: Live = {
-        id,
-        sessionID: request.sessionID,
-        command: request.command,
-        spoolPath,
-        lifetimeMs: yield* governor.lifetimeMs(request.timeout),
-        startedAt,
-        child,
-        received: 0,
-        pending: 0,
-        exitFinalized: false,
-        lastByteAt: Date.now(),
-        activity: Deferred.makeUnsafe<void>(),
-        spoolCapped: false,
-        status: "running",
-        exchanges: 0,
-        cursor: 0,
-        terminal: yield* Deferred.make<void>(),
-        killed: yield* Deferred.make<CancelReason>(),
-      }
-      jobs.set(id, live)
-      // the pump must subscribe before the child can produce and exit — its
-      // first bytes otherwise die with the queue's shutdown (spec R23/R24)
-      runFork(pump(live))
-      runFork(exitWatcher(live))
-      runFork(reaper(live))
-      yield* ledger.record({ jobID: id, sessionID: request.sessionID, pgid: child.pgid, startedAt }).pipe(Effect.orDie)
-      const boundary = yield* settleProduce(live)
-      const result = yield* settleOutcome(live, boundary)
-      yield* publishProgress(request.onProgress, live, result.status, result.output)
-      return result
+        const child = spawned
+        const startedAt = Date.now()
+        const live: Live = {
+          id,
+          sessionID: request.sessionID,
+          command: request.command,
+          spoolPath,
+          lifetimeMs: yield* governor.lifetimeMs(request.timeout),
+          startedAt,
+          child,
+          received: 0,
+          pending: 0,
+          exitFinalized: false,
+          lastByteAt: Date.now(),
+          activity: Deferred.makeUnsafe<void>(),
+          spoolCapped: false,
+          status: "running",
+          // claimed from birth: an interrupt mid-settle must observe this call
+          // as in flight (spec R19/I10)
+          inFlight: "interactive_start",
+          exchanges: 0,
+          cursor: 0,
+          terminal: yield* Deferred.make<void>(),
+          killed: yield* Deferred.make<CancelReason>(),
+        }
+        jobs.set(id, live)
+        registered = true
+        // the live job counts through `liveJobIDs` from here; a sync effect
+        // adds no scheduling point, so this stays atomic with the registration
+        yield* releaseStart(request.sessionID)
+        // the pump must subscribe before the child can produce and exit — its
+        // first bytes otherwise die with the queue's shutdown (spec R23/R24)
+        runFork(pump(live))
+        runFork(exitWatcher(live))
+        runFork(reaper(live))
+        yield* ledger.record({ jobID: id, sessionID: request.sessionID, pgid: child.pgid, startedAt }).pipe(Effect.orDie)
+        const boundary = yield* settleProduce(live).pipe(Effect.ensuring(release(live)))
+        const result = yield* settleOutcome(live, boundary)
+        yield* publishProgress(request.onProgress, live, result.status, result.output)
+        return result
+      }).pipe(
+        // the reserved slot is needed only until the job registers or the
+        // attempt ends without a live job (spec R9)
+        Effect.onExit(() =>
+          Effect.sync(() => {
+            if (!registered) releaseStart(request.sessionID)
+          }),
+        ),
+      )
     })
 
     const writeRun = Effect.fn("InteractiveJobs.writeRun")(function* (request: WriteRequest, intent: ReturnType<typeof preClaim>) {
-      const live = yield* requireJob(request.sessionID, request.jobID)
+      const live =       yield* requireJob(request.sessionID, request.jobID)
       if (request.input === "" && request.eof !== true) return yield* new EmptyWriteError({ jobID: request.jobID })
       if (isTerminal(live.status)) {
         // a kill that landed between construction and execution settles the pre-claimed call (spec R32)
         if (intent.mine && live.status === "cancelled") return yield* killedResult(live, request.onProgress)
         return yield* new TerminalJobError({ jobID: request.jobID, status: live.status, outputPath: live.spoolPath })
       }
-      yield* requireFree(live, request.jobID, intent.mine)
       const body = Effect.gen(function* () {
-        yield* claim(live, intent.mine, "interactive_write")
         // skip the append for an eof-only write: "" is not real stdin (spec R11)
         if (request.input !== "") yield* live.child.write(request.input).pipe(Effect.ignore)
         if (request.eof) yield* live.child.signalEof()
         return yield* settleProduce(live)
       })
-      const boundary = yield* (intent.mine ? body.pipe(Effect.ensuring(release(live))) : body)
+      // claim runs in the same synchronous step as the busy check; the claim is
+      // released on every exit, non-mine included — otherwise an interrupted
+      // settle would leave the job permanently busy (spec R19)
+      const boundary = yield* claimOrBusy(live, request.jobID, "interactive_write", intent.mine).pipe(
+        Effect.flatMap(() => body.pipe(Effect.ensuring(release(live)))),
+      )
       const result = yield* settleOutcome(live, boundary)
       yield* publishProgress(request.onProgress, live, result.status, result.output)
       return result
@@ -765,13 +818,15 @@ const layer = Layer.effect(
         yield* publishProgress(request.onProgress, live, result.status, result.output)
         return result
       }
-      yield* requireFree(live, request.jobID, intent.mine)
       const deadlineMs = yield* governor.waitDeadlineMs(request.timeout)
       const body = Effect.gen(function* () {
-        yield* claim(live, intent.mine, "interactive_wait")
         return yield* settleWait(live, deadlineMs, request.onProgress)
       })
-      const boundary = yield* (intent.mine ? body.pipe(Effect.ensuring(release(live))) : body)
+      // claim runs in the same synchronous step as the busy check; the claim is
+      // released on every exit, non-mine included (spec R19)
+      const boundary = yield* claimOrBusy(live, request.jobID, "interactive_wait", intent.mine).pipe(
+        Effect.flatMap(() => body.pipe(Effect.ensuring(release(live)))),
+      )
       const result = yield* settleOutcome(live, boundary)
       yield* publishProgress(request.onProgress, live, result.status, result.output)
       return result
@@ -800,10 +855,8 @@ const layer = Layer.effect(
         yield* publishProgress(request.onProgress, live, result.status, result.output)
         return result
       }
-      yield* requireFree(live, request.jobID, intent.mine)
       const reason = request.reason ?? "model"
       const body = Effect.gen(function* () {
-        yield* claim(live, intent.mine, "interactive_cancel")
         yield* killJob(live, reason)
         const limits = yield* outputLimits()
         const chunk = yield* drainedChunk(live, limits)
@@ -815,7 +868,11 @@ const layer = Layer.effect(
           exchangesRemaining: remaining,
         })
       })
-      const result = yield* (intent.mine ? body.pipe(Effect.ensuring(release(live))) : body)
+      // claim runs in the same synchronous step as the busy check; the claim is
+      // released on every exit, non-mine included (spec R19)
+      const result = yield* claimOrBusy(live, request.jobID, "interactive_cancel", intent.mine).pipe(
+        Effect.flatMap(() => body.pipe(Effect.ensuring(release(live)))),
+      )
       yield* publishProgress(request.onProgress, live, result.status, result.output)
       return result
     })

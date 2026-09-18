@@ -1,8 +1,7 @@
 export * as InteractiveLedger from "./ledger"
 
 import path from "path"
-import { Schema } from "effect"
-import { Context, Duration, Effect, Layer } from "effect"
+import { Context, Duration, Effect, Layer, Schema, Semaphore } from "effect"
 import { NonNegativeInt, PositiveInt } from "../../schema"
 import { FSUtil } from "../../fs-util"
 import { Global } from "../../global"
@@ -93,17 +92,30 @@ const layer = Layer.effect(
       yield* fs.rename(temp, file).pipe(Effect.mapError(ledgerError("record")))
     })
 
+    // Single-writer serialization (spec R30): `record` and `remove` are read-
+    // modify-write rewrites of the whole file, so interleaved runs from
+    // concurrent Sessions would lose updates.
+    const writer = Semaphore.makeUnsafe(1)
+
     const record = Effect.fn("InteractiveLedger.record")(function* (row: Row) {
-      const rows = (yield* readRows()).filter((entry) => entry.jobID !== row.jobID)
-      rows.push(row)
-      yield* writeRows(rows)
+      yield* writer.withPermits(1)(
+        Effect.gen(function* () {
+          const rows = (yield* readRows()).filter((entry) => entry.jobID !== row.jobID)
+          rows.push(row)
+          yield* writeRows(rows)
+        }),
+      )
     })
 
     const remove = Effect.fn("InteractiveLedger.remove")(function* (jobID: string) {
-      const rows = yield* readRows()
-      const next = rows.filter((entry) => entry.jobID !== jobID)
-      if (next.length === rows.length) return
-      yield* writeRows(next)
+      yield* writer.withPermits(1)(
+        Effect.gen(function* () {
+          const rows = yield* readRows()
+          const next = rows.filter((entry) => entry.jobID !== jobID)
+          if (next.length === rows.length) return
+          yield* writeRows(next)
+        }),
+      )
     })
 
     const groupAlive = (pgid: number) => {
@@ -123,15 +135,20 @@ const layer = Layer.effect(
     }
 
     const sweep = Effect.fn("InteractiveLedger.sweep")(function* () {
-      const rows = yield* readRows()
-      const targets = rows.filter((row) => groupAlive(row.pgid))
-      for (const row of targets) signalGroup(row.pgid, "SIGTERM")
-      if (targets.length > 0) yield* Effect.sleep(Duration.millis(SWEEP_GRACE_MS))
-      for (const row of targets) {
-        if (groupAlive(row.pgid)) signalGroup(row.pgid, "SIGKILL")
-      }
-      if (rows.length > 0) yield* writeRows([])
-      return targets.length
+      const reaped = yield* writer.withPermits(1)(
+        Effect.gen(function* () {
+          const rows = yield* readRows()
+          const targets = rows.filter((row) => groupAlive(row.pgid))
+          for (const row of targets) signalGroup(row.pgid, "SIGTERM")
+          if (targets.length > 0) yield* Effect.sleep(Duration.millis(SWEEP_GRACE_MS))
+          for (const row of targets) {
+            if (groupAlive(row.pgid)) signalGroup(row.pgid, "SIGKILL")
+          }
+          if (rows.length > 0) yield* writeRows([])
+          return targets.length
+        }),
+      )
+      return reaped
     })
 
     return Service.of({ record, remove, sweep })

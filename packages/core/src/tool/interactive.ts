@@ -231,6 +231,7 @@ const layer = Layer.effectDiscard(
                   sessionID: context.sessionID,
                   command: input.command,
                   workdir: target.canonical,
+                  timeout: input.timeout,
                   onProgress: progress(context),
                 })
               }).pipe(Effect.mapError(toFailure)),
@@ -252,7 +253,7 @@ const layer = Layer.effectDiscard(
                   eof: input.eof,
                   onProgress: progress(context),
                 })
-            .pipe(Effect.mapError(toFailure)),
+                .pipe(Effect.mapError(toFailure)),
           }),
           PERMISSION_KEY,
         ),
@@ -270,7 +271,7 @@ const layer = Layer.effectDiscard(
                   timeout: input.timeout,
                   onProgress: progress(context),
                 })
-            .pipe(Effect.mapError(toFailure)),
+                .pipe(Effect.mapError(toFailure)),
           }),
           PERMISSION_KEY,
         ),
@@ -287,7 +288,7 @@ const layer = Layer.effectDiscard(
                   jobID: input.jobID,
                   onProgress: progress(context),
                 })
-            .pipe(Effect.mapError(toFailure)),
+                .pipe(Effect.mapError(toFailure)),
           }),
           PERMISSION_KEY,
         ),

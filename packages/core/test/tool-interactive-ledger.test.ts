@@ -1,4 +1,6 @@
 import { describe, expect } from "bun:test"
+import fs from "fs/promises"
+import path from "path"
 import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -30,7 +32,9 @@ const spawnSleeper = () => {
   }
 }
 
-const withLedger = <A, E, R>(body: (ledger: InteractiveLedger.Interface) => Effect.Effect<A, E, R>) =>
+const withLedger = <A, E, R>(
+  body: (input: { ledger: InteractiveLedger.Interface; dataDir: string }) => Effect.Effect<A, E, R>,
+) =>
   Effect.acquireUseRelease(
     Effect.promise(() => tmpdir()),
     (tmp) => {
@@ -39,7 +43,7 @@ const withLedger = <A, E, R>(body: (ledger: InteractiveLedger.Interface) => Effe
         [Global.node, Global.layerWith({ data: tmp.path })],
       ])
       return Effect.gen(function* () {
-        return yield* body(yield* InteractiveLedger.Service)
+        return yield* body({ ledger: yield* InteractiveLedger.Service, dataDir: tmp.path })
       }).pipe(Effect.provide(graph))
     },
     (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -47,10 +51,19 @@ const withLedger = <A, E, R>(body: (ledger: InteractiveLedger.Interface) => Effe
 
 const it = testEffect(Layer.empty)
 
+/** Locates the ledger's jobs.json under the data directory (the key is an internal hash). */
+const readLedgerRows = async (dataDir: string): Promise<Array<{ jobID: string; pgid: number }>> => {
+  const entries = await fs.readdir(dataDir, { recursive: true })
+  const file = entries.find((entry) => entry.endsWith("jobs.json"))
+  if (!file) return []
+  const raw = await Bun.file(path.join(dataDir, file)).text()
+  return raw.trim() === "" ? [] : JSON.parse(raw)
+}
+
 if (process.platform !== "win32") {
   describe("InteractiveLedger", () => {
     it.live("sweep kills every recorded live process group and drops the rows idempotently", () =>
-      withLedger((ledger) =>
+      withLedger(({ ledger }) =>
         Effect.gen(function* () {
           const first = spawnSleeper()
           const second = spawnSleeper()
@@ -68,7 +81,7 @@ if (process.platform !== "win32") {
       ))
 
     it.live("remove drops the row so sweep reaps nothing", () =>
-      withLedger((ledger) =>
+      withLedger(({ ledger }) =>
         Effect.gen(function* () {
           const sleeper = spawnSleeper()
           yield* ledger.record({ jobID: "ijob_a", sessionID, pgid: sleeper.pgid, startedAt: Date.now() })
@@ -78,6 +91,28 @@ if (process.platform !== "win32") {
 
           yield* sleeper.kill
           yield* sleeper.exited
+        }),
+      ))
+
+    it.live("concurrent record and remove serialize without losing updates (spec R30)", () =>
+      withLedger(({ ledger, dataDir }) =>
+        Effect.gen(function* () {
+          yield* ledger.record({ jobID: "ijob_gone", sessionID, pgid: 4100, startedAt: 0 })
+          yield* Effect.all(
+            [
+              ...Array.from({ length: 12 }, (_, i) =>
+                ledger.record({ jobID: `ijob_keep_${i}`, sessionID, pgid: 4200 + i, startedAt: 0 }),
+              ),
+              ledger.remove("ijob_gone"),
+            ],
+            { concurrency: "unbounded" },
+          )
+
+          const rows = yield* Effect.promise(() => readLedgerRows(dataDir))
+          expect(rows.map((row) => row.jobID).sort()).toEqual(
+            Array.from({ length: 12 }, (_, i) => `ijob_keep_${i}`).sort(),
+          )
+          expect(new Set(rows.map((row) => row.pgid)).size).toBe(12)
         }),
       ))
   })

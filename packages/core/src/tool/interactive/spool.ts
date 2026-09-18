@@ -14,10 +14,12 @@ import { DEFAULT_MAX_SPOOL_BYTES } from "./job"
 /**
  * One bounded read from the spool between two byte offsets (spec R25).
  * `text` is the decoded chunk bounded by the `tool_output.max_lines` /
- * `max_bytes` limits; `truncated` marks that the cap was hit — elided bytes
- * are NOT re-delivered later, callers advance to `nextCursor` and page the
- * spool file (via the `read` tool) instead; `nextCursor` is the absolute end
- * offset after this read (monotonic delivery cursor, spec I6).
+ * `max_bytes` limits; `truncated` marks that this read hit the cap, or that
+ * the cursor sits past bytes elided by an earlier cap or the spool cap and
+ * this read delivered none of them — elided bytes are NOT re-delivered later,
+ * callers advance to `nextCursor` and page the spool file (via the `read`
+ * tool) instead; `nextCursor` is the absolute end offset after this read
+ * (monotonic delivery cursor, spec I6).
  */
 export interface Chunk {
   readonly text: string
@@ -79,6 +81,8 @@ interface Entry {
   readonly path: string
   size: number
   capped: boolean
+  /** Set when a slice cut or the spool cap elided bytes (spec R25/I5). */
+  elided: boolean
 }
 
 const takePrefix = (text: string, maximumBytes: number) => {
@@ -137,11 +141,11 @@ const layer = Layer.effect(
       if (yield* fs.existsSafe(file)) {
         // re-attach after an in-process restart of the manager adopts the stored size
         const info = yield* fs.stat(file).pipe(Effect.mapError(storage("open")))
-        spools.set(jobID, { path: file, size: Number(info.size), capped: false })
+        spools.set(jobID, { path: file, size: Number(info.size), capped: false, elided: false })
         return file
       }
       yield* fs.writeFileString(file, "", { flag: "wx" }).pipe(Effect.mapError(storage("open")))
-      spools.set(jobID, { path: file, size: 0, capped: false })
+      spools.set(jobID, { path: file, size: 0, capped: false, elided: false })
       return file
     })
 
@@ -150,6 +154,7 @@ const layer = Layer.effect(
       const cap = yield* capBytes()
       if (entry.capped || entry.size >= cap) {
         entry.capped = true
+        entry.elided = true
         return { bytesStored: 0, capped: true, totalBytes: entry.size }
       }
       const stored = Math.min(bytes.length, cap - entry.size)
@@ -163,6 +168,7 @@ const layer = Layer.effect(
         })
         entry.size += stored
         entry.capped = entry.size >= cap
+        if (entry.capped) entry.elided = true
       }
       return { bytesStored: stored, capped: entry.capped, totalBytes: entry.size }
     })
@@ -194,11 +200,13 @@ const layer = Layer.effect(
       const length = Math.max(0, end - from)
       const text = length > 0 ? new TextDecoder().decode(yield* readRange(entry.path, from, length)) : ""
       const capped = capChunk(text, limits)
+      if (capped.cut) entry.elided = true
       return {
         text: capped.text,
-        // an empty read from a non-zero offset means earlier capped reads elided
-        // the bytes this cursor points into — keep saying so (spec R25)
-        truncated: capped.cut || (from > 0 && capped.text === ""),
+        // true for a real cut here, or when this empty read's cursor sits past
+        // bytes an earlier cut or the spool cap elided — never inferred from
+        // the cursor position alone (spec R25/I5)
+        truncated: capped.cut || (entry.elided && capped.text === ""),
         nextCursor: end,
       }
     })

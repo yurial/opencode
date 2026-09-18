@@ -1,7 +1,6 @@
 export * as InteractiveProcess from "./runtime"
 
-import { Cause, Deferred, Queue, Stream } from "effect"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Cause, Context, Deferred, Effect, Layer, Queue, Schema, Stream } from "effect"
 import { PlatformError, SystemError } from "effect/PlatformError"
 import type { Duration } from "effect"
 import type { Disp } from "#pty"
@@ -159,24 +158,29 @@ const layer = Layer.effect(
         signalEof: () => Effect.sync(() => proc.write("\u0004")),
         exit: Deferred.await(exited),
         kill: (grace?: Duration.Input) =>
-          Effect.gen(function* () {
-            const deadline = grace ?? "3 seconds"
-            if (process.platform !== "win32") signalGroup(proc.pid, "SIGTERM")
-            // deliver directly too: on Windows the group signal does not apply,
-            // and the direct kill starts closing the PTY master everywhere
-            try {
-              proc.kill("SIGTERM")
-            } catch {}
-            yield* Effect.race(Deferred.await(exited), Effect.sleep(deadline))
-            if (!done) {
-              if (process.platform !== "win32") signalGroup(proc.pid, "SIGKILL")
+          // the SIGTERM → SIGKILL escalation runs uninterruptibly: a fiber
+          // interrupted between the steps must not leave the group half-killed
+          // with the PTY master open (spec R14/R23)
+          Effect.uninterruptible(
+            Effect.gen(function* () {
+              const deadline = grace ?? "3 seconds"
+              if (process.platform !== "win32") signalGroup(proc.pid, "SIGTERM")
+              // deliver directly too: on Windows the group signal does not apply,
+              // and the direct kill starts closing the PTY master everywhere
               try {
-                proc.kill("SIGKILL")
+                proc.kill("SIGTERM")
               } catch {}
-              yield* Effect.race(Deferred.await(exited), Effect.sleep("1 second"))
-            }
-            for (const listener of listeners) listener.dispose()
-          }),
+              yield* Effect.race(Deferred.await(exited), Effect.sleep(deadline))
+              if (!done) {
+                if (process.platform !== "win32") signalGroup(proc.pid, "SIGKILL")
+                try {
+                  proc.kill("SIGKILL")
+                } catch {}
+                yield* Effect.race(Deferred.await(exited), Effect.sleep("1 second"))
+              }
+              for (const listener of listeners) listener.dispose()
+            }),
+          ),
       } satisfies Child
     })
 
