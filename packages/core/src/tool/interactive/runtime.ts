@@ -1,9 +1,32 @@
 export * as InteractiveProcess from "./runtime"
 
-import { Context, Effect, Layer, Schema, Stream } from "effect"
-import type { PlatformError } from "effect/PlatformError"
+import { Cause, Deferred, Queue, Stream } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
+import { PlatformError, SystemError } from "effect/PlatformError"
 import type { Duration } from "effect"
+import type { Disp } from "#pty"
 import { makeLocationNode } from "../../effect/app-node"
+import { lazy } from "../../util/lazy"
+
+// The PTY module ships native binaries; load it lazily so merely constructing
+// the service never touches native code.
+const ptyModule = lazy(() => import("#pty"))
+
+const defaultShell = () => (process.platform === "win32" ? (process.env.COMSPEC ?? "cmd.exe") : "/bin/sh")
+
+const SIGNAL_NAMES: Record<number, string> = { 1: "SIGHUP", 2: "SIGINT", 9: "SIGKILL", 15: "SIGTERM" }
+
+const signalName = (signal: number | string) =>
+  typeof signal === "string" ? signal : (SIGNAL_NAMES[signal] ?? `SIG${signal}`)
+
+const platformError = (method: string, cause: unknown) =>
+  new PlatformError(new SystemError({ _tag: "Unknown", module: "InteractiveProcess", method, cause }))
+
+const signalGroup = (pgid: number, signal: NodeJS.Signals) => {
+  try {
+    process.kill(-pgid, signal)
+  } catch {}
+}
 
 /**
  * How the child's exit was observed (spec R5). `exitCode` is the numeric exit
@@ -16,9 +39,9 @@ export interface ExitStatus {
 }
 
 /**
- * One live interactive child (spec R22): spawned under a PTY on POSIX in its
- * own process group so prompt/isatty-dependent programs behave; Windows falls
- * back to pipes (L4). stdout and stderr arrive merged on `output`.
+ * One live interactive child (spec R22): spawned under a PTY in its own
+ * session (POSIX) or a ConPTY (Windows) so prompt/isatty-dependent programs
+ * behave. stdout and stderr arrive merged on `output`.
  *
  * Ownership contract (spec R23): the job store owns the returned child —
  * callers must eventually `kill` it or consume `exit`; the runtime closing
@@ -66,10 +89,10 @@ export class SpawnError extends Schema.TaggedErrorClass<SpawnError>()("Interacti
 }
 
 /**
- * PTY spawn port (spec R22/R34). `pty` reports whether the live layer can
- * provide a real PTY (`true` on POSIX, `false` on the Windows pipes fallback,
- * L4) so the job store can annotate behavior. Tests replace the whole service
- * with a fake child replaying scripted `(bytes, delay)` events.
+ * PTY spawn port (spec R22/R34). `pty` reports whether the live layer runs
+ * children under a terminal (true for the shared `#pty` port, including the
+ * Windows ConPTY path). Tests replace the whole service with a fake child
+ * replaying scripted `(bytes, delay)` events.
  */
 export interface Interface {
   readonly pty: boolean
@@ -78,9 +101,87 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/InteractiveProcess") {}
 
-const notImplemented = Effect.die(new Error("NOT IMPLEMENTED: interactive process runtime (PTY spawn)"))
+/**
+ * Live PTY spawn (spec R22): the child runs under a PTY via the shared `#pty`
+ * port (bun-pty under Bun, @lydell/node-pty under Node), which starts it as a
+ * session leader on POSIX — so `pgid` is the child's pid and killing the group
+ * reaps the whole tree (spec R30). Windows is covered by ConPTY through the
+ * same port; a missing native binary fails `spawn` per spec R8.
+ */
+const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    const spawn = Effect.fn("InteractiveProcess.spawn")(function* (request: SpawnRequest) {
+      const env: Record<string, string> = {}
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined) env[key] = value
+      }
+      Object.assign(env, request.env ?? {}, { TERM: env.TERM ?? "xterm-256color" })
+      const shell = request.shell ?? defaultShell()
+      const mod = yield* Effect.tryPromise({
+        try: () => ptyModule(),
+        catch: (cause) => new SpawnError({ command: request.command, cause }),
+      })
+      const proc = yield* Effect.try({
+        try: () => mod.spawn(shell, ["-c", request.command], { name: "xterm-256color", cwd: request.cwd, env }),
+        catch: (cause) => new SpawnError({ command: request.command, cause }),
+      })
 
-/** Stub layer: every spawn dies loudly until the implementation lands (issue item 4). */
-export const layer = Layer.succeed(Service, Service.of({ pty: false, spawn: () => notImplemented }))
+      const queue = yield* Queue.unbounded<Uint8Array, Cause.Done>()
+      const exited = yield* Deferred.make<ExitStatus>()
+      let done = false
+      const complete = (status: ExitStatus) => {
+        if (done) return
+        done = true
+        // the Done mark ends the output stream after every queued chunk
+        Queue.endUnsafe(queue)
+        Deferred.doneUnsafe(exited, Effect.succeed(status))
+      }
+      const listeners: Disp[] = [
+        proc.onData((chunk) => {
+          Queue.offerUnsafe(queue, Buffer.from(chunk, "utf8"))
+        }),
+        proc.onExit(({ exitCode, signal }) => {
+          complete(signal === undefined || signal === 0 ? { exitCode } : { signal: signalName(signal) })
+        }),
+      ]
+
+      return {
+        // node-pty/bun-pty make the child a session leader on POSIX, so pgid == pid
+        pgid: proc.pid,
+        output: Stream.fromQueue(queue),
+        write: (bytes) =>
+          Effect.try({
+            try: () => proc.write(bytes),
+            catch: (cause) => platformError("write", cause),
+          }),
+        // ^D on the PTY master
+        signalEof: () => Effect.sync(() => proc.write("\u0004")),
+        exit: Deferred.await(exited),
+        kill: (grace?: Duration.Input) =>
+          Effect.gen(function* () {
+            const deadline = grace ?? "3 seconds"
+            if (process.platform !== "win32") signalGroup(proc.pid, "SIGTERM")
+            // deliver directly too: on Windows the group signal does not apply,
+            // and the direct kill starts closing the PTY master everywhere
+            try {
+              proc.kill("SIGTERM")
+            } catch {}
+            yield* Effect.race(Deferred.await(exited), Effect.sleep(deadline))
+            if (!done) {
+              if (process.platform !== "win32") signalGroup(proc.pid, "SIGKILL")
+              try {
+                proc.kill("SIGKILL")
+              } catch {}
+              yield* Effect.race(Deferred.await(exited), Effect.sleep("1 second"))
+            }
+            for (const listener of listeners) listener.dispose()
+          }),
+      } satisfies Child
+    })
+
+    return Service.of({ pty: true, spawn })
+  }),
+)
 
 export const node = makeLocationNode({ service: Service, layer, deps: [] })

@@ -1,8 +1,13 @@
 export * as InteractiveLedger from "./ledger"
 
+import path from "path"
 import { Schema } from "effect"
-import { Context, Effect, Layer } from "effect"
+import { Context, Duration, Effect, Layer } from "effect"
 import { NonNegativeInt, PositiveInt } from "../../schema"
+import { FSUtil } from "../../fs-util"
+import { Global } from "../../global"
+import { Hash } from "../../util/hash"
+import { Location } from "../../location"
 import { makeLocationNode } from "../../effect/app-node"
 
 /**
@@ -56,16 +61,81 @@ export type Error = LedgerError
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/InteractiveLedger") {}
 
-const notImplemented = Effect.die(new Error("NOT IMPLEMENTED: interactive orphan ledger"))
+/** SIGTERM → SIGKILL grace for the startup sweep; short, since it blocks the first spawn in a Location (spec R30). */
+const SWEEP_GRACE_MS = 500
 
-/** Stub layer: wired into the Location graph together with the implementation (issue item 4). */
-export const layer = Layer.succeed(
+const decodeRows = Schema.decodeUnknownEffect(Schema.Array(Row))
+
+const layer = Layer.effect(
   Service,
-  Service.of({
-    record: () => notImplemented,
-    remove: () => notImplemented,
-    sweep: () => notImplemented,
+  Effect.gen(function* () {
+    const fs = yield* FSUtil.Service
+    const global = yield* Global.Service
+    const location = yield* Location.Service
+    // the ledger key mixes directory and workspace so two Locations never reap each other's groups
+    const key = Hash.fast(`${location.directory}\u0000${location.workspaceID ?? ""}`)
+    const directory = path.join(global.data, "interactive", key)
+    const file = path.join(directory, "jobs.json")
+
+    const ledgerError = (operation: "record" | "remove" | "sweep") => (cause: unknown) => new LedgerError({ operation, cause })
+
+    const readRows = Effect.fn("InteractiveLedger.readRows")(function* () {
+      const raw = yield* fs.readJson(file).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (raw === undefined) return [] as Row[]
+      return yield* decodeRows(raw).pipe(Effect.catch(() => Effect.succeed([] as Row[])))
+    })
+
+    const writeRows = Effect.fn("InteractiveLedger.writeRows")(function* (rows: ReadonlyArray<Row>) {
+      yield* fs.ensureDir(directory).pipe(Effect.mapError(ledgerError("record")))
+      const temp = `${file}.${process.pid}.tmp`
+      yield* fs.writeJson(temp, rows).pipe(Effect.mapError(ledgerError("record")))
+      // rename makes the rewrite atomic, so a crash mid-write cannot strand a half-file (spec R30)
+      yield* fs.rename(temp, file).pipe(Effect.mapError(ledgerError("record")))
+    })
+
+    const record = Effect.fn("InteractiveLedger.record")(function* (row: Row) {
+      const rows = (yield* readRows()).filter((entry) => entry.jobID !== row.jobID)
+      rows.push(row)
+      yield* writeRows(rows)
+    })
+
+    const remove = Effect.fn("InteractiveLedger.remove")(function* (jobID: string) {
+      const rows = yield* readRows()
+      const next = rows.filter((entry) => entry.jobID !== jobID)
+      if (next.length === rows.length) return
+      yield* writeRows(next)
+    })
+
+    const groupAlive = (pgid: number) => {
+      if (process.platform === "win32" || pgid <= 1) return false
+      try {
+        process.kill(-pgid, 0)
+        return true
+      } catch (error) {
+        return error instanceof Error && "code" in error && error.code === "EPERM"
+      }
+    }
+
+    const signalGroup = (pgid: number, signal: NodeJS.Signals) => {
+      try {
+        process.kill(-pgid, signal)
+      } catch {}
+    }
+
+    const sweep = Effect.fn("InteractiveLedger.sweep")(function* () {
+      const rows = yield* readRows()
+      const targets = rows.filter((row) => groupAlive(row.pgid))
+      for (const row of targets) signalGroup(row.pgid, "SIGTERM")
+      if (targets.length > 0) yield* Effect.sleep(Duration.millis(SWEEP_GRACE_MS))
+      for (const row of targets) {
+        if (groupAlive(row.pgid)) signalGroup(row.pgid, "SIGKILL")
+      }
+      if (rows.length > 0) yield* writeRows([])
+      return targets.length
+    })
+
+    return Service.of({ record, remove, sweep })
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [] })
+export const node = makeLocationNode({ service: Service, layer, deps: [Global.node, Location.node, FSUtil.node] })

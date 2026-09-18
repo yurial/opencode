@@ -1,9 +1,15 @@
 export * as InteractiveTool from "./interactive"
 
-import { Effect, Layer, Schema } from "effect"
+import { DateTime, Effect, Layer, Option, Schema } from "effect"
+import { EventV2 } from "../event"
 import { makeLocationNode } from "../effect/app-node"
+import { LocationMutation } from "../location-mutation"
+import { PermissionV2 } from "../permission"
 import { PositiveInt } from "../schema"
+import { SessionEvent } from "../session/event"
 import { InteractiveJob } from "./interactive/job"
+import { InteractiveJobs } from "./interactive/store"
+import type { ProgressUpdate } from "./interactive/store"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -150,14 +156,49 @@ const toModelOutput = ({ output }: { readonly output: InteractiveJob.Result }): 
 }
 
 // ---------------------------------------------------------------------------
-// Registration (four sibling registrations, spec R1; execute stubs)
+// Registration (four sibling registrations, spec R1)
 // ---------------------------------------------------------------------------
-
-const notImplemented = (method: string) => Effect.die(new Error(`NOT IMPLEMENTED: interactive tool (${method})`))
 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
+    const jobs = yield* InteractiveJobs.Service
+    const mutation = yield* LocationMutation.Service
+    const permission = yield* PermissionV2.Service
+    // progress publishing is best-effort: Locations whose graph has no event
+    // log (tests, lightweight embedding) still get full tool behavior
+    const events = yield* Effect.serviceOption(EventV2.Service)
+
+    const eventPublisher = Option.getOrUndefined(events)
+    const progress = (context: Tool.Context) => {
+      const publisher = eventPublisher
+      if (publisher === undefined) return () => Effect.void
+      return (update: ProgressUpdate) =>
+        publisher
+          .publish(SessionEvent.Tool.Progress, {
+            // first publisher of Tool.Progress (spec R17); only under an
+            // in-flight call, structured payload + bounded recent tail
+            sessionID: context.sessionID,
+            timestamp: DateTime.nowUnsafe(),
+            assistantMessageID: context.assistantMessageID,
+            callID: context.toolCallID,
+            structured: { jobID: update.jobID, status: update.status, cursor: update.cursor },
+            content: update.tail === "" ? [] : [{ type: "text" as const, text: update.tail }],
+          })
+          .pipe(Effect.asVoid)
+    }
+
+    const source = (context: Tool.Context) => ({
+      type: "tool" as const,
+      messageID: context.assistantMessageID,
+      callID: context.toolCallID,
+    })
+
+    // every model-facing failure — store errors, path errors, permission
+    // declines — settles as an ordinary tool failure (spec R8/R12; declines
+    // halt the drain above the tool layer, as with bash)
+    const toFailure = (error: { readonly message: string }) => new Tool.Failure({ message: error.message })
+
     yield* tools
       .register({
         [START]: Tool.withPermission(
@@ -166,7 +207,33 @@ const layer = Layer.effectDiscard(
             input: StartInput,
             output: InteractiveJob.Result,
             toModelOutput,
-            execute: () => notImplemented(START),
+            execute: (input, context) =>
+              Effect.gen(function* () {
+                // only start passes permission asserts: the external workdir
+                // boundary first, then the command itself (spec R26/R27/I7)
+                const target = yield* mutation.resolve({ path: input.workdir ?? ".", kind: "directory" })
+                if (target.externalDirectory)
+                  yield* permission.assert({
+                    ...LocationMutation.externalDirectoryPermission(target.externalDirectory),
+                    sessionID: context.sessionID,
+                    agent: context.agent,
+                    source: source(context),
+                  })
+                yield* permission.assert({
+                  action: PERMISSION_KEY,
+                  resources: [input.command],
+                  save: [input.command],
+                  sessionID: context.sessionID,
+                  agent: context.agent,
+                  source: source(context),
+                })
+                return yield* jobs.start({
+                  sessionID: context.sessionID,
+                  command: input.command,
+                  workdir: target.canonical,
+                  onProgress: progress(context),
+                })
+              }).pipe(Effect.mapError(toFailure)),
           }),
           PERMISSION_KEY,
         ),
@@ -176,7 +243,16 @@ const layer = Layer.effectDiscard(
             input: WriteInput,
             output: InteractiveJob.Result,
             toModelOutput,
-            execute: () => notImplemented(WRITE),
+            execute: (input, context) =>
+              jobs
+                .write({
+                  sessionID: context.sessionID,
+                  jobID: input.jobID,
+                  input: input.input,
+                  eof: input.eof,
+                  onProgress: progress(context),
+                })
+            .pipe(Effect.mapError(toFailure)),
           }),
           PERMISSION_KEY,
         ),
@@ -186,7 +262,15 @@ const layer = Layer.effectDiscard(
             input: WaitInput,
             output: InteractiveJob.Result,
             toModelOutput,
-            execute: () => notImplemented(WAIT),
+            execute: (input, context) =>
+              jobs
+                .wait({
+                  sessionID: context.sessionID,
+                  jobID: input.jobID,
+                  timeout: input.timeout,
+                  onProgress: progress(context),
+                })
+            .pipe(Effect.mapError(toFailure)),
           }),
           PERMISSION_KEY,
         ),
@@ -196,7 +280,14 @@ const layer = Layer.effectDiscard(
             input: CancelInput,
             output: InteractiveJob.Result,
             toModelOutput,
-            execute: () => notImplemented(CANCEL),
+            execute: (input, context) =>
+              jobs
+                .cancel({
+                  sessionID: context.sessionID,
+                  jobID: input.jobID,
+                  onProgress: progress(context),
+                })
+            .pipe(Effect.mapError(toFailure)),
           }),
           PERMISSION_KEY,
         ),
@@ -208,5 +299,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/interactive",
   layer,
-  deps: [ToolRegistry.node],
+  deps: [ToolRegistry.node, InteractiveJobs.node, LocationMutation.node, PermissionV2.node],
 })

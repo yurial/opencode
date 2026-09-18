@@ -1,8 +1,15 @@
 export * as InteractiveSpool from "./spool"
 
+import path from "path"
+import { appendFile as fsAppendFile, open as fsOpen } from "node:fs/promises"
 import { Context, Effect, Layer, Schema } from "effect"
-import type { ID } from "./job"
+import { Config } from "../../config"
+import { FSUtil } from "../../fs-util"
+import { Global } from "../../global"
 import { makeLocationNode } from "../../effect/app-node"
+import { ToolOutputStore } from "../../tool-output-store"
+import type { ID } from "./job"
+import { DEFAULT_MAX_SPOOL_BYTES } from "./job"
 
 /**
  * One bounded read from the spool between two byte offsets (spec R25).
@@ -68,16 +75,136 @@ export class StorageError extends Schema.TaggedErrorClass<StorageError>()("Inter
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/InteractiveSpool") {}
 
-const notImplemented = Effect.die(new Error("NOT IMPLEMENTED: interactive spool manager"))
+interface Entry {
+  readonly path: string
+  size: number
+  capped: boolean
+}
 
-/** Stub layer: wired into the Location graph together with the implementation (issue item 4). */
-export const layer = Layer.succeed(
+const takePrefix = (text: string, maximumBytes: number) => {
+  let bytes = 0
+  let content = ""
+  for (const char of text) {
+    const size = Buffer.byteLength(char, "utf8")
+    if (bytes + size > maximumBytes) break
+    content += char
+    bytes += size
+  }
+  return content
+}
+
+const capChunk = (text: string, limits: { maxLines: number; maxBytes: number }) => {
+  const lines = text.split("\n")
+  let cut = false
+  let output = text
+  if (lines.length > limits.maxLines) {
+    output = lines.slice(0, limits.maxLines).join("\n")
+    cut = true
+  }
+  if (Buffer.byteLength(output, "utf8") > limits.maxBytes) {
+    output = takePrefix(output, limits.maxBytes)
+    cut = true
+  }
+  return { text: output, cut }
+}
+
+const layer = Layer.effect(
   Service,
-  Service.of({
-    open: () => notImplemented,
-    append: () => notImplemented,
-    slice: () => notImplemented,
+  Effect.gen(function* () {
+    const fs = yield* FSUtil.Service
+    const global = yield* Global.Service
+    const config = yield* Config.Service
+    // the ToolOutputStore managed directory, so its 7-day retention applies (spec R24)
+    const directory = path.join(global.data, ToolOutputStore.MANAGED_DIRECTORY)
+    const spools = new Map<string, Entry>()
+
+    const requireSpool = (jobID: ID) => {
+      const entry = spools.get(jobID)
+      if (!entry) throw new StorageError({ operation: "open", cause: new Error(`No spool opened for ${jobID}`) })
+      return entry
+    }
+
+    const capBytes = Effect.fn("InteractiveSpool.capBytes")(function* () {
+      const entries = yield* config.entries().pipe(Effect.catch(() => Effect.succeed([] as Config.Entry[])))
+      return Config.latest(entries, "interactive")?.max_spool_bytes ?? DEFAULT_MAX_SPOOL_BYTES
+    })
+
+    const storage = (operation: "open" | "append" | "slice") => (cause: unknown) => new StorageError({ operation, cause })
+
+    const open = Effect.fn("InteractiveSpool.open")(function* (jobID: ID) {
+      yield* fs.ensureDir(directory).pipe(Effect.mapError(storage("open")))
+      const file = path.join(directory, `tool_${jobID}`)
+      if (yield* fs.existsSafe(file)) {
+        // re-attach after an in-process restart of the manager adopts the stored size
+        const info = yield* fs.stat(file).pipe(Effect.mapError(storage("open")))
+        spools.set(jobID, { path: file, size: Number(info.size), capped: false })
+        return file
+      }
+      yield* fs.writeFileString(file, "", { flag: "wx" }).pipe(Effect.mapError(storage("open")))
+      spools.set(jobID, { path: file, size: 0, capped: false })
+      return file
+    })
+
+    const append = Effect.fn("InteractiveSpool.append")(function* (jobID: ID, bytes: Uint8Array) {
+      const entry = requireSpool(jobID)
+      const cap = yield* capBytes()
+      if (entry.capped || entry.size >= cap) {
+        entry.capped = true
+        return { bytesStored: 0, capped: true, totalBytes: entry.size }
+      }
+      const stored = Math.min(bytes.length, cap - entry.size)
+      if (stored > 0) {
+        const view = stored === bytes.length ? bytes : bytes.subarray(0, stored)
+        // plain appendFile keeps the per-chunk hot path cheap; the Effect
+        // FileSystem scoped-open costs more than the append itself
+        yield* Effect.tryPromise({
+          try: () => fsAppendFile(entry.path, view),
+          catch: storage("append"),
+        })
+        entry.size += stored
+        entry.capped = entry.size >= cap
+      }
+      return { bytesStored: stored, capped: entry.capped, totalBytes: entry.size }
+    })
+
+    const readRange = Effect.fn("InteractiveSpool.readRange")(function* (file: string, offset: number, length: number) {
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const handle = await fsOpen(file, "r")
+          try {
+            const buffer = new Uint8Array(length)
+            const read = await handle.read(buffer, 0, length, offset)
+            return read.bytesRead === length ? buffer : buffer.subarray(0, read.bytesRead)
+          } finally {
+            await handle.close()
+          }
+        },
+        catch: storage("slice"),
+      })
+    })
+
+    const slice = Effect.fn("InteractiveSpool.slice")(function* (
+      jobID: ID,
+      from: number,
+      to: number | undefined,
+      limits: { maxLines: number; maxBytes: number },
+    ) {
+      const entry = requireSpool(jobID)
+      const end = Math.min(to ?? entry.size, entry.size)
+      const length = Math.max(0, end - from)
+      const text = length > 0 ? new TextDecoder().decode(yield* readRange(entry.path, from, length)) : ""
+      const capped = capChunk(text, limits)
+      return {
+        text: capped.text,
+        // an empty read from a non-zero offset means earlier capped reads elided
+        // the bytes this cursor points into — keep saying so (spec R25)
+        truncated: capped.cut || (from > 0 && capped.text === ""),
+        nextCursor: end,
+      }
+    })
+
+    return Service.of({ open, append, slice })
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [] })
+export const node = makeLocationNode({ service: Service, layer, deps: [Global.node, Config.node, FSUtil.node] })
