@@ -195,6 +195,51 @@ preferences.
   `useCompletionUrls`, Bedrock region-prefix logic, gateway passthrough
   wrappers).
 
+### Z.ai vendor request parameters
+
+**Files:** `packages/opencode/src/provider/transform.ts` (`options`),
+`packages/opencode/src/session/llm/request.ts` (`prepare` merge order).
+
+When the resolved model matches the Z.ai guard — providerID containing `zai`
+or `zhipuai` with `api.npm === "@ai-sdk/openai-compatible"` (the Z.ai
+OpenAI-compatible platform, base URL `https://api.z.ai/api/paas/v4`) —
+`ProviderTransform.options` injects Z.ai vendor body parameters, which reach
+the request body through the openai-compatible providerOptions passthrough:
+
+- `thinking: { type: "enabled", clear_thinking: false }` — as-built default:
+  enables model thinking and keeps (does not clear) thinking content in the
+  response.
+- `tool_stream: true` — Z.ai tool-call argument streaming (vendor feature:
+  <https://docs.z.ai/guides/capabilities/stream-tool>): the API streams
+  tool-call argument deltas as they are generated instead of buffering each
+  call server-side until completion, lowering latency to the first argument
+  token. Meaningful only for models that support tool calling (GLM-5 family);
+  models without tool calling never emit tool-call deltas, so the parameter
+  is inert for them.
+
+Client readiness for unbuffered argument deltas:
+
+- Native path (`packages/llm`): the shared accumulator
+  (`protocols/utils/tool-stream.ts`) appends each delta to a raw string and
+  parses JSON only at finalization, so partial argument text is handled by
+  construction.
+- Legacy AI SDK path (`@ai-sdk/openai-compatible`): partial argument chunks
+  pass an `isParsableJson` guard — accumulated text is emitted only once it
+  parses as complete JSON.
+
+Known failure mode: when Z.ai emits the first tool-call delta for an index
+without `id`, the legacy SDK stream decoder throws `InvalidResponseDataError`
+(fixed upstream in AI SDK PR #47954); on the native path the same shape
+surfaces as a typed `LLMError` with reason `InvalidProviderOutput`
+(`eventError` in `protocols/shared.ts`) — the stream fails, the client does
+not crash.
+
+Both parameters are defaults, not forced values: `prepare` deep-merges
+`model.options`, then `agent.options`, then the selected variant over the
+`ProviderTransform.options` base (see Variant application order above), so
+config can override either per model, agent, or variant (e.g.
+`options.tool_stream: false`).
+
 ## Models and Variants
 
 ### V1 variants
@@ -747,6 +792,10 @@ Stubs / known limitations:
   clarification (inline TODOs).
 - V1 catalog treats models.dev `status` absent as `active`; the models.dev
   schema itself only validates `alpha/beta/deprecated` there.
+- Z.ai `tool_stream` vendor parameter streams tool-call argument deltas
+  unbuffered; a first delta lacking `id` breaks the legacy AI SDK stream
+  (`InvalidResponseDataError`, fixed upstream in PR #47954) while the native
+  path fails with a typed `InvalidProviderOutput` error instead.
 - `openai/responses` WebSocket transport exists as a route
   (`OpenAIResponses.webSocketRoute` + `WebSocketExecutor`); the V2 resolver
   does not select it (no silent downgrade either — see draft note).

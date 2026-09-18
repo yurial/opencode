@@ -175,6 +175,7 @@ Known tool keys: `read`, `edit`, `glob`, `grep`, `list`, `bash`, `task`,
 | Model `modalities.{input,output}` | array of `text` \| `audio` \| `image` \| `video` \| `pdf` | enum array | catalog | Modality support |
 | Model `status` | enum | `alpha` \| `beta` \| `deprecated` \| `active` | — | Catalog status |
 | Model `options` / `headers` | object | any / string map | none | Request overrides |
+| Model `options.tool_stream` (zai/zhipuai) | boolean | override of the injected Z.ai vendor body parameter | injected `true` for zai/zhipuai models on `@ai-sdk/openai-compatible` | Z.ai streams tool-call argument deltas without server-side buffering (lower first-argument-token latency; tool-calling models only, GLM-5 family). Not a plain config key: the default is injected by `ProviderTransform.options` and this key is the deep-merge override channel (`model.options` ← `agent.options` ← variant merge over the injected base). See provider-models, "Z.ai vendor request parameters" |
 | Model `variants.<vid>` | object | `disabled?: boolean` + any | — | Variant config |
 | `disabled_providers` | string[] | provider ids | none | Disable auto-loaded providers |
 | `enabled_providers` | string[] | provider ids | none | Exclusive allowlist |
