@@ -42,6 +42,11 @@ service; provider transport.
   Effect migration state of `src/tool` files. Its file inventory is stale
   relative to this branch (see Divergences below); this spec is the behavioral
   source of truth, that one remains the migration ledger.
+- `specs/tool-interactive.md` (tool-interactive, draft) designs the V2
+  `interactive` process tool family. It cites this spec's bash permission
+  precedent (ask on the full command text; `external_directory` for outside
+  working directories) but targets `PermissionV2` in `packages/core` and does
+  not change the V1 tool system specified here.
 - `packages/opencode/specs/effect/instance-context.md` covers the
   `InstanceState` per-directory conventions used by the registry and permission
   state.

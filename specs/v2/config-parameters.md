@@ -74,6 +74,7 @@ loader channels and are not part of the V2 discovery (implemented).
 | `lsp` | bool \| record | runtime | implemented | LSP subsystem |
 | `attachments.image.{auto_resize,max_width,max_height,max_base64_bytes}` | bool; positive ints | `true`; `2000`; `2000`; `5242880` | implemented | Image normalization limits |
 | `tool_output.{max_lines,max_bytes}` | positive ints | `2000`; `51200` | implemented | Truncation thresholds |
+| `interactive.{max_jobs,max_exchanges,quiet_window_ms,wait_timeout_ms,default_timeout_ms,max_spool_bytes}` | positive ints (bounds per row in the interactive section) | `3`; `20`; `500`; `120000`; `900000`; `8388608` | spec-only | Interactive process tool budgets and timing (see tool-interactive) |
 | `mcp` | object | none | implemented | MCP subsystem (see below) |
 | `compaction` | object | none | implemented | Conversation compaction |
 | `skills` | string[] (paths or URLs) | none | implemented | Skill discovery sources |
@@ -160,6 +161,23 @@ Not ported per review: provider/model `reasoning`, `temperature`,
 
 V1 `compaction.tail_turns` is dropped by the migrator with no V2 equivalent
 (gap; see TODO).
+
+### Interactive tool (`interactive.*`)
+
+Parameters for the V2 `interactive` process tool family (see
+`specs/tool-interactive.md`, tool-interactive). All keys are spec-only: the
+tool family is specified but not implemented. The per-result output chunk
+bound deliberately reuses `tool_output.{max_lines,max_bytes}` rather than
+adding keys.
+
+| Key | Type / allowed | Default | Status | Responsibility |
+|---|---|---|---|---|
+| `interactive.max_jobs` | positive int | `3` | spec-only | Live interactive jobs per Session |
+| `interactive.max_exchanges` | positive int | `20` | spec-only | Settled results per job before auto-cancel |
+| `interactive.quiet_window_ms` | positive int (ms) | `500` | spec-only | Quiescence window that yields status `waiting` |
+| `interactive.wait_timeout_ms` | positive int ≤ 600000 | `120000` | spec-only | Default `interactive_wait` deadline |
+| `interactive.default_timeout_ms` | positive int ≤ 3600000 | `900000` | spec-only | Default job lifetime |
+| `interactive.max_spool_bytes` | positive int | `8388608` | spec-only | Per-job spool file cap |
 
 ### Policies (`experimental.policies`)
 
@@ -265,5 +283,5 @@ tuple form.
 
 ## Used by
 
-None yet. Specs for consumers of the V2 config surface (session runner,
-catalog, TUI) should list config-v2 in their Dependencies when authored.
+- tool-interactive — the `interactive.*` budget/timing keys and the reused
+  `tool_output.*` chunk bound are specified there (spec-only rows above).

@@ -13,6 +13,7 @@
 | specs/project.md | project-api | stable | Legacy per-project HTTP API sketch |
 | specs/server-api-sdk.md | server-api-sdk | draft | Protocol/Server/Client/SDK stack as built: HttpApi groups and middleware, V2 handlers and transports (SSE/WebSocket), hosting entrypoints, client and legacy SDK generation |
 | specs/storage-events.md | storage-events | stable | SQLite storage and events: database and migration runtime, JSON file storage, EventV2 durable log (projectors, replay, ownership), bridge/SSE delivery, experimental workspace sync |
+| specs/tool-interactive.md | tool-interactive | draft | V2 interactive process tool family (start/write/wait/cancel): auto-fed interactive jobs, exchange/job/lifetime budgets, output spool and chunk bounding, permission gating, crash recovery |
 | specs/tui-architecture.md | tui-architecture | stable | TUI architecture and runtime: launch hosts and worker model, provider tree, routes/keymap/commands, legacy Sync and V2 Data stores, prompt/permission/question flows |
 | specs/tui-package.md | tui-package | draft | TUI extraction into @opencode-ai/tui package |
 | specs/tui-session-display.md | tui-session-display | draft | Session screen: thinking mode, reasoning timer, persisted context-excluded meta parts |
