@@ -1257,6 +1257,9 @@ export function options(input: {
       type: "enabled",
       clear_thinking: false,
     }
+    // Z.ai streams tool-call argument deltas as they are generated instead of
+    // buffering each call server-side (https://docs.z.ai/guides/capabilities/stream-tool).
+    result["tool_stream"] = true
   }
 
   if (input.model.providerID === "meta" && input.model.api.npm === "@ai-sdk/openai") {

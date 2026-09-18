@@ -353,8 +353,68 @@ describe("ProviderTransform.options - zai/zhipuai thinking", () => {
         type: "enabled",
         clear_thinking: false,
       })
+      expect(result.tool_stream).toBe(true)
     })
   }
+
+  test("does not set tool_stream for other providers on openai-compatible", () => {
+    const result = ProviderTransform.options({
+      model: createModel("some-other-provider"),
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.tool_stream).toBeUndefined()
+  })
+
+  test("does not set tool_stream when zai does not use the openai-compatible SDK", () => {
+    const model = createModel("zai")
+    model.api.npm = "@ai-sdk/anthropic"
+    const result = ProviderTransform.options({
+      model,
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.tool_stream).toBeUndefined()
+    expect(result.thinking).toBeUndefined()
+  })
+
+  test("model.options can override tool_stream", async () => {
+    const model = { ...createModel("zai"), options: { tool_stream: false } }
+    const result = await Effect.runPromise(
+      LLMRequestPrep.prepare({
+        user: {
+          id: "msg_user-test",
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "test",
+          model: { providerID: "zai", modelID: "glm-4.6" },
+        } as any,
+        sessionID,
+        model,
+        agent: {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [],
+        } as any,
+        system: [],
+        messages: [{ role: "user", content: "Hello" }],
+        tools: {},
+        provider: { id: "zai", options: {} } as any,
+        auth: undefined,
+        plugin: {
+          trigger: (_name: string, _input: unknown, output: unknown) => Effect.succeed(output),
+          list: () => Effect.succeed([]),
+          init: () => Effect.void,
+        } as any,
+        flags: { outputTokenMax: 32_000, client: "test" } as any,
+        isWorkflow: false,
+      }),
+    )
+    expect(result.params.options.tool_stream).toBe(false)
+    expect(result.params.options.thinking).toEqual({ type: "enabled", clear_thinking: false })
+  })
 })
 
 describe("ProviderTransform.options - minimax m3 thinking", () => {
