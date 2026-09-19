@@ -21,7 +21,8 @@
 | core-discard-context/discarded-token-total | The session-wide sum of output and reasoning tokens over fully-discarded-messages; identical for every marker surface of the session | core-discard-context (R7.1) |
 | core-discard-context/fully-discarded-message | An assistant message whose every eligible content part (text, reasoning, or tool other than a discard-call) is a marked-part; the unit of exact token attribution | core-discard-context |
 | core-discard-context/marked-ids | The deduplicated union of string ids collected from the inputs of every discard-call in the session history | core-discard-context (R3.1) |
-| core-discard-context/marked-part | An assistant content part whose id is a member of marked-ids | core-discard-context |
+| core-discard-context/marked-part | An assistant content part whose id is a member of marked-ids; in the V1 runtime a tool part also matches when its provider call id is a member | core-discard-context |
+| core-discard-context/provider-call-id | The tool-call id under which a tool part appears in the provider context; in the V1 runtime it differs from the tool part's own id | core-discard-context |
 | event-retention/prune-floor | For one aggregate, the minimum watermark for that aggregate over the maps currently in the window; aggregates absent from every live map have no floor and are never pruned | event-retention (R3) |
 | event-retention/watermark | The per-aggregate value inside a posted map: a non-negative integer declaring the highest event seq the replica already possesses for that aggregate | event-retention |
 | event-retention/watermark-map | The complete record a replica posts as the /sync/history request payload, mapping aggregate IDs to watermark values | event-retention |
