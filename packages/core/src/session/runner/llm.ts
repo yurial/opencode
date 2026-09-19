@@ -34,6 +34,7 @@ import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
 import { createLLMEventPublisher } from "./publish-llm-event"
+import { DiscardContext } from "./discard-context"
 import { toLLMMessages } from "./to-llm-message"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { Snapshot } from "../../snapshot"
@@ -197,8 +198,15 @@ const layer = Layer.effect(
       const system =
         initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id))
       const model = yield* models.resolve(session)
+      // Read per turn so a reopened Location's config takes effect on the next
+      // provider turn without rebuilding the runner.
+      const discardContext = Config.latest(yield* config.entries(), "discard_context") === true
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
-      const context = entries.map((entry) => entry.message)
+      // Discard filtering happens once, before every consumer of these
+      // entries: provider messages and both compaction paths see the same
+      // filtered view, and each turn reloads entries so it survives resume.
+      const visible = discardContext ? DiscardContext.filterEntries(entries) : entries
+      const context = visible.map((entry) => entry.message)
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
       const toolMaterialization = isLastStep ? undefined : yield* tools.materialize(agent.info?.permissions)
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
@@ -212,14 +220,14 @@ const layer = Layer.effect(
           },
         },
         providerOptions: { openai: { promptCacheKey } },
-        system: [agent.info?.system, system.baseline]
+        system: [agent.info?.system, system.baseline, ...(discardContext ? [DiscardContext.INSTRUCTION] : [])]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
         messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
-      if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
+      if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries: visible, model, request }))
         return yield* Effect.die(continueAfterCompaction(currentStep))
       const startSnapshot = yield* snapshots.capture()
       const publisher = createLLMEventPublisher(events, {
@@ -290,7 +298,7 @@ const layer = Layer.effect(
             recoverOverflow &&
             !publisher.hasAssistantStarted() &&
             isContextOverflowFailure(overflowFailure ?? failure) &&
-            (yield* restore(recoverOverflow({ sessionID: session.id, entries, model, request })))
+            (yield* restore(recoverOverflow({ sessionID: session.id, entries: visible, model, request })))
           )
             return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
           if (overflowFailure) yield* publish(overflowFailure)
