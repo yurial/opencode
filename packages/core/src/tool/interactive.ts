@@ -129,6 +129,16 @@ const CANCEL_SUPPLEMENT = `${CANCEL} kills the job's process group (SIGTERM, the
 returns the final drained output plus the spool path. Idempotent on
 terminal jobs. Cancelling does not consume an exchange.`
 
+/** Model-facing description per method: the R33 guidance block plus the per-method supplement. */
+const descriptions: Record<(typeof names)[number], string> = {
+  [START]: `${GUIDANCE}\n\n${START_SUPPLEMENT}`,
+  [WRITE]: `${GUIDANCE}\n\n${WRITE_SUPPLEMENT}`,
+  [WAIT]: `${GUIDANCE}\n\n${WAIT_SUPPLEMENT}`,
+  [CANCEL]: `${GUIDANCE}\n\n${CANCEL_SUPPLEMENT}`,
+}
+
+export const description = (name: (typeof names)[number]) => descriptions[name]
+
 // ---------------------------------------------------------------------------
 // Shared model text (spec R4)
 // ---------------------------------------------------------------------------
@@ -139,9 +149,11 @@ terminal jobs. Cancelling does not consume an exchange.`
  * `exit`/`reason` notes, and — when bytes were elided — the spool marker
  * naming `outputPath` (invariant I5). The truncation marker is emitted here
  * because interactive results are self-bounded (spec R25): the generic
- * settlement bounding no-ops on them.
+ * settlement bounding no-ops on them. Exported so the V1 bridge
+ * (`packages/opencode/src/tool/interactive.ts`) encodes results identically
+ * instead of duplicating the text contract.
  */
-const toModelOutput = ({ output }: { readonly output: InteractiveJob.Result }): ReadonlyArray<Tool.Content> => {
+export const toModelOutput = ({ output }: { readonly output: InteractiveJob.Result }): ReadonlyArray<Tool.Content> => {
   const total = output.exchanges + output.exchangesRemaining
   const parts = [
     output.output,
@@ -203,7 +215,7 @@ const layer = Layer.effectDiscard(
       .register({
         [START]: Tool.withPermission(
           Tool.make({
-            description: `${GUIDANCE}\n\n${START_SUPPLEMENT}`,
+            description: descriptions[START],
             input: StartInput,
             output: InteractiveJob.Result,
             toModelOutput,
@@ -240,7 +252,7 @@ const layer = Layer.effectDiscard(
         ),
         [WRITE]: Tool.withPermission(
           Tool.make({
-            description: `${GUIDANCE}\n\n${WRITE_SUPPLEMENT}`,
+            description: descriptions[WRITE],
             input: WriteInput,
             output: InteractiveJob.Result,
             toModelOutput,
@@ -259,7 +271,7 @@ const layer = Layer.effectDiscard(
         ),
         [WAIT]: Tool.withPermission(
           Tool.make({
-            description: `${GUIDANCE}\n\n${WAIT_SUPPLEMENT}`,
+            description: descriptions[WAIT],
             input: WaitInput,
             output: InteractiveJob.Result,
             toModelOutput,
@@ -277,7 +289,7 @@ const layer = Layer.effectDiscard(
         ),
         [CANCEL]: Tool.withPermission(
           Tool.make({
-            description: `${GUIDANCE}\n\n${CANCEL_SUPPLEMENT}`,
+            description: descriptions[CANCEL],
             input: CancelInput,
             output: InteractiveJob.Result,
             toModelOutput,
