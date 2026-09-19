@@ -102,6 +102,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "{{count}} စာရင်း",
   "ui.messagePart.context.list.other": "{{count}} စာရင်းများ",
   "ui.messagePart.context.discarded": "ဖယ်ရှားထားသော ဆက်စပ်အကြောင်းအရာ အပိုင်းများ: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} တိုကင်",
   "ui.list.loading": "တင်နေသည်။",
   "ui.list.empty": "ရလဒ်မရှိပါ။",
   "ui.list.clearFilter": "စစ်ထုတ်မှုကို ရှင်းလင်းပါ။",

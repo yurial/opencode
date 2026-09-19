@@ -101,6 +101,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "{{count}} жагсаалт",
   "ui.messagePart.context.list.other": "{{count}} жагсаалт",
   "ui.messagePart.context.discarded": "Контекстын устгасан хэсэг: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} токен",
   "ui.list.loading": "Ачааж байна",
   "ui.list.empty": "Үр дүн алга",
   "ui.list.clearFilter": "Шүүлтүүрийг цэвэрлэх",

@@ -101,6 +101,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "{{count}} списък",
   "ui.messagePart.context.list.other": "{{count}} списъци",
   "ui.messagePart.context.discarded": "Части от контекста са отхвърлени: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} токена",
   "ui.list.loading": "Зарежда се",
   "ui.list.empty": "Няма резултати",
   "ui.list.clearFilter": "Изчистване на филтъра",

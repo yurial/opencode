@@ -65,6 +65,7 @@ import { partDefaultOpen } from "./part-default-open"
 import { animate } from "motion"
 import { attached, inline, kind, typeLabel } from "./message-file"
 import { readPartText } from "./message-part-text"
+import { discardedTokenTotal, formatCompactTokens } from "./discard-context-summary"
 import { SessionProgressIndicatorV2 } from "../v2/components/session-progress-indicator-v2"
 
 async function writeClipboard(text: string): Promise<boolean> {
@@ -2648,13 +2649,27 @@ ToolRegistry.register({
 
 // discard_context marks context parts as excluded from the LLM context.
 // Like compaction it renders as a single divider line with a count, not a
-// tool card, so the ids payload is never shown.
+// tool card, so the ids payload is never shown. The session-wide output
+// token total is appended only when it is exact: tokens are attributed per
+// assistant message, so partial discards would be guesswork.
 ToolRegistry.register({
   name: "discard_context",
   render(props) {
     const i18n = useI18n()
+    const data = useData()
     const ids = props.input.ids
     const count = Array.isArray(ids) ? ids.length : 0
-    return <MessageDivider label={i18n.t("ui.messagePart.context.discarded", { count })} />
+    const label = () => {
+      const base = i18n.t("ui.messagePart.context.discarded", { count })
+      const sessionID = props.sessionID
+      if (!sessionID) return base
+      const total = discardedTokenTotal(
+        data.store.message[sessionID] ?? [],
+        (messageID) => data.store.part[messageID],
+      )
+      if (total <= 0) return base
+      return `${base} · ${i18n.t("ui.messagePart.context.discardedTokens", { count: formatCompactTokens(total) })}`
+    }
+    return <MessageDivider label={label()} />
   },
 })

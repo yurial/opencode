@@ -100,6 +100,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} listaus",
   "ui.messagePart.context.list.other": "{{count}} listausta",
   "ui.messagePart.context.discarded": "Hylättyjä kontekstiosia: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} tokenia",
   "ui.list.loading": "Ladataan",
   "ui.list.empty": "Ei tuloksia",
   "ui.list.clearFilter": "Tyhjennä suodatin",

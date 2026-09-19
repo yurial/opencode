@@ -102,6 +102,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} فہرست",
   "ui.messagePart.context.list.other": "{{count}} فہرستیں۔",
   "ui.messagePart.context.discarded": "سیاق و سباق کے خارج شدہ حصے: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} ٹوکنز",
   "ui.list.loading": "لوڈ ہو رہا ہے۔",
   "ui.list.empty": "کوئی نتیجہ نہیں ملا",
   "ui.list.clearFilter": "فلٹر صاف کریں۔",

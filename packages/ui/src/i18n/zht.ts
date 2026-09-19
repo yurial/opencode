@@ -104,6 +104,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "列出 {{count}} 次",
   "ui.messagePart.context.list.other": "列出 {{count}} 次",
   "ui.messagePart.context.discarded": "已捨棄 {{count}} 個上下文部分",
+  "ui.messagePart.context.discardedTokens": "{{count}} token",
   "ui.messagePart.diagnostic.error": "錯誤",
   "ui.messagePart.title.edit": "編輯",
   "ui.messagePart.title.write": "寫入",

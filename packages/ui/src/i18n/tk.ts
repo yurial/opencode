@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} sanawy",
   "ui.messagePart.context.list.other": "{{count}} sanawlary",
   "ui.messagePart.context.discarded": "Aýrylan kontekst bölekleri: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} belgi",
   "ui.list.loading": "Adingüklemek",
   "ui.list.empty": "Netije ýok",
   "ui.list.clearFilter": "Süzgüçi arassalaň",

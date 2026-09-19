@@ -106,6 +106,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.many": "{{count}} di elenchi",
   "ui.messagePart.context.list.other": "{{count}} elenchi",
   "ui.messagePart.context.discarded": "Parti di contesto eliminate: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} token",
   "ui.list.loading": "Caricamento",
   "ui.list.empty": "Nessun risultato",
   "ui.list.clearFilter": "Cancella filtro",

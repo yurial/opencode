@@ -108,6 +108,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} seznam",
   "ui.messagePart.context.list.other": "{{count}} seznamov",
   "ui.messagePart.context.discarded": "Odstranjeni deli konteksta: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} žetonov",
   "ui.messagePart.context.list.two": "{{count}} seznama",
   "ui.messagePart.context.list.few": "{{count}} seznami",
   "ui.list.loading": "Nalaganje",

@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} ලැයිස්තුව",
   "ui.messagePart.context.list.other": "{{count}} ලැයිස්තු",
   "ui.messagePart.context.discarded": "ඉවත් කළ සන්දර්භ කොටස්: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} ටෝකන",
   "ui.list.loading": "පැටවීම",
   "ui.list.empty": "ප්‍රතිඵල නැත",
   "ui.list.clearFilter": "පෙරහන හිස් කරන්න",

@@ -81,6 +81,7 @@ export const dict: Record<Keys, string> = {
   "ui.messagePart.context.list.one": "{{count}} liste",
   "ui.messagePart.context.list.other": "{{count}} lister",
   "ui.messagePart.context.discarded": "Kontekstdeler forkastet: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} tokener",
   "ui.messagePart.diagnostic.error": "Feil",
   "ui.messagePart.title.edit": "Rediger",
   "ui.messagePart.title.write": "Skriv",

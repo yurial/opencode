@@ -78,6 +78,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "{{count}}개 목록",
   "ui.messagePart.context.list.other": "{{count}}개 목록",
   "ui.messagePart.context.discarded": "폐기된 컨텍스트 부분: {{count}}개",
+  "ui.messagePart.context.discardedTokens": "{{count}} 토큰",
   "ui.messagePart.diagnostic.error": "오류",
   "ui.messagePart.title.edit": "편집",
   "ui.messagePart.title.write": "작성",

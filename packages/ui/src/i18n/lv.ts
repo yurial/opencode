@@ -104,6 +104,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} saraksts",
   "ui.messagePart.context.list.other": "{{count}} saraksti",
   "ui.messagePart.context.discarded": "Noņemtas konteksta daļas: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} žetonu",
   "ui.messagePart.context.list.zero": "{{count}} sarakstu",
   "ui.list.loading": "Ielādējas",
   "ui.list.empty": "Nav rezultātu",

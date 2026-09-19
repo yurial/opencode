@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} danh sách",
   "ui.messagePart.context.list.other": "{{count}} danh sách",
   "ui.messagePart.context.discarded": "Phần ngữ cảnh đã loại bỏ: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} token",
   "ui.list.loading": "Đang tải",
   "ui.list.empty": "Không có kết quả",
   "ui.list.clearFilter": "Xóa bộ lọc",

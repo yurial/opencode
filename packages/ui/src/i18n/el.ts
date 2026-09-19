@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} λίστα",
   "ui.messagePart.context.list.other": "{{count}} λίστες",
   "ui.messagePart.context.discarded": "Μέρη συμφραζομένων που απορρίφθηκαν: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} διακριτικά",
   "ui.list.loading": "Φόρτωση",
   "ui.list.empty": "Δεν υπάρχουν αποτελέσματα",
   "ui.list.clearFilter": "Διαγραφή φίλτρου",

@@ -107,6 +107,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} sąrašas",
   "ui.messagePart.context.list.other": "{{count}} sąrašai",
   "ui.messagePart.context.discarded": "Pašalintos konteksto dalys: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} žetonų",
   "ui.messagePart.context.list.few": "{{count}} sąrašai",
   "ui.messagePart.context.list.many": "{{count}} sąrašo",
   "ui.list.loading": "Įkeliama",

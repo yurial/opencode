@@ -103,6 +103,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} lista",
   "ui.messagePart.context.list.other": "{{count}} listák",
   "ui.messagePart.context.discarded": "Elvetett kontextusrészek: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} token",
   "ui.list.loading": "Betöltés",
   "ui.list.empty": "Nincs eredmény",
   "ui.list.clearFilter": "Szűrő törlése",

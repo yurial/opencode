@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} siyahı",
   "ui.messagePart.context.list.other": "{{count}} siyahı",
   "ui.messagePart.context.discarded": "Çıxarılan kontekst hissələri: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} token",
   "ui.list.loading": "Yüklənir",
   "ui.list.empty": "Nəticə yoxdur",
   "ui.list.clearFilter": "Filtri təmizlə",

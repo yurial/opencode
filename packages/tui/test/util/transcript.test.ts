@@ -316,6 +316,48 @@ describe("transcript", () => {
       const result = formatPart(part, options)
       expect(result).toBe("**Discarded 0 context parts**\n\n")
     })
+
+    test("appends compact token total when provided", () => {
+      const part: Part = {
+        id: "part_1",
+        sessionID: "ses_123",
+        messageID: "msg_123",
+        type: "tool",
+        callID: "call_1",
+        tool: "discard_context",
+        state: {
+          status: "completed",
+          input: { ids: ["part_a", "part_b"] },
+          output: "ok",
+          title: "Discard context",
+          metadata: {},
+          time: { start: 1000, end: 1100 },
+        },
+      }
+      const result = formatPart(part, { ...options, discardedTokens: 4200 })
+      expect(result).toBe("**Discarded 2 context parts · 4.2k tokens**\n\n")
+    })
+
+    test("omits token total when zero or absent", () => {
+      const part: Part = {
+        id: "part_1",
+        sessionID: "ses_123",
+        messageID: "msg_123",
+        type: "tool",
+        callID: "call_1",
+        tool: "discard_context",
+        state: {
+          status: "completed",
+          input: { ids: ["part_a"] },
+          output: "ok",
+          title: "Discard context",
+          metadata: {},
+          time: { start: 1000, end: 1100 },
+        },
+      }
+      expect(formatPart(part, { ...options, discardedTokens: 0 })).toBe("**Discarded 1 context part**\n\n")
+      expect(formatPart(part, options)).toBe("**Discarded 1 context part**\n\n")
+    })
   })
 
   describe("formatMessage", () => {
@@ -508,6 +550,95 @@ describe("transcript", () => {
       expect(result).toContain("## Assistant\n\n")
       expect(result).not.toContain("Build")
       expect(result).not.toContain("claude-sonnet-4-20250514")
+    })
+
+    test("appends discarded token total only for fully discarded assistant messages", () => {
+      const session = {
+        id: "ses_abc123",
+        title: "Test Session",
+        time: { created: 1000000000000, updated: 1000000001000 },
+      }
+      const fullyDiscarded = {
+        info: {
+          id: "msg_1",
+          sessionID: "ses_abc123",
+          role: "assistant" as const,
+          agent: "build",
+          modelID: "claude-sonnet-4-20250514",
+          providerID: "anthropic",
+          mode: "",
+          parentID: "msg_0",
+          path: { cwd: "/test", root: "/test" },
+          cost: 0.001,
+          tokens: { input: 100, output: 3000, reasoning: 1200, cache: { read: 0, write: 0 } },
+          time: { created: 1000000000100, completed: 1000000000600 },
+        },
+        parts: [
+          { id: "p1", sessionID: "ses_abc123", messageID: "msg_1", type: "text" as const, text: "Old answer" },
+          {
+            id: "p2",
+            sessionID: "ses_abc123",
+            messageID: "msg_1",
+            type: "tool" as const,
+            callID: "call_1",
+            tool: "discard_context",
+            state: {
+              status: "completed" as const,
+              input: { ids: ["p1"] },
+              output: "ok",
+              title: "Discard context",
+              metadata: {},
+              time: { start: 1000, end: 1100 },
+            },
+          },
+        ],
+      }
+      const partial = {
+        info: {
+          id: "msg_2",
+          sessionID: "ses_abc123",
+          role: "assistant" as const,
+          agent: "build",
+          modelID: "claude-sonnet-4-20250514",
+          providerID: "anthropic",
+          mode: "",
+          parentID: "msg_1",
+          path: { cwd: "/test", root: "/test" },
+          cost: 0.001,
+          tokens: { input: 100, output: 999, reasoning: 999, cache: { read: 0, write: 0 } },
+          time: { created: 1000000000700, completed: 1000000001200 },
+        },
+        parts: [
+          { id: "p3", sessionID: "ses_abc123", messageID: "msg_2", type: "text" as const, text: "Kept answer" },
+          {
+            id: "p4",
+            sessionID: "ses_abc123",
+            messageID: "msg_2",
+            type: "tool" as const,
+            callID: "call_2",
+            tool: "discard_context",
+            state: {
+              status: "completed" as const,
+              input: {},
+              output: "ok",
+              title: "Discard context",
+              metadata: {},
+              time: { start: 2000, end: 2100 },
+            },
+          },
+        ],
+      }
+
+      const result = formatTranscript(session, [fullyDiscarded, partial], {
+        thinking: false,
+        toolDetails: false,
+        assistantMetadata: false,
+      })
+
+      // The token total is session-wide, so both discard markers carry it.
+      expect(result).toContain("**Discarded 1 context part · 4.2k tokens**\n\n")
+      expect(result).toContain("**Discarded 0 context parts · 4.2k tokens**\n\n")
+      expect(result).not.toContain("999")
     })
   })
 })

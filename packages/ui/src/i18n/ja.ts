@@ -101,6 +101,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "{{count}} 件の一覧表示",
   "ui.messagePart.context.list.other": "{{count}} 件の一覧表示",
   "ui.messagePart.context.discarded": "コンテキストパーツを {{count}} 件破棄しました",
+  "ui.messagePart.context.discardedTokens": "{{count}} トークン",
   "ui.messagePart.diagnostic.error": "エラー",
   "ui.messagePart.title.edit": "編集",
   "ui.messagePart.title.write": "書き込み",

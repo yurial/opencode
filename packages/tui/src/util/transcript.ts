@@ -1,4 +1,5 @@
 import type { AssistantMessage, Part, Provider, UserMessage } from "@opencode-ai/sdk/v2"
+import { discardedTokenTotal, formatCompactTokens } from "./discard-context"
 import { Locale } from "./locale"
 import * as Model from "./model"
 
@@ -7,6 +8,11 @@ export type TranscriptOptions = {
   toolDetails: boolean
   assistantMetadata: boolean
   providers?: Provider[]
+  // Session-wide output+reasoning token total of fully discarded assistant
+  // messages; computed by formatTranscript. Optional so standalone
+  // formatMessage/formatPart callers don't have to provide it (the discard
+  // marker then renders without the token suffix).
+  discardedTokens?: number
 }
 
 export type SessionInfo = {
@@ -29,6 +35,15 @@ export function formatTranscript(
   options: TranscriptOptions,
 ): string {
   const providers = Model.index(options.providers)
+  const partsByID: Record<string, Part[]> = {}
+  for (const msg of messages) partsByID[msg.info.id] = msg.parts
+  const messageOptions: TranscriptOptions = {
+    ...options,
+    discardedTokens: discardedTokenTotal(
+      messages.map((msg) => msg.info),
+      (messageID) => partsByID[messageID],
+    ),
+  }
   let transcript = `# ${session.title}\n\n`
   transcript += `**Session ID:** ${session.id}\n`
   transcript += `**Created:** ${new Date(session.time.created).toLocaleString()}\n`
@@ -38,7 +53,7 @@ export function formatTranscript(
   for (const msg of messages.toSorted(
     (a, b) => a.info.time.created - b.info.time.created || a.info.id.localeCompare(b.info.id),
   )) {
-    transcript += formatMessage(msg.info, msg.parts, options, providers)
+    transcript += formatMessage(msg.info, msg.parts, messageOptions, providers)
     transcript += `---\n\n`
   }
 
@@ -104,10 +119,14 @@ export function formatPart(part: Part, options: TranscriptOptions): string {
 
   if (part.type === "tool" && part.tool === "discard_context") {
     // discard_context only marks parts as excluded from the LLM context; the
-    // exported transcript keeps a one-line marker instead of the raw ids.
+    // exported transcript keeps a one-line marker instead of the raw ids. The
+    // token total is session-wide and only appended when it is exact (see
+    // TranscriptOptions.discardedTokens).
     const ids = part.state.input?.ids
     const count = Array.isArray(ids) ? ids.length : 0
-    return `**Discarded ${count} context part${count === 1 ? "" : "s"}**\n\n`
+    const tokens = options.discardedTokens
+    const suffix = tokens && tokens > 0 ? ` · ${formatCompactTokens(tokens)} tokens` : ""
+    return `**Discarded ${count} context part${count === 1 ? "" : "s"}${suffix}**\n\n`
   }
 
   if (part.type === "tool") {

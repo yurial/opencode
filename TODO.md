@@ -5,12 +5,27 @@
 - **session-ui (web)**: маркер-дивидер показывает «Discarded N context parts» сразу, включая
   статусы pending/running (count берётся из input). Отдельного pending-состояния нет —
   так же ведёт себя и маркер compaction.
-- **session-ui**: маркер не покрыт unit-тестами — bun test не может импортировать
+- **session-ui**: маркер не покрыт unit-тестами напрямую — bun test не может импортировать
   `message-part.tsx` (транзитивный Vite-импорт `markdown.worker.ts?worker&url`);
-  в пакете тестируются только чистые `.ts` модули.
+  в пакете тестируются только чистые `.ts` модули. Чистая логика подсчёта вынесена в
+  `discard-context-summary.ts` и покрыта тестами.
+- **Токены в маркере**: точная сумма output+reasoning показывается только когда ВСЕ
+  assistant-части (text/reasoning/tool, кроме самих discard-маркеров) сообщения помечены;
+  частичные исключения не оцениваются (решение пользователя). Приписка сессионная — все
+  discard-маркеры сессии (и в web, и в TUI, и в transcript) показывают одну и ту же сумму.
+- **Дублирование чистой логики**: модуль подсчёта существует в двух копиях —
+  `packages/session-ui/src/components/discard-context-summary.ts` (web) и
+  `packages/tui/src/util/discard-context.ts` (TUI/transcript): tui не зависит от session-ui
+  (web-only пакет), packages/core по условию задачи не трогался. При изменении семантики
+  править оба; кандидат на hoisting в общий пакет при следующем рефакторинге.
+- **Компактный формат чисел** («4.2k», «1.3M») всегда с точкой в качестве десятичного
+  разделителя, независимо от локали; сегмент «{{count}} tokens» переведён во всех локалях,
+  но для языков с согласованием числительных корректен только для некратных 1 сумм
+  (тот же компромисс, что у исходного ключа «Discarded {{count}} context parts»).
 - **i18n**: parity-тест `packages/app/src/i18n/parity.test.ts` требует наличия каждого ключа
   `packages/ui/src/i18n/en.ts` во всех 61 локалях, поэтому ключи
-  `ui.messagePart.context.discarded` и `ui.tool.discardContext` добавлены во все локали.
+  `ui.messagePart.context.discarded`, `ui.messagePart.context.discardedTokens` и
+  `ui.tool.discardContext` добавлены во все локали.
   Для 28 локалей без перевода (am, az, bn, br, dv, dz, et, fo, hy, is, ka, km, lo, lt, lv,
   mk, mn, ms, my, ne, pa, si, sl, sq, tg, tk, ur, uz) вставлена английская копия — нужен
   перевод отдельным translation-пассом.
@@ -18,7 +33,8 @@
   (`showDetails = false`) — намеренно: это маркер уровня контекста, как compaction,
   а не деталь тула.
 - **TUI transcript**: экспорт содержит одну строку `**Discarded N context parts**`
-  (N = ids.length); сами ids в экспорт не попадают.
+  (N = ids.length) с припиской `· Xk tokens`, когда сессионная сумма > 0; сами ids
+  в экспорт не попадают.
 - packages/core (сам tool `discard_context`) реализуется параллельной задачей и здесь
   не трогался; UI-часть опирается только на имя тула и форму входа `{ ids: string[] }`.
 

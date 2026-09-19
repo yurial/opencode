@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} ցուցակ",
   "ui.messagePart.context.list.other": "{{count}} ցուցակներ",
   "ui.messagePart.context.discarded": "Հեռացված համատեքստի մասեր՝ {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} թոքեն",
   "ui.list.loading": "Բեռնվում",
   "ui.list.empty": "Արդյունք չկա",
   "ui.list.clearFilter": "Մաքրել զտիչը",

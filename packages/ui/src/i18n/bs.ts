@@ -110,6 +110,7 @@ export const dict = {
   "ui.messagePart.context.list.few": "{{count}} listanja",
   "ui.messagePart.context.list.other": "{{count}} listanja",
   "ui.messagePart.context.discarded": "Dijelova konteksta odbačeno: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} tokena",
   "ui.messagePart.diagnostic.error": "Greška",
   "ui.messagePart.title.edit": "Uredi",
   "ui.messagePart.title.write": "Napiši",

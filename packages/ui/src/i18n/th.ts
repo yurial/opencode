@@ -102,6 +102,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "รายการ {{count}} รายการ",
   "ui.messagePart.context.list.other": "รายการ {{count}} รายการ",
   "ui.messagePart.context.discarded": "ส่วนบริบทที่ละทิ้ง: {{count}} ส่วน",
+  "ui.messagePart.context.discardedTokens": "{{count}} โทเค็น",
   "ui.messagePart.diagnostic.error": "ข้อผิดพลาด",
   "ui.messagePart.title.edit": "แก้ไข",
   "ui.messagePart.title.write": "เขียน",

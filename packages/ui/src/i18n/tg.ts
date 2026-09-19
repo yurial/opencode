@@ -101,6 +101,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "{{count}} рӯйхат",
   "ui.messagePart.context.list.other": "{{count}} рӯйхатҳо",
   "ui.messagePart.context.discarded": "Қисмҳои хориҷшудаи контекст: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} токен",
   "ui.list.loading": "Бор карда мешавад",
   "ui.list.empty": "Ҳеҷ натиҷае нест",
   "ui.list.clearFilter": "Филтрро тоза кунед",

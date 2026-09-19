@@ -108,6 +108,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "{{count}} liste",
   "ui.messagePart.context.list.other": "{{count}} liste",
   "ui.messagePart.context.discarded": "Atılan bağlam parçaları: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} token",
   "ui.messagePart.diagnostic.error": "Hata",
   "ui.messagePart.title.edit": "Düzenle",
   "ui.messagePart.title.write": "Yaz",

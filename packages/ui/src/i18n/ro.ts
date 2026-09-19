@@ -104,6 +104,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} listă",
   "ui.messagePart.context.list.other": "{{count}} liste",
   "ui.messagePart.context.discarded": "Părți de context eliminate: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} tokenuri",
   "ui.messagePart.context.list.few": "{{count}} liste",
   "ui.list.loading": "Se încarcă",
   "ui.list.empty": "Niciun rezultat",

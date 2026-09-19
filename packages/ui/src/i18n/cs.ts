@@ -107,6 +107,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} seznam",
   "ui.messagePart.context.list.other": "{{count}} seznamy",
   "ui.messagePart.context.discarded": "Zahozených částí kontextu: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} tokenů",
   "ui.messagePart.context.list.few": "{{count}} seznamy",
   "ui.messagePart.context.list.many": "{{count}} seznamu",
   "ui.list.loading": "Načítání",

@@ -104,6 +104,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} llista",
   "ui.messagePart.context.list.other": "{{count}} llistes",
   "ui.messagePart.context.discarded": "Parts de context descartades: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} fitxes",
   "ui.messagePart.context.list.many": "{{count}} llistes",
   "ui.list.loading": "Carregant",
   "ui.list.empty": "Sense resultats",

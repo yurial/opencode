@@ -101,6 +101,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "{{count}} ບັນຊີລາຍຊື່",
   "ui.messagePart.context.list.other": "{{count}} ລາຍການ",
   "ui.messagePart.context.discarded": "ສ່ວນບໍລິບົດທີ່ເອົາອອກແລ້ວ: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} ໂທເຄັນ",
   "ui.list.loading": "ກຳລັງໂຫຼດ",
   "ui.list.empty": "ບໍ່ມີຜົນໄດ້ຮັບ",
   "ui.list.clearFilter": "ລ້າງການກັ່ນຕອງ",

@@ -117,6 +117,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.many": "{{count}} списків",
   "ui.messagePart.context.list.other": "{{count}} списків",
   "ui.messagePart.context.discarded": "Частин контексту вилучено: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} токенів",
 
   "ui.list.loading": "Завантаження",
   "ui.list.empty": "Немає результатів",

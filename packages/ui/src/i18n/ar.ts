@@ -118,6 +118,7 @@ export const dict = {
   "ui.messagePart.context.list.many": "{{count}} عملية سرد",
   "ui.messagePart.context.list.other": "{{count}} عمليات سرد",
   "ui.messagePart.context.discarded": "أجزاء السياق المستبعدة: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} رموز مميزة",
   "ui.messagePart.diagnostic.error": "خطأ",
   "ui.messagePart.title.edit": "تحرير",
   "ui.messagePart.title.write": "كتابة",

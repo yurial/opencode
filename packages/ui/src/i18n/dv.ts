@@ -102,6 +102,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} ލިސްޓެވެ",
   "ui.messagePart.context.list.other": "{{count}} ލިސްޓްތަކެވެ",
   "ui.messagePart.context.discarded": "ނައްތާލެވުނު ކޮންޓެކްސްޓް ބައިތައް: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} ޓޯކަން",
   "ui.list.loading": "ލޯޑިންގ",
   "ui.list.empty": "ނަތީޖާއެއް ނެތެވެ",
   "ui.list.clearFilter": "ފިލްޓަރ ސާފުކުރުން",

@@ -39,6 +39,7 @@ import type {
 } from "@opencode-ai/sdk/v2"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
+import { discardedTokenTotal, formatCompactTokens } from "../../util/discard-context"
 import { webSearchProviderLabel } from "../../util/tool-display"
 import { Dynamic, useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useSDK } from "../../context/sdk"
@@ -2639,10 +2640,21 @@ function Skill(props: ToolProps) {
 }
 
 // discard_context excludes parts from the LLM context; render one muted
-// marker line with the discarded count instead of a tool card or ids.
+// marker line with the discarded count instead of a tool card or ids. The
+// session-wide output token total is appended only when it is exact (every
+// part of the discarded assistant messages is marked).
 function DiscardContext(props: ToolProps) {
+  const ctx = use()
   const ids = props.input.ids
   const count = Array.isArray(ids) ? ids.length : 0
+  const label = createMemo(() => {
+    const base = `Discarded ${count} context part${count === 1 ? "" : "s"}`
+    const total = discardedTokenTotal(
+      ctx.sync.data.message[ctx.sessionID] ?? [],
+      (messageID) => ctx.sync.data.part[messageID],
+    )
+    return total > 0 ? `${base} · ${formatCompactTokens(total)} tokens` : base
+  })
   return (
     <InlineTool
       icon="✕"
@@ -2651,7 +2663,7 @@ function DiscardContext(props: ToolProps) {
       complete={props.part.state.status === "completed"}
       part={props.part}
     >
-      Discarded {count} context part{count === 1 ? "" : "s"}
+      {label()}
     </InlineTool>
   )
 }

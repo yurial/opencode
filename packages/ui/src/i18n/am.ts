@@ -100,6 +100,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}}ዝርዝር",
   "ui.messagePart.context.list.other": "{{count}}ዝርዝሮች",
   "ui.messagePart.context.discarded": "የአውድ ክፍሎች ተወግደዋል: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} ቶከኖች",
   "ui.list.loading": "በመጫን ላይ",
   "ui.list.empty": "ምንም ውጤቶች",
   "ui.list.clearFilter": "ማጣሪያን አጽዳ",

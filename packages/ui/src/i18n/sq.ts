@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "Lista {{count}}",
   "ui.messagePart.context.list.other": "Listat {{count}}",
   "ui.messagePart.context.discarded": "Pjesët e përjashtuara të kontekstit: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} shenja",
   "ui.list.loading": "Po ngarkohet",
   "ui.list.empty": "Nuk ka rezultate",
   "ui.list.clearFilter": "Pastro filtrin",

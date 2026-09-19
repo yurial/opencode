@@ -109,6 +109,7 @@ export const dict = {
   "ui.messagePart.context.list.many": "{{count}} списков",
   "ui.messagePart.context.list.other": "Получено списков: {{count}}",
   "ui.messagePart.context.discarded": "Частей контекста исключено: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} токенов",
   "ui.messagePart.diagnostic.error": "Ошибка",
   "ui.messagePart.title.edit": "Редактировать",
   "ui.messagePart.title.write": "Написать",

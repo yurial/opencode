@@ -103,6 +103,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} ro'yxati",
   "ui.messagePart.context.list.other": "{{count}} ro'yxatlari",
   "ui.messagePart.context.discarded": "Olib tashlangan kontekst qismlari: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} token",
   "ui.list.loading": "Yuklanmoqda",
   "ui.list.empty": "Natija yoʻq",
   "ui.list.clearFilter": "Filtrni tozalash",

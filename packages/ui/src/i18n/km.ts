@@ -102,6 +102,7 @@ export const dict = {
   "ui.messagePart.context.list.one": "បញ្ជី {{count}}",
   "ui.messagePart.context.list.other": "បញ្ជី {{count}}",
   "ui.messagePart.context.discarded": "ផ្នែកបរិបទដែលបានដកចេញ៖ {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} សញ្ញាសម្ងាត់",
   "ui.list.loading": "កំពុងផ្ទុក",
   "ui.list.empty": "គ្មានលទ្ធផល",
   "ui.list.clearFilter": "ជម្រះតម្រង",

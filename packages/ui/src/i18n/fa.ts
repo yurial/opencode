@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "لیست {{count}}",
   "ui.messagePart.context.list.other": "لیست های {{count}}",
   "ui.messagePart.context.discarded": "بخش‌های زمینه کنار گذاشته‌شده: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} توکن",
   "ui.list.loading": "در حال بارگذاری",
   "ui.list.empty": "هیچ نتیجه ای وجود ندارد",
   "ui.list.clearFilter": "فیلتر را پاک کنید",

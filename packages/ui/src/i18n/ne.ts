@@ -103,6 +103,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} सूची",
   "ui.messagePart.context.list.other": "{{count}} सूचीहरू",
   "ui.messagePart.context.discarded": "खारेज गरिएका सन्दर्भ भागहरू: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} टोकन",
   "ui.list.loading": "लोड गर्दै",
   "ui.list.empty": "कुनै परिणाम छैन",
   "ui.list.clearFilter": "फिल्टर खाली गर्नुहोस्",

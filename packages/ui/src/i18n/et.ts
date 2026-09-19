@@ -101,6 +101,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.one": "{{count}} loend",
   "ui.messagePart.context.list.other": "{{count}} loendit",
   "ui.messagePart.context.discarded": "Eemaldatud kontekstiosi: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} tokenit",
   "ui.list.loading": "Laadimine",
   "ui.list.empty": "Tulemusi pole",
   "ui.list.clearFilter": "Selge filter",

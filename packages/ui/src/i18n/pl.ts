@@ -109,6 +109,7 @@ export const dict = {
   "ui.messagePart.context.list.many": "Liczba list: {{count}}",
   "ui.messagePart.context.list.other": "Liczba list: {{count}}",
   "ui.messagePart.context.discarded": "Odrzucone części kontekstu: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} tokenów",
   "ui.messagePart.diagnostic.error": "Błąd",
   "ui.messagePart.title.edit": "Edycja",
   "ui.messagePart.title.write": "Pisanie",
