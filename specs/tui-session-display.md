@@ -216,7 +216,11 @@ behavior, not tunables. Existing entries this spec fixes:
 
 ## Used by
 
-None yet.
+- core-discard-context — the exclusion-mechanism boundary against
+  `tui-session-display/meta-part`: meta parts are a display-only part type
+  excluded from provider context and transcripts by construction, while
+  discard-calls are tool parts excluded from provider context by filtering and
+  kept in transcripts as marker lines.
 
 ## Verification
 

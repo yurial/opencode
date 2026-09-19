@@ -1,5 +1,22 @@
 # V2 Schema Changelog
 
+## 2026-09-19: V2 Discard Context Tool
+
+Affected schema:
+
+- New Core-owned `discard_context` model-facing tool parameters and success payload.
+
+Change:
+
+- Accept `{ ids: string[] }` naming assistant message parts to hide from later provider context.
+- Return the echoed `{ ids }` payload with a one-line model output stating the marked count.
+- Gate tool registration on the `discard_context` config flag; filter marked parts, the discard calls themselves, and emptied assistant messages from runner history before lowering and both compaction paths.
+
+Compatibility:
+
+- This is an additive model-facing V2 tool contract.
+- No database migration, durable-event version, public HTTP, OpenAPI, or generated SDK change is required.
+
 ## 2026-06-26: Add Finite Session History
 
 - Add `GET /api/session/:sessionID/history` and generated Promise, Effect, and legacy JavaScript client methods.

@@ -164,7 +164,8 @@ settlement-side provider metadata separately.
 - `message` fetches one message by ID and returns it only if it belongs to the given
   Session; missing → `undefined` (handler maps to 404).
 - `context` returns the model-visible history (post-compaction, epoch-filtered;
-  see §8.3).
+  see §8.3); discard-context filtering (core-discard-context) is not applied,
+  so marked parts and discard markers remain in this read.
 
 V2 has no Session delete; deletion exists only on the V1 path (`Session.remove` →
 `session.deleted` projection + `EventV2.remove(aggregateID)` which drops the event log
@@ -326,7 +327,10 @@ One `runTurnAttempt`:
    safe boundary (§8.2).
 6. **Resolve model** (`SessionRunnerModel.resolve`, §5.1).
 7. **Load history**: `SessionHistory.entriesForRunner(db, sessionID, baselineSeq)`
-   (§8.3).
+   (§8.3). When the `discard_context` flag is enabled, discard-part filtering
+   (core-discard-context) is then applied once to the loaded entries, before
+   every consumer below — request lowering and both compaction paths — so
+   marked content never reaches a summary or checkpoint.
 8. **Step limit**: `isLastStep = agent.steps !== undefined && step >= agent.steps`. On
    the last step, tools are not materialized, `toolChoice: "none"` is sent, and the
    `MAX_STEPS_PROMPT` assistant message is appended (shared with V1 via
@@ -719,3 +723,6 @@ These represent invariant violations, not operator-recoverable conditions.
 
 - config-v2-session — intended-API and parity source for this as-built document.
 - event-retention — pruning contract applied to the same durable event log.
+- core-discard-context — discard-part filtering step inserted between history
+  loading and lowering/compaction in the provider-turn section above,
+  specified there.
