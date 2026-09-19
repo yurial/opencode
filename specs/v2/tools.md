@@ -130,6 +130,8 @@ yield *
 
 Trusted tools formulate and sequence permission requests. `PermissionV2` evaluates policy and manages approval. The registry does not inject an `assertPermission` helper.
 
+An internal built-in-only tool may omit the permission assertion entirely: when the call's only effect is its own durable record, execution asserts nothing while the registry's name-derived catalog action still lets rules filter the tool definition. Such a tool's definition is hidden from models entirely while its config gate is disabled (`discard_context`; see core-discard-context).
+
 Sharing a tool type does not imply equal authority. Built-ins and trusted Location plugins may capture services that are not available to application tools.
 
 ## Execution
@@ -184,3 +186,10 @@ Leaf tools translate only errors they deliberately classify as recoverable. Broa
 Location plugin installation should receive the same narrow `Tools` capability. That requires a separate Location-layer ordering change so built-ins register before plugins without introducing a `PluginBoot -> Tools -> PluginBoot` dependency cycle. The carrier, registrar, and plugin-owned Scope semantics are already suitable; no tool-specific plugin hook is needed.
 
 Session's current public result shape still exposes managed `outputPaths`. Extending storage encapsulation across the public Session API requires a separate opaque managed-output reference design; paths are not entirely internal today.
+
+## Used by
+
+- tool-interactive — the tool type, registration, execution, and settlement
+  contract its interactive process family builds on.
+- core-discard-context — the internal built-in-only no-permission exception
+  recorded above (the `discard_context` tool).

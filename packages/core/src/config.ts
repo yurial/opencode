@@ -67,6 +67,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   snapshots: Schema.Boolean.pipe(Schema.optional).annotate({
     description: "Enable snapshots used for undo and revert behavior",
   }),
+  discard_context: Schema.Boolean.pipe(Schema.optional).annotate({
+    description: "Enable the discard_context tool that lets the model exclude marked message parts from its own context",
+  }),
   watcher: ConfigWatcher.Info.pipe(Schema.optional).annotate({
     description: "Filesystem watcher configuration",
   }),

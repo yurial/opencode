@@ -108,6 +108,8 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.search.other": "{{count}} searches",
   "ui.messagePart.context.list.one": "{{count}} list",
   "ui.messagePart.context.list.other": "{{count}} lists",
+  "ui.messagePart.context.discarded": "Discarded {{count}} context parts",
+  "ui.messagePart.context.discardedTokens": "{{count}} tokens",
 
   "ui.list.loading": "Loading",
   "ui.list.empty": "No results",
@@ -166,6 +168,7 @@ export const dict: Record<string, string> = {
   "ui.tool.agent": "{{type}} Agent",
   "ui.tool.agent.default": "Agent",
   "ui.tool.skill": "Skill",
+  "ui.tool.discardContext": "Discard context",
 
   "ui.basicTool.called": "Called `{{tool}}`",
   "ui.toolErrorCard.failed": "Failed",

@@ -107,6 +107,8 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.search.other": "{{count}} pencarian",
   "ui.messagePart.context.list.one": "{{count}} daftar",
   "ui.messagePart.context.list.other": "{{count}} daftar",
+  "ui.messagePart.context.discarded": "Bagian konteks yang dibuang: {{count}}",
+  "ui.messagePart.context.discardedTokens": "{{count}} token",
 
   "ui.list.loading": "Memuat",
   "ui.list.empty": "Tidak ada hasil",
@@ -165,6 +167,7 @@ export const dict: Record<string, string> = {
   "ui.tool.agent": "Agen {{type}}",
   "ui.tool.agent.default": "Agen",
   "ui.tool.skill": "Keahlian",
+  "ui.tool.discardContext": "Buang konteks",
 
   "ui.basicTool.called": "`{{tool}}` dipanggil",
   "ui.toolErrorCard.failed": "Gagal",

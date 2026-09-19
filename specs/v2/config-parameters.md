@@ -77,6 +77,7 @@ loader channels and are not part of the V2 discovery (implemented).
 | `interactive.{max_jobs,max_exchanges,quiet_window_ms,wait_timeout_ms,default_timeout_ms,max_spool_bytes}` | positive ints (bounds per row in the interactive section) | `3`; `20`; `500`; `120000`; `900000`; `8388608` | spec-only | Interactive process tool budgets and timing (see tool-interactive) |
 | `mcp` | object | none | implemented | MCP subsystem (see below) |
 | `compaction` | object | none | implemented | Conversation compaction |
+| `discard_context` | boolean | `false` | implemented | Enables the discard_context model tool, its system instruction, and runner context filtering (see core-discard-context) |
 | `skills` | string[] (paths or URLs) | none | implemented | Skill discovery sources |
 | `commands.<name>` | object | none | implemented (diverges from review: remove) | Named slash commands |
 | `instructions` | string[] | none | spec-only (schema accepts; consumer pending per config-v2-session parity table) | Ambient instruction sources |
@@ -285,3 +286,5 @@ tuple form.
 
 - tool-interactive — the `interactive.*` budget/timing keys and the reused
   `tool_output.*` chunk bound are specified there (spec-only rows above).
+- core-discard-context — the `discard_context` root key above; the tool,
+  instruction, filtering, and marker contract live there.
