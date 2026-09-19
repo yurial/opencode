@@ -543,11 +543,21 @@ beyond the shared resolution rules.
   model and variant, creates the session over the SDK (with the default
   mode when modes exist), registers client-provided MCP servers into the
   instance, and returns config options (model select, effort/variant
-  select, mode select). `loadSession` additionally restores model/mode
-  from message history and replays prior messages as session updates;
-  `listSessions`/`resumeSession`/`closeSession`/`forkSession` map onto
-  the SDK. `setSessionMode`/`setSessionModel`/`setSessionConfigOption`
-  mutate via SDK calls and update local state.
+  select, mode select). `loadSession`/`resumeSession`/`forkSession`
+  restore model/variant/mode preferring the durable session record
+  (`session.get`: model incl. variant, agent), then the last user
+  message's selection from message history, then defaults; each
+  candidate is validated against the current snapshot (unknown
+  models/variants/modes fall through, and the persisted variant
+  sentinel `"default"` — no explicit override — counts as valid), and
+  `loadSession` replays prior messages as session updates.
+  `listSessions`/`closeSession` map onto the SDK.
+  `setSessionMode`/`setSessionModel`/`setSessionConfigOption` mutate via
+  SDK calls and update local state: re-selecting the same model keeps
+  the current variant when still valid, and model changes push a
+  `session/config_option_update` notification with the rebuilt options
+  so clients refresh model-dependent choices (e.g. effort, which always
+  offers the `"default"` sentinel alongside the model's variants).
 - R44. Client MCP servers (`mcpServers` in new/load session params) are
   registered by calling the SDK `mcp.add` endpoint for the instance
   directory (`registerMcpServers`): url-shaped servers become `remote`
@@ -560,7 +570,10 @@ beyond the shared resolution rules.
   prompts route to the command system. `cancel` aborts the in-flight
   prompt. Event streaming (`event.ts`): a subscription consumes the
   global event stream and forwards `sessionUpdate` notifications —
-  message parts, deltas, tool-call lifecycle (pending/running/completed/
+  message parts, deltas, reasoning updates (keyed by the reasoning
+  part's id as the ACP `messageId`, so multiple reasoning parts in one
+  message replay as separate thought streams), tool-call lifecycle
+  (pending/running/completed/
   error with locations derived per tool kind), usage, and available
   commands; permission asks bridge to the client's `requestPermission`
   (with a fallback policy when unsupported); `runUntilIdle` keeps the

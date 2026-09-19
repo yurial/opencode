@@ -393,7 +393,7 @@ session-runtime consumption of agents (see the session specs).
 | Schema decode failure | `InvalidError` with per-path issues — fatal |
 | V2 `permissions` key present | `InvalidError` naming the paths — fatal ("run opencode2") |
 | `{file:}` reference missing | `InvalidError` naming token and resolved path — fatal (TUI loader: empty) |
-| Remote well-known fetch failure / HTML body | Fatal (die); HTML raises `RemoteAuthError` naming the login origin |
+| Remote well-known fetch failure / HTML body | Fatal (die); HTML raises `RemoteAuthError` naming the login origin — the legacy HTTP error middleware maps it to a structured 400 body, and the TUI renders it as a re-auth hint (`opencode auth login <url>`) with exit code 1 |
 | Active-org console config failure | Logged (debug), skipped — non-fatal |
 | Agent Markdown YAML failure | `console.error`, file skipped — non-fatal |
 | Agent entry schema failure | `InvalidError` — fatal |

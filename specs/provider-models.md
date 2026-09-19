@@ -267,6 +267,11 @@ Generation:
   cases). Models without `capabilities.reasoning` produce `{}`; known
   non-reasoning families (deepseek-chat/reasoner/r1/v3, minimax, glm<5.2,
   kimi, qwen, big-pickle) produce `{}`.
+- GitHub Copilot OAuth discovery (`plugin/github-copilot/models.ts`)
+  builds variants from Copilot's `/models` capabilities instead of the
+  heuristics above; every `adaptive_thinking` effort variant requests
+  `thinking: {type: "adaptive", display: "summarized"}` so Copilot
+  returns reasoning summaries.
 - `models.dev experimental.modes` expand into synthetic models
   `${id}-${mode}` with camelCased body options (`modeOptions`; OpenAI
   `reasoning.mode` → `reasoningMode`).

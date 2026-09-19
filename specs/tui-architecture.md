@@ -159,9 +159,12 @@ Runtime toggles not in `tui.json` live in KV (see R24).
   exit (`terminal-win32.ts`; the Ctrl-C guard itself is host-installed).
 - R4. `run` resolves with `{ epilogue, reason }`: `reason` (from
   `ExitProvider.exit(...)`) is printed to stderr through
-  `cliErrorMessage`/`errorFormat`; `epilogue` (from `EpilogueProvider`, e.g.
-  the session-share footer) to stdout. The legacy thread host then always
-  `process.exit(0)` after stopping the worker.
+  `cliErrorMessage`/`errorFormat` and sets `process.exitCode = 1`;
+  `epilogue` (from `EpilogueProvider`, e.g. the session-share footer) to
+  stdout. The legacy thread host then `process.exit()` (no forced code)
+  after stopping the worker, so fatal startup errors exit nonzero —
+  `cliErrorMessage` renders a server `ConfigRemoteAuthError` with a
+  re-auth hint (`opencode auth login <url>`).
 - R5. `Flag.OPENCODE_SHOW_TTFD` mounts `TimeToFirstDraw`;
   `OPENCODE_FAST_BOOT` sets `skipInitialLoading` (hides `StartupLoading` and
   makes `sync.ready` unconditional); `OPENCODE_ROUTE` (JSON
