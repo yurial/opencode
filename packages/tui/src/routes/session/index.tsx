@@ -1787,6 +1787,12 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
     },
   }
 
+  // discard_context is a context-level marker (like compaction), so it stays
+  // visible even when tool details are hidden.
+  if (props.part.tool === "discard_context") {
+    return <DiscardContext {...toolprops} />
+  }
+
   return (
     <Show when={!shouldHide()}>
       <Switch>
@@ -2628,6 +2634,24 @@ function Skill(props: ToolProps) {
   return (
     <InlineTool icon="→" pending="Loading skill…" complete={stringValue(props.input.name)} part={props.part}>
       Skill "{stringValue(props.input.name)}"
+    </InlineTool>
+  )
+}
+
+// discard_context excludes parts from the LLM context; render one muted
+// marker line with the discarded count instead of a tool card or ids.
+function DiscardContext(props: ToolProps) {
+  const ids = props.input.ids
+  const count = Array.isArray(ids) ? ids.length : 0
+  return (
+    <InlineTool
+      icon="✕"
+      pending="Discarding context…"
+      failure="Discard failed"
+      complete={props.part.state.status === "completed"}
+      part={props.part}
+    >
+      Discarded {count} context part{count === 1 ? "" : "s"}
     </InlineTool>
   )
 }

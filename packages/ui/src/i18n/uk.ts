@@ -116,6 +116,7 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.list.few": "{{count}} списки",
   "ui.messagePart.context.list.many": "{{count}} списків",
   "ui.messagePart.context.list.other": "{{count}} списків",
+  "ui.messagePart.context.discarded": "Частин контексту вилучено: {{count}}",
 
   "ui.list.loading": "Завантаження",
   "ui.list.empty": "Немає результатів",
@@ -174,6 +175,7 @@ export const dict: Record<string, string> = {
   "ui.tool.agent": "Агент {{type}}",
   "ui.tool.agent.default": "Агент",
   "ui.tool.skill": "Навичка",
+  "ui.tool.discardContext": "Вилучити контекст",
 
   "ui.basicTool.called": "Викликано `{{tool}}`",
   "ui.toolErrorCard.failed": "Помилка",

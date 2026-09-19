@@ -563,6 +563,11 @@ export function getToolInfo(
         icon: "brain",
         title: input.name || i18n.t("ui.tool.skill"),
       }
+    case "discard_context":
+      return {
+        icon: "trash",
+        title: i18n.t("ui.tool.discardContext"),
+      }
     default:
       return {
         icon: "mcp",
@@ -2638,5 +2643,18 @@ ToolRegistry.register({
     )
 
     return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
+  },
+})
+
+// discard_context marks context parts as excluded from the LLM context.
+// Like compaction it renders as a single divider line with a count, not a
+// tool card, so the ids payload is never shown.
+ToolRegistry.register({
+  name: "discard_context",
+  render(props) {
+    const i18n = useI18n()
+    const ids = props.input.ids
+    const count = Array.isArray(ids) ? ids.length : 0
+    return <MessageDivider label={i18n.t("ui.messagePart.context.discarded", { count })} />
   },
 })

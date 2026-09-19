@@ -102,6 +102,14 @@ export function formatPart(part: Part, options: TranscriptOptions): string {
     return ""
   }
 
+  if (part.type === "tool" && part.tool === "discard_context") {
+    // discard_context only marks parts as excluded from the LLM context; the
+    // exported transcript keeps a one-line marker instead of the raw ids.
+    const ids = part.state.input?.ids
+    const count = Array.isArray(ids) ? ids.length : 0
+    return `**Discarded ${count} context part${count === 1 ? "" : "s"}**\n\n`
+  }
+
   if (part.type === "tool") {
     let result = `**Tool: ${part.tool}**\n`
     if (options.toolDetails && part.state.input) {

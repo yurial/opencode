@@ -252,6 +252,70 @@ describe("transcript", () => {
       expect(result).toContain("**Error:**")
       expect(result).toContain("Command failed")
     })
+
+    test("formats discard_context as a single marker line without ids", () => {
+      const part: Part = {
+        id: "part_1",
+        sessionID: "ses_123",
+        messageID: "msg_123",
+        type: "tool",
+        callID: "call_1",
+        tool: "discard_context",
+        state: {
+          status: "completed",
+          input: { ids: ["part_a", "part_b"] },
+          output: "ok",
+          title: "Discard context",
+          metadata: {},
+          time: { start: 1000, end: 1100 },
+        },
+      }
+      const result = formatPart(part, options)
+      expect(result).toBe("**Discarded 2 context parts**\n\n")
+      expect(result).not.toContain("part_a")
+    })
+
+    test("formats singular discard_context marker for one id", () => {
+      const part: Part = {
+        id: "part_1",
+        sessionID: "ses_123",
+        messageID: "msg_123",
+        type: "tool",
+        callID: "call_1",
+        tool: "discard_context",
+        state: {
+          status: "completed",
+          input: { ids: ["part_a"] },
+          output: "ok",
+          title: "Discard context",
+          metadata: {},
+          time: { start: 1000, end: 1100 },
+        },
+      }
+      const result = formatPart(part, options)
+      expect(result).toBe("**Discarded 1 context part**\n\n")
+    })
+
+    test("treats missing discard_context ids as zero discarded parts", () => {
+      const part: Part = {
+        id: "part_1",
+        sessionID: "ses_123",
+        messageID: "msg_123",
+        type: "tool",
+        callID: "call_1",
+        tool: "discard_context",
+        state: {
+          status: "completed",
+          input: {},
+          output: "ok",
+          title: "Discard context",
+          metadata: {},
+          time: { start: 1000, end: 1100 },
+        },
+      }
+      const result = formatPart(part, options)
+      expect(result).toBe("**Discarded 0 context parts**\n\n")
+    })
   })
 
   describe("formatMessage", () => {
