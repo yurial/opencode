@@ -31,22 +31,32 @@
 | event-retention/watermark | The per-aggregate value inside a posted map: a non-negative integer declaring the highest event seq the replica already possesses for that aggregate | event-retention |
 | event-retention/watermark-map | The complete record a replica posts as the /sync/history request payload, mapping aggregate IDs to watermark values | event-retention |
 | event-retention/window | The server's in-memory bounded collection of the most recently posted maps, each stamped with receipt time; bounded by SYNC_WATERMARK_WINDOW_SIZE and SYNC_WATERMARK_TTL | event-retention (R2) |
-| tool-interactive/auto-feed cycle | The runtime-driven alternation in which every settled interactive tool result (bounded new output + status) is followed by an automatic continuation provider turn; the model initiates each exchange with start/write/wait and the runtime never starts a turn for background output | tool-interactive (R15) |
-| tool-interactive/delivery cursor | The monotonically advancing byte offset of a job's spooled combined output up to which output has been embedded in tool results; bytes elided by chunk-cap truncation are never re-embedded | tool-interactive (R25) |
+| tool-interactive/auto-feed-cycle | The runtime-driven alternation in which every settled interactive tool result (bounded new output + status) is followed by an automatic continuation provider turn; the model initiates each exchange with start/write/wait and the runtime never starts a turn for background output | tool-interactive (R15) |
+| tool-interactive/delivery-cursor | The monotonically advancing byte offset of a job's spooled combined output up to which output has been embedded in tool results; bytes elided by chunk-cap truncation are never re-embedded | tool-interactive (R25) |
 | tool-interactive/exchange | One auto-fed provider turn: the durable settlement of one interactive start/write/wait result followed by the automatic continuation turn; counted against the job's exchange budget, distinct from the agent step budget that it also consumes | tool-interactive (R18, R21) |
 | tool-interactive/job | One spawned interactive child process (PTY, own process group) owned by a Session, identified by an opaque `ijob_*` jobID, spooling its combined output to a managed file, surviving across provider turns until exactly one terminal status | tool-interactive (R2) |
 | tool-interactive/quiescence | `interactive.quiet_window_ms` elapsed with zero new output bytes while the process is alive; the settle condition that yields status `waiting` (the model's move) | tool-interactive (R10) |
-| tool-interactive/terminal status | A job status that ends the job exactly once: `done` (exit 0), `failed` (non-zero exit, signal, or spawn failure), or `cancelled` (killed with a reason); alive statuses are exactly `waiting`, `running`, `timeout` | tool-interactive (R5–R6) |
+| tool-interactive/terminal-status | A job status that ends the job exactly once: `done` (exit 0), `failed` (non-zero exit, signal, or spawn failure), or `cancelled` (killed with a reason); alive statuses are exactly `waiting`, `running`, `timeout` | tool-interactive (R5, R6) |
 | tui-session-display/empty-reasoning-part | A reasoning part whose text is empty after trimming and after dropping provider placeholder payloads; it carries no renderable body | tui-session-display |
 | tui-session-display/meta-part | A generic persisted session part (dedicated meta type, kind + opaque payload) stored in the session database and replayed with history, rendered as transcript lines, and permanently excluded from provider context and copied/exported transcripts | tui-session-display |
 | tui-session-display/reasoning-timer | Elapsed-time indicator of a reasoning part, derived only from its recorded start and end timestamps; live while unfinalized, fixed afterwards | tui-session-display |
 | tui-session-display/thinking-mode | The reasoning display mode of the session screen: "show" renders reasoning bodies, "hide" collapses them to header lines; persisted TUI-locally | tui-session-display |
-| tui-theme/ThemeJson | The theme JSON file composed of `$schema`, `defs`, and `theme` | tui-theme |
-| tui-theme/VGA | The fixed ansiToRgba table mapping integer values 0–255 to RGBA; the terminal palette is never read | tui-theme (R3) |
-| tui-theme/defs | Named constants declared in the theme file's `defs` section; a bare name in a value resolves as a `defs` reference first, then as a `theme` key | tui-theme (R2) |
-| tui-theme/fadeColor | The fade-in α animation, `fadeColor(color, α)`, applied to the prompt meta line (agent name, model) | tui-theme |
-| tui-theme/hover | Pointer hover over a card row; the row swaps its idle color pair for the hover pair | tui-theme (T10) |
-| tui-theme/key | One of the 52 color keys plus `thinkingOpacity` mapped onto UI elements | tui-theme |
+| tui-theme/attribute | One of the eight text-attribute names accepted in an element-style attributes array, matching the @opentui/core TextAttributes set | tui-theme (R16) |
+| tui-theme/catalog | The closed set of dotted element names with per-channel defaults that a v2 theme file may address | tui-theme (R17) |
+| tui-theme/color-value | A value of the fg/bg channels: hex string, ANSI index, "none"/"transparent", a reference name, or a {dark, light} variant | tui-theme (R15) |
+| tui-theme/defs | Named color constants declared in the theme file's `defs` member; a dotless reference name resolves as a `defs` entry first, then as a palette name | tui-theme (R27) |
+| tui-theme/element | A dotted lowercase name contained in the catalog, identifying one rendered UI surface or channel | tui-theme (R17) |
+| tui-theme/element-style | The `{fg?, bg?, attributes?}` entry mapped to an element name in a v2 theme file | tui-theme (R14) |
+| tui-theme/fade | The run-CLI α fade derivation over a base color with fallback, scale, and limit shares | tui-theme (R34) |
+| tui-theme/hover | Pointer hover over an element; the element swaps to its hover counterpart on every channel | tui-theme (R38) |
+| tui-theme/migration | The load-time conversion of a v1 theme file into the internal v2 form | tui-theme (R21) |
+| tui-theme/palette | The internal named color layer (legacy v1 key names) that catalog defaults and dotless references resolve against | tui-theme (R22, R24) |
 | tui-theme/scope | A tree-sitter highlight scope; scope names are external tree-sitter identifiers | tui-theme |
-| tui-theme/selectedForeground | The foreground color over a highlighted surface: `selectedListItemText` if set, otherwise black/white by luminance over a transparent background, otherwise `background` | tui-theme (R6) |
-| tui-theme/tint | The base + overlay α blend (prompt highlight, logo, bg-pulse, question model variant, diff-viewer fade) | tui-theme |
+| tui-theme/selected-foreground | The computed contrast rule for the foreground over a highlighted surface: explicit palette selectedListItemText; black/white by luminance over a transparent background; otherwise the palette background | tui-theme (R33) |
+| tui-theme/theme-file | The theme JSON document composed of `$schema`, `defs`, and `theme` | tui-theme (R13) |
+| tui-theme/thinking-opacity | The `thinkingOpacity` scalar multiplying every reasoning-block foreground | tui-theme (R20, R36) |
+| tui-theme/tint | The base + overlay α blend used by computed catalog defaults and run-CLI derivatives | tui-theme (R34) |
+| tui-theme/v1-format | The legacy flat theme format mapping camelCase color keys; deprecated and auto-migrated at load | tui-theme (R18) |
+| tui-theme/v2-format | The per-element theme format mapping element names to element-style entries | tui-theme (R13) |
+| tui-theme/vga-table | The fixed ANSI-index-to-RGBA table used for integer color values; the terminal palette is never read | tui-theme (R30) |
+| tui-theme/zone | A catalog group: the set of elements sharing a prefix | tui-theme |
