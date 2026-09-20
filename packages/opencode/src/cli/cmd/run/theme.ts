@@ -1,12 +1,14 @@
 // Theme resolution for direct interactive mode.
 //
-// Derives scrollback and footer colors from the terminal's actual palette.
-// resolveRunTheme() queries the renderer for the terminal's palette,
-// detects dark/light mode, builds a small system theme locally, and maps it to
-// the run footer + scrollback color model. Falls back to a hardcoded dark-mode
-// palette if detection fails.
+// resolveRunTheme() queries the renderer for the terminal's palette, detects
+// dark/light mode, builds the system theme with the run generator, and routes
+// it through the shared v2 pipeline (@opencode-ai/tui loadTheme + element
+// catalog) to map the run.* elements onto the run footer + scrollback color
+// model (specs/tui-theme.md R44). Footer surfaces render the exact system
+// colors while the scrollback stays palette-matched on 256-color terminals.
+// Falls back to a hardcoded dark-mode palette if detection fails.
 import { RGBA, SyntaxStyle, type CliRenderer, type ColorInput, type TerminalColors } from "@opentui/core"
-import type { TuiThemeCurrent } from "@opencode-ai/plugin/tui"
+import type { PreparedTheme, ResolvedElement, ThemeJson } from "@opencode-ai/tui/context/theme"
 import type { EntryKind } from "./types"
 
 type Tone = {
@@ -66,27 +68,6 @@ export type RunTheme = {
   entry: RunEntryTheme
   splash: RunSplashTheme
   block: RunBlockTheme
-}
-
-type ThemeColor = Exclude<keyof TuiThemeCurrent, "thinkingOpacity">
-type HexColor = `#${string}`
-type RefName = string
-type Variant = {
-  dark: HexColor | RefName
-  light: HexColor | RefName
-}
-type ColorValue = HexColor | RefName | Variant | RGBA | number
-type ThemeJson = {
-  defs?: Record<string, HexColor | RefName>
-  theme: Omit<Record<ThemeColor, ColorValue>, "selectedListItemText" | "backgroundMenu"> & {
-    selectedListItemText?: ColorValue
-    backgroundMenu?: ColorValue
-    thinkingOpacity?: number
-  }
-}
-
-type SharedSyntaxTheme = TuiThemeCurrent & {
-  _hasSelectedListItemText: boolean
 }
 
 export const transparent = RGBA.fromValues(0, 0, 0, 0)
@@ -273,56 +254,12 @@ function splashShadow(indexed: RGBA[], base: RGBA, overlay: RGBA, value: number)
   return nearestIndexed(indexed, mixed)
 }
 
-export function resolveTheme(theme: ThemeJson, pick: "dark" | "light"): TuiThemeCurrent {
-  const defs = theme.defs ?? {}
-
-  const resolveColor = (value: ColorValue, chain: string[] = []): RGBA => {
-    if (value instanceof RGBA) return value
-
-    if (typeof value === "number") {
-      return RGBA.fromIndex(value, ansiToRgba(value))
-    }
-
-    if (typeof value !== "string") {
-      return resolveColor(value[pick], chain)
-    }
-
-    if (value === "transparent" || value === "none") {
-      return RGBA.fromInts(0, 0, 0, 0)
-    }
-
-    if (value.startsWith("#")) {
-      return RGBA.fromHex(value)
-    }
-
-    if (chain.includes(value)) {
-      throw new Error(`Circular color reference: ${[...chain, value].join(" -> ")}`)
-    }
-
-    const next = defs[value] ?? theme.theme[value as ThemeColor]
-    if (next === undefined) {
-      throw new Error(`Color reference "${value}" not found in defs or theme`)
-    }
-
-    return resolveColor(next, [...chain, value])
+function quantizeColor(indexed: RGBA[], rgba: RGBA): RGBA {
+  if (rgba.a === 0 || rgba.intent === "default" || rgba.intent === "indexed") {
+    return RGBA.clone(rgba)
   }
 
-  const resolved = Object.fromEntries(
-    Object.entries(theme.theme)
-      .filter(([key]) => key !== "selectedListItemText" && key !== "backgroundMenu" && key !== "thinkingOpacity")
-      .map(([key, value]) => [key, resolveColor(value as ColorValue)]),
-  ) as Partial<Record<ThemeColor, RGBA>>
-
-  return {
-    ...(resolved as Record<ThemeColor, RGBA>),
-    selectedListItemText:
-      theme.theme.selectedListItemText === undefined
-        ? resolved.background!
-        : resolveColor(theme.theme.selectedListItemText),
-    backgroundMenu:
-      theme.theme.backgroundMenu === undefined ? resolved.backgroundElement! : resolveColor(theme.theme.backgroundMenu),
-    thinkingOpacity: theme.theme.thinkingOpacity ?? 0.6,
-  }
+  return nearestIndexed(indexed, rgba)
 }
 
 function generateGrayScale(bg: RGBA, isDark: boolean, map: (rgba: RGBA) => RGBA): Record<number, RGBA> {
@@ -379,6 +316,10 @@ function generateMutedTextColor(bg: RGBA, isDark: boolean, map: (rgba: RGBA) => 
   return map(RGBA.fromInts(gray, gray, gray))
 }
 
+// The run CLI's own system-theme generator. Deliberately not the TUI's
+// generateSystem: the grayscale ramp carries a chroma cast toward the terminal
+// background and the text channels keep their default-intent colors, which the
+// scrollback quantization relies on to leave body text palette-exact.
 export function generateSystem(colors: TerminalColors, pick: "dark" | "light"): ThemeJson {
   const bg_snapshot = RGBA.fromHex(colors.defaultBackground ?? colors.palette[0]!)
   const fg_snapshot = RGBA.fromHex(colors.defaultForeground ?? colors.palette[7]!)
@@ -465,52 +406,71 @@ export function generateSystem(colors: TerminalColors, pick: "dark" | "light"): 
   }
 }
 
-function quantizeColor(indexed: RGBA[], rgba: RGBA): RGBA {
-  if (rgba.a === 0 || rgba.intent === "default" || rgba.intent === "indexed") {
-    return RGBA.clone(rgba)
-  }
-
-  return nearestIndexed(indexed, rgba)
-}
-
-function quantizeTheme(theme: TuiThemeCurrent, indexed: RGBA[]): TuiThemeCurrent {
-  const resolved = Object.fromEntries(
-    Object.entries(theme)
-      .filter(([key]) => key !== "thinkingOpacity")
-      .map(([key, value]) => [key, quantizeColor(indexed, value as RGBA)]),
-  ) as Partial<Record<ThemeColor, RGBA>>
-
+function quantized(theme: ThemeJson, indexed: RGBA[]): ThemeJson {
   return {
-    ...(resolved as Record<ThemeColor, RGBA>),
-    thinkingOpacity: theme.thinkingOpacity,
-  }
+    ...theme,
+    theme: Object.fromEntries(
+      Object.entries(theme.theme).map(([name, value]) => [name, value instanceof RGBA ? quantizeColor(indexed, value) : value]),
+    ),
+  } as ThemeJson
 }
 
-function splashTheme(theme: TuiThemeCurrent, indexed: RGBA[]): RunSplashTheme {
-  const left = nearestIndexed(indexed, theme.textMuted)
-  const right = nearestIndexed(indexed, theme.text)
-  return {
-    left,
-    right,
-    leftShadow: splashShadow(indexed, theme.background, left, 0.14),
-    rightShadow: splashShadow(indexed, theme.background, right, 0.14),
-  }
+/**
+ * Loads a theme source through the shared v2 pipeline for run mapping.
+ *
+ * Purpose: the run CLI's single load path (R44) — v1 sources (the generated
+ * system theme, built-in files) migrate, v2 sources resolve directly.
+ *
+ * Contract: `source` is whatever the run CLI obtained as its theme input;
+ * a rejected file is dropped and the default built-in theme loads instead
+ * (R47), so the result is always a usable `PreparedTheme`. Throws only when
+ * even the default theme fails to load.
+ */
+export async function loadPrepared(source: unknown, pick: "dark" | "light"): Promise<PreparedTheme> {
+  const { DEFAULT_THEMES, loadTheme } = await import("@opencode-ai/tui/context/theme")
+  const result = loadTheme(source, pick)
+  if (result.ok) return result.theme
+
+  const fallback = loadTheme(DEFAULT_THEMES.opencode, pick)
+  if (fallback.ok) return fallback.theme
+  throw new Error(fallback.message)
 }
 
-function map(
-  footerTheme: TuiThemeCurrent,
-  scrollbackTheme: TuiThemeCurrent,
-  splash: RunSplashTheme,
+/**
+ * Maps the resolved run.* elements onto the run color model (R44).
+ *
+ * Purpose: the element → RunTheme projection of the run zone — footer fields
+ * from `run.footer.*`, entry roles from `run.entry.*`, splash from
+ * `run.splash.*`, background from `run.background`, and the block diff fields
+ * from the effective theme's palette diff names (J11).
+ *
+ * Contract: `footer` and `scrollback` are prepared themes — the footer one
+ * renders the exact theme colors while `scrollback` is the palette-matched
+ * view; `indexed` is the terminal palette used to keep the splash colors
+ * indexed; `element` resolves catalog elements (the shared pipeline's
+ * `resolveElement`). The footer `shade`/`surface`/`line` fades over
+ * `run.footer.pane`, the `status`/`statusAccent` tints, and the splash shadow
+ * tints stay computed with the Configuration constants (splash-shadow-alpha
+ * 0.14; shade fade 0.12/0.56/0.72; surface fade 0.18/0.76/0.9; line fade
+ * 0.24/0.9/0.98; status tints 0.12/0.06 dark, 0.06/0.04 light, collapse lift
+ * 0.7, accent lift 0.06). RunTheme field names are part of the run CLI
+ * surface and never change here.
+ */
+export function runTheme(
+  footer: PreparedTheme,
+  scrollback: PreparedTheme,
+  indexed: RGBA[],
+  element: (prepared: PreparedTheme, name: string) => ResolvedElement,
   syntax?: SyntaxStyle,
   subtleSyntax?: SyntaxStyle,
 ): RunTheme {
-  const opaqueSubtleSyntax = opaqueSyntaxStyle(subtleSyntax, scrollbackTheme.background)
-  subtleSyntax?.destroy()
-  const footerBackground = alpha(footerTheme.background, 1)
+  const background = element(footer, "run.background").bg
+  const pane = element(footer, "run.footer.pane").bg
+  const footerBackground = alpha(background, 1)
   const footerMode = mode(footerBackground)
-  const shade = fade(footerTheme.backgroundMenu, footerTheme.background, 0.12, 0.56, 0.72)
-  const surface = fade(footerTheme.backgroundMenu, footerTheme.background, 0.18, 0.76, 0.9)
-  const line = fade(footerTheme.backgroundMenu, footerTheme.background, 0.24, 0.9, 0.98)
+  const shade = fade(pane, background, 0.12, 0.56, 0.72)
+  const surface = fade(pane, background, 0.18, 0.76, 0.9)
+  const line = fade(pane, background, 0.24, 0.9, 0.98)
   const statusBase = tint(footerBackground, rgba("#000000"), footerMode === "dark" ? 0.12 : 0.06)
   const statusAccentBase =
     footerMode === "dark" ? tint(footerBackground, rgba("#ffffff"), 0.06) : tint(statusBase, rgba("#000000"), 0.04)
@@ -519,64 +479,76 @@ function map(
   const status = collapsedStatus ? tint(statusBase, statusAccentBase, 0.7) : statusBase
   const statusAccent = collapsedStatus ? tint(status, rgba("#ffffff"), 0.06) : statusAccentBase
 
+  const scrollbackBackground = element(scrollback, "run.background").bg
+  const opaqueSubtleSyntax = opaqueSyntaxStyle(subtleSyntax, scrollbackBackground)
+  subtleSyntax?.destroy()
+  const splashLeft = nearestIndexed(indexed, element(scrollback, "run.splash.left").fg)
+  const splashRight = nearestIndexed(indexed, element(scrollback, "run.splash.right").fg)
+  const diff = scrollback.theme
+
   return {
-    background: footerTheme.background,
+    background,
     footer: {
-      highlight: footerTheme.primary,
-      selected: footerTheme.backgroundElement,
-      selectedText: footerTheme.selectedListItemText,
-      warning: footerTheme.warning,
-      success: footerTheme.success,
-      error: footerTheme.error,
-      muted: footerTheme.textMuted,
-      text: footerTheme.text,
+      highlight: element(footer, "run.footer.highlight").fg,
+      selected: element(footer, "run.footer.selected").bg,
+      selectedText: element(footer, "run.footer.selected-text").fg,
+      warning: element(footer, "run.footer.warn").fg,
+      success: element(footer, "run.footer.success").fg,
+      error: element(footer, "run.footer.error").fg,
+      muted: element(footer, "run.footer.muted").fg,
+      text: element(footer, "run.footer.text").fg,
       status,
       statusAccent,
       shade,
       surface,
-      pane: footerTheme.backgroundMenu,
-      border: footerTheme.border,
+      pane,
+      border: element(footer, "run.footer.border").fg,
       line,
     },
     entry: {
       system: {
-        body: scrollbackTheme.textMuted,
+        body: element(scrollback, "run.entry.system").fg,
       },
       user: {
-        body: scrollbackTheme.primary,
+        body: element(scrollback, "run.entry.user").fg,
       },
       assistant: {
-        body: scrollbackTheme.text,
+        body: element(scrollback, "run.entry.assistant").fg,
       },
       reasoning: {
-        body: scrollbackTheme.textMuted,
+        body: element(scrollback, "run.entry.reasoning").fg,
       },
       tool: {
-        body: scrollbackTheme.text,
-        start: scrollbackTheme.textMuted,
+        body: element(scrollback, "run.entry.tool").fg,
+        start: element(scrollback, "run.entry.tool.start").fg,
       },
       error: {
-        body: scrollbackTheme.error,
+        body: element(scrollback, "run.entry.error").fg,
       },
     },
-    splash,
+    splash: {
+      left: splashLeft,
+      right: splashRight,
+      leftShadow: splashShadow(indexed, scrollbackBackground, splashLeft, 0.14),
+      rightShadow: splashShadow(indexed, scrollbackBackground, splashRight, 0.14),
+    },
     block: {
-      highlight: scrollbackTheme.primary,
-      warning: scrollbackTheme.warning,
-      text: scrollbackTheme.text,
-      muted: scrollbackTheme.textMuted,
+      highlight: element(scrollback, "run.block.highlight").fg,
+      warning: element(scrollback, "run.block.warning").fg,
+      text: element(scrollback, "run.block.text").fg,
+      muted: element(scrollback, "run.block.muted").fg,
       syntax,
       subtleSyntax: opaqueSubtleSyntax,
-      diffAdded: scrollbackTheme.diffAdded,
-      diffRemoved: scrollbackTheme.diffRemoved,
-      diffAddedBg: transparent,
-      diffRemovedBg: transparent,
-      diffContextBg: transparent,
-      diffHighlightAdded: scrollbackTheme.diffHighlightAdded,
-      diffHighlightRemoved: scrollbackTheme.diffHighlightRemoved,
-      diffLineNumber: scrollbackTheme.diffLineNumber,
-      diffAddedLineNumberBg: scrollbackTheme.diffAddedLineNumberBg,
-      diffRemovedLineNumberBg: scrollbackTheme.diffRemovedLineNumberBg,
+      diffAdded: diff.diffAdded,
+      diffRemoved: diff.diffRemoved,
+      diffAddedBg: diff.diffAddedBg,
+      diffRemovedBg: diff.diffRemovedBg,
+      diffContextBg: diff.diffContextBg,
+      diffHighlightAdded: diff.diffHighlightAdded,
+      diffHighlightRemoved: diff.diffHighlightRemoved,
+      diffLineNumber: diff.diffLineNumber,
+      diffAddedLineNumberBg: diff.diffAddedLineNumberBg,
+      diffRemovedLineNumberBg: diff.diffRemovedLineNumberBg,
     },
   }
 }
@@ -602,6 +574,9 @@ const fallbackSplashIndexed = Array.from({ length: 256 }, (_, index) => RGBA.fro
 const fallbackSplashLeft = RGBA.fromIndex(67)
 const fallbackSplashRight = RGBA.fromIndex(110)
 
+// Not the default built-in theme's resolution: a bespoke dark seed palette for
+// the no-terminal-palette path, and the footer keeps the last known good theme
+// by identity-comparing against this constant.
 export const RUN_THEME_FALLBACK: RunTheme = {
   background: RGBA.fromValues(0, 0, 0, 0),
   footer: {
@@ -668,19 +643,18 @@ export async function resolveRunTheme(renderer: CliRenderer): Promise<RunTheme> 
     const pick = colors.defaultBackground
       ? mode(RGBA.fromHex(colors.defaultBackground))
       : (renderer.themeMode ?? mode(RGBA.fromHex(bg)))
-    const footerTheme = resolveTheme(generateSystem(colors, pick), pick)
-    const indexed = indexedPalette(colors, 256)
-    const scrollbackTheme = quantizeTheme(footerTheme, indexed)
     const shared = await import("@opencode-ai/tui/context/theme")
-    const syntaxTheme: SharedSyntaxTheme = {
-      ...scrollbackTheme,
-      _hasSelectedListItemText: true,
-    }
+    const indexed = indexedPalette(colors, 256)
+    const system = generateSystem(colors, pick)
+    const footer = await loadPrepared(system, pick)
+    const scrollback = await loadPrepared(quantized(system, indexed), pick)
+    const syntaxTheme = scrollback.theme
     const syntax = shared.generateSyntax(syntaxTheme)
-    return map(
-      footerTheme,
-      scrollbackTheme,
-      splashTheme(scrollbackTheme, indexed),
+    return runTheme(
+      footer,
+      scrollback,
+      indexed,
+      shared.resolveElement,
       syntax,
       shared.generateSubtleSyntax(syntaxTheme),
     )
