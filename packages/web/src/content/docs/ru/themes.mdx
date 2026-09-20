@@ -53,15 +53,15 @@ opencode поставляется с несколькими встроенным
 
 Системная тема предназначена для пользователей, которые:
 
-- Хотите, чтобы opencode соответствовал внешнему виду их терминала
-- Используйте пользовательские цветовые схемы терминала
-- Предпочитайте единообразный вид для всех терминальных приложений.
+- Хотят, чтобы opencode соответствовал внешнему виду их терминала
+- Используют пользовательские цветовые схемы терминала
+- Предпочитают единообразный вид для всех терминальных приложений
 
 ---
 
 ## Использование темы
 
-Вы можете выбрать тему, вызвав выбор темы с помощью команды `/theme`. Или вы можете указать это в файле [tui.json](/docs/config#tui).
+Вы можете выбрать тему, вызвав выбор темы с помощью команды `/theme`. Или вы можете указать её в файле `tui.json`.
 
 ```json title="tui.json" {3}
 {
@@ -82,10 +82,10 @@ opencode поддерживает гибкую систему тем на осн
 
 Темы загружаются из нескольких каталогов в следующем порядке: более поздние каталоги переопределяют предыдущие:
 
-1. **Встроенные темы** – они встроены в двоичный файл.
-2. **Каталог конфигурации пользователя** – определяется в `~/.config/opencode/themes/*.json` или `$XDG_CONFIG_HOME/opencode/themes/*.json`.
-3. **Корневой каталог проекта** – определено в `<project-root>/.opencode/themes/*.json`.
-4. **Текущий рабочий каталог** – определено в `./.opencode/themes/*.json`.
+1. **Встроенные темы** — они встроены в двоичный файл.
+2. **Каталог конфигурации пользователя** — определяется в `~/.config/opencode/themes/*.json` или `$XDG_CONFIG_HOME/opencode/themes/*.json`.
+3. **Корневой каталог проекта** — определено в `<project-root>/.opencode/themes/*.json`.
+4. **Текущий рабочий каталог** — определено в `./.opencode/themes/*.json`.
 
 Если несколько каталогов содержат тему с одинаковым именем, будет использоваться тема из каталога с более высоким приоритетом.
 
@@ -111,21 +111,87 @@ vim .opencode/themes/my-theme.json
 
 ---
 
-### Формат JSON
+### Формат темы
 
-В темах используется гибкий формат JSON с поддержкой:
+Файл темы — это объект JSON с тремя членами:
 
-- **Шестнадцатеричные цвета**: `"#ffffff"`
-- **Цвета ANSI**: `3` (0–255).
-- **Ссылки на цвета**: `"primary"` или пользовательские определения.
-- **Темный/светлый варианты**: `{"dark": "#000", "light": "#fff"}`
-- **Нет цвета**: `"none"` — используется цвет терминала по умолчанию или прозрачный.
+- **`$schema`** (необязательно) — указывает на `https://opencode.ai/theme.json` для автодополнения в редакторе. Носит информационный характер и никогда не влияет на поведение.
+- **`defs`** (необязательно) — именованные цветовые константы, на которые можно ссылаться в остальной части файла.
+- **`theme`** (обязательно) — сама тема: отображение **имён элементов** в записи стилей.
+
+Элементы адресуются точечными именами, по одному на каждую отрисовываемую поверхность интерфейса. Каждая запись объявляет необязательный цвет переднего плана (`fg`), фона (`bg`) и набор текстовых `attributes`:
+
+```json title="my-theme.json"
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "theme": {
+    "dialog.title": {
+      "fg": "#ffffff",
+      "attributes": ["bold"]
+    },
+    "message.user.body": {
+      "bg": "#1a1a2e"
+    },
+    "prompt.extmark.paste": {
+      "fg": "message.user.body",
+      "bg": "warning",
+      "attributes": ["bold"]
+    },
+    "thinkingOpacity": 0.6
+  }
+}
+```
+
+Запись, в которой заданы не все каналы, является **частичным переопределением**: незаданные каналы сохраняют значения по умолчанию из каталога для данного элемента. Присутствующий массив `attributes` **заменяет** набор атрибутов элемента по умолчанию целиком — слияния не происходит. Чтобы убрать атрибут по умолчанию, перечислите только нужные атрибуты; чтобы убрать все атрибуты, используйте пустой массив.
+
+#### Атрибуты
+
+Массив `attributes` принимает ровно следующие значения:
+
+`bold`, `dim`, `italic`, `underline`, `blink`, `inverse`, `hidden`, `strikethrough`
+
+Каждое значение может встречаться в записи не более одного раза.
+
+#### thinkingOpacity
+
+`thinkingOpacity` — число от `0` до `1` (по умолчанию `0.6`), которое умножает цвет переднего плана каждого блока рассуждений, включая его заголовок, и альфу приглушенных цветов синтаксиса. Это скаляр внутри `theme`, а не часть записи элемента.
+
+---
+
+### Цветовые значения
+
+Каждое значение `fg` и `bg` (и каждая константа `defs`) принимает:
+
+- **Шестнадцатеричные цвета**: `"#ffffff"` с 3, 4, 6 или 8 цифрами — `"#f0f"`, `"#8015"`, `"#2eff6a"`, `"#00000096"` (последняя пара цифр — альфа-канал)
+- **Цвета ANSI**: `3` (0–255) — разрешаются через фиксированную таблицу цветов, поэтому палитра терминала никогда не используется
+- **Нет цвета**: `"none"` использует цвет терминала по умолчанию, `"transparent"` — полностью прозрачный
+- **Ссылки**: имя, которое разрешается в другой цвет (см. ниже)
+- **Темные/светлые варианты**: `{"dark": "#000000", "light": "#ffffff"}` — обязательны обе ветки, используется та, что соответствует активному режиму
+
+#### Ссылки
+
+**Безточечное** имя ссылки (буквы, цифры и подчеркивания, начинается с буквы) разрешается сначала против `defs` файла, затем против встроенной палитры. **Точечное** имя должно быть именем элемента из каталога и разрешается **по каналам**: ссылка в `fg` принимает разрешенный цвет переднего плана указанного элемента, ссылка в `bg` — его разрешенный цвет фона. Атрибуты через ссылку никогда не передаются.
+
+```json
+{
+  "defs": {
+    "ink": "#101010"
+  },
+  "theme": {
+    "dialog.body": { "fg": "ink" },
+    "dialog.title": { "fg": "dialog.body" },
+    "prompt.text": { "bg": "dialog.title" }
+  }
+}
+```
+
+В теме v2 палитра содержит имена цветов встроенной темы по умолчанию — такие имена, как `primary`, `text`, `backgroundPanel`, `diffAdded` или `syntaxKeyword` (полный список см. в таблице ключей устаревшего формата). Именно поэтому частичная тема v2 работает без переопределения базовых цветов: всё, что вы не упомянули, откатывается к теме по умолчанию.
 
 ---
 
 ### Определения цвета
 
-Раздел `defs` является необязательным и позволяет вам определять повторно используемые цвета, на которые можно ссылаться в теме.
+Раздел `defs` является необязательным и позволяет вам определять повторно используемые цвета, на которые можно ссылаться в теме. Запись `defs` содержит шестнадцатеричный цвет, индекс ANSI, `"none"`/`"transparent"` или ссылку на другую запись `defs`, имя палитры или элемент.
 
 ---
 
@@ -133,8 +199,8 @@ vim .opencode/themes/my-theme.json
 
 Специальное значение `"none"` можно использовать для любого цвета, чтобы наследовать цвет терминала по умолчанию. Это особенно полезно для создания тем, которые органично сочетаются с цветовой схемой вашего терминала:
 
-- `"text": "none"` — использует цвет переднего плана терминала по умолчанию.
-- `"background": "none"` — использует цвет фона терминала по умолчанию.
+- `"dialog.body": { "fg": "none" }` — использует цвет переднего плана терминала по умолчанию.
+- `"app.background": { "bg": "none" }` — использует цвет фона терминала по умолчанию.
 
 ---
 
@@ -151,7 +217,6 @@ vim .opencode/themes/my-theme.json
     "nord2": "#434C5E",
     "nord3": "#4C566A",
     "nord4": "#D8DEE9",
-    "nord5": "#E5E9F0",
     "nord6": "#ECEFF4",
     "nord7": "#8FBCBB",
     "nord8": "#88C0D0",
@@ -164,206 +229,526 @@ vim .opencode/themes/my-theme.json
     "nord15": "#B48EAD"
   },
   "theme": {
-    "primary": {
-      "dark": "nord8",
-      "light": "nord10"
+    "thinkingOpacity": 0.6,
+    "app.background": {
+      "bg": { "dark": "nord0", "light": "nord6" }
     },
-    "secondary": {
-      "dark": "nord9",
-      "light": "nord9"
+    "dialog.title": {
+      "fg": { "dark": "nord8", "light": "nord10" },
+      "attributes": ["bold"]
     },
-    "accent": {
-      "dark": "nord7",
-      "light": "nord7"
+    "dialog.action": {
+      "fg": { "dark": "nord0", "light": "nord6" },
+      "bg": { "dark": "nord8", "light": "nord10" }
     },
-    "error": {
-      "dark": "nord11",
-      "light": "nord11"
+    "dialog.body": {
+      "fg": { "dark": "nord4", "light": "nord0" }
     },
-    "warning": {
-      "dark": "nord12",
-      "light": "nord12"
+    "prompt.cursor": {
+      "fg": { "dark": "nord8", "light": "nord10" }
     },
-    "success": {
-      "dark": "nord14",
-      "light": "nord14"
+    "prompt.placeholder": {
+      "fg": { "dark": "nord3", "light": "nord1" }
     },
-    "info": {
-      "dark": "nord8",
-      "light": "nord10"
+    "message.assistant.body": {
+      "fg": "dialog.body"
     },
-    "text": {
-      "dark": "nord4",
-      "light": "nord0"
+    "message.reasoning.body": {
+      "fg": { "dark": "nord3", "light": "nord1" }
     },
-    "textMuted": {
-      "dark": "nord3",
-      "light": "nord1"
+    "sidebar.strong": {
+      "attributes": ["bold", "underline"]
     },
-    "background": {
-      "dark": "nord0",
-      "light": "nord6"
+    "syntax.todo": {
+      "fg": 3,
+      "attributes": ["italic"]
     },
-    "backgroundPanel": {
-      "dark": "nord1",
-      "light": "nord5"
+    "diff.line.added": {
+      "bg": { "dark": "#3B4252", "light": "#e6f2e6" }
     },
-    "backgroundElement": {
-      "dark": "nord1",
-      "light": "nord4"
-    },
-    "border": {
-      "dark": "nord2",
-      "light": "nord3"
-    },
-    "borderActive": {
-      "dark": "nord3",
-      "light": "nord2"
-    },
-    "borderSubtle": {
-      "dark": "nord2",
-      "light": "nord3"
-    },
-    "diffAdded": {
-      "dark": "nord14",
-      "light": "nord14"
-    },
-    "diffRemoved": {
-      "dark": "nord11",
-      "light": "nord11"
-    },
-    "diffContext": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "diffHunkHeader": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "diffHighlightAdded": {
-      "dark": "nord14",
-      "light": "nord14"
-    },
-    "diffHighlightRemoved": {
-      "dark": "nord11",
-      "light": "nord11"
-    },
-    "diffAddedBg": {
-      "dark": "#3B4252",
-      "light": "#E5E9F0"
-    },
-    "diffRemovedBg": {
-      "dark": "#3B4252",
-      "light": "#E5E9F0"
-    },
-    "diffContextBg": {
-      "dark": "nord1",
-      "light": "nord5"
-    },
-    "diffLineNumber": {
-      "dark": "nord2",
-      "light": "nord4"
-    },
-    "diffAddedLineNumberBg": {
-      "dark": "#3B4252",
-      "light": "#E5E9F0"
-    },
-    "diffRemovedLineNumberBg": {
-      "dark": "#3B4252",
-      "light": "#E5E9F0"
-    },
-    "markdownText": {
-      "dark": "nord4",
-      "light": "nord0"
-    },
-    "markdownHeading": {
-      "dark": "nord8",
-      "light": "nord10"
-    },
-    "markdownLink": {
-      "dark": "nord9",
-      "light": "nord9"
-    },
-    "markdownLinkText": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "markdownCode": {
-      "dark": "nord14",
-      "light": "nord14"
-    },
-    "markdownBlockQuote": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "markdownEmph": {
-      "dark": "nord12",
-      "light": "nord12"
-    },
-    "markdownStrong": {
-      "dark": "nord13",
-      "light": "nord13"
-    },
-    "markdownHorizontalRule": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "markdownListItem": {
-      "dark": "nord8",
-      "light": "nord10"
-    },
-    "markdownListEnumeration": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "markdownImage": {
-      "dark": "nord9",
-      "light": "nord9"
-    },
-    "markdownImageText": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "markdownCodeBlock": {
-      "dark": "nord4",
-      "light": "nord0"
-    },
-    "syntaxComment": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "syntaxKeyword": {
-      "dark": "nord9",
-      "light": "nord9"
-    },
-    "syntaxFunction": {
-      "dark": "nord8",
-      "light": "nord8"
-    },
-    "syntaxVariable": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "syntaxString": {
-      "dark": "nord14",
-      "light": "nord14"
-    },
-    "syntaxNumber": {
-      "dark": "nord15",
-      "light": "nord15"
-    },
-    "syntaxType": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "syntaxOperator": {
-      "dark": "nord9",
-      "light": "nord9"
-    },
-    "syntaxPunctuation": {
-      "dark": "nord4",
-      "light": "nord0"
+    "diff.line.removed": {
+      "bg": { "dark": "#3B4252", "light": "#f2e6e6" }
     }
   }
 }
 ```
+
+Элементы, которые вы не упомянули, сохраняют значения по умолчанию из приведенного ниже каталога, разрешенные против палитры темы по умолчанию.
+
+---
+
+### Ошибки
+
+Файл темы, нарушающий формат, отклоняется при загрузке, и причина сообщается вам. Файл исключается из реестра тем, а активная тема откатывается к встроенной теме по умолчанию — отклоненный файл никогда не отрисовывается частично. Возможные причины:
+
+| Причина                | Значение                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| `PARSE_ERROR`          | Файл не является корректным JSON                                                        |
+| `NOT_A_THEME`          | В файле нет объекта `theme`                                                             |
+| `MIXED_FORMATS`        | Записи элементов v2 и ключи цветов v1 смешаны в одном объекте `theme` — используйте один формат на файл |
+| `UNKNOWN_ELEMENT`      | Имя элемента отсутствует в каталоге (каталог закрыт)                                     |
+| `UNKNOWN_ATTRIBUTE`    | Массив `attributes` содержит значение вне восьми известных атрибутов                     |
+| `INVALID_COLOR`        | Некорректный hex, индекс ANSI вне 0–255 или значение, не являющееся цветом               |
+| `UNRESOLVED_REFERENCE` | Имя ссылки не найдено ни в `defs`, ни в палитре, ни в каталоге                           |
+| `CYCLIC_REFERENCE`     | Цепочка ссылок повторно посещает имя                                                     |
+| `INVALID_ENTRY`        | Запись элемента содержит член вне `fg`/`bg`/`attributes` либо `attributes` не является массивом |
+
+Обратите внимание: опубликованная [JSON-схема](https://opencode.ai/theme.json) по-прежнему считает корректным файл, смешивающий оба формата, чтобы редакторы продолжали предлагать автодополнение для устаревших файлов, — сам opencode строже и отклоняет смесь с ошибкой `MIXED_FORMATS`.
+
+---
+
+### Устаревший формат (v1)
+
+Раньше темы представляли собой плоское отображение ключей цветов в camelCase. Такие файлы всё ещё загружаются: при загрузке они **автоматически мигрируют** в формат элементов, и миграция не имеет потерь — каждая поверхность отрисовывается ровно теми цветами, которые отрисовывала раньше. Смешивание ключей v1 с записями элементов в одном файле отклоняется (`MIXED_FORMATS`), поэтому новые темы следует создавать исключительно в формате элементов.
+
+```json title="legacy-theme.json"
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "theme": {
+    "primary": { "dark": "#88C0D0", "light": "#5E81AC" },
+    "background": { "dark": "#2E3440", "light": "#ECEFF4" }
+  }
+}
+```
+
+Файл v1, задающий лишь часть ключей, тоже допустим: отсутствующие имена палитры откатываются к встроенной теме по умолчанию. Шесть ключей, которые никогда не достигали отрисовываемой поверхности (`diffHunkHeader`, `markdownHorizontalRule`, `markdownListEnumeration`, `markdownImage`, `markdownImageText`, `markdownCodeBlock`), при миграции игнорируются.
+
+| Ключ                         | Назначение                                                      |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `primary`                    | Основной акцентный цвет                                          |
+| `secondary`                  | Дополнительный акцентный цвет                                    |
+| `accent`                     | Акцентный цвет                                                   |
+| `error`                      | Цвет ошибки                                                      |
+| `warning`                    | Цвет предупреждения                                              |
+| `success`                    | Цвет успеха                                                      |
+| `info`                       | Информационный цвет                                              |
+| `text`                       | Цвет переднего плана по умолчанию                                |
+| `textMuted`                  | Приглушенный цвет переднего плана                                |
+| `selectedListItemText`       | Цвет переднего плана на выделенных поверхностях                  |
+| `background`                 | Основной фон                                                     |
+| `backgroundPanel`            | Фон панелей                                                      |
+| `backgroundElement`          | Фон элементов (поверхности наведения, чипы)                      |
+| `backgroundMenu`             | Фон меню (автодополнение, варианты разрешений)                   |
+| `border`                     | Граница по умолчанию                                             |
+| `borderActive`               | Активная граница                                                 |
+| `borderSubtle`               | Едва заметная граница                                            |
+| `diffAdded`                  | Цвет баннера/знака добавленных строк                             |
+| `diffRemoved`                | Цвет баннера/знака удаленных строк                               |
+| `diffContext`                | Цвет переднего плана контекстных строк diff                      |
+| `diffHunkHeader`             | Отбрасывается при миграции (никогда не отрисовывался)            |
+| `diffHighlightAdded`         | Подсветка знака добавленных строк                                |
+| `diffHighlightRemoved`       | Подсветка знака удаленных строк                                  |
+| `diffAddedBg`                | Фон добавленных строк                                            |
+| `diffRemovedBg`              | Фон удаленных строк                                              |
+| `diffContextBg`              | Фон контекстных строк                                            |
+| `diffLineNumber`             | Цвет номеров строк                                               |
+| `diffAddedLineNumberBg`      | Фон номеров добавленных строк                                    |
+| `diffRemovedLineNumberBg`    | Фон номеров удаленных строк                                      |
+| `markdownText`               | Текст markdown                                                   |
+| `markdownHeading`            | Заголовки markdown                                               |
+| `markdownLink`               | URL ссылок markdown                                              |
+| `markdownLinkText`           | Текст ссылок markdown                                            |
+| `markdownCode`               | Встроенный код                                                   |
+| `markdownBlockQuote`         | Цитаты                                                           |
+| `markdownEmph`               | Выделенный текст (курсив)                                        |
+| `markdownStrong`             | Усиленный текст (жирный)                                         |
+| `markdownHorizontalRule`     | Отбрасывается при миграции (никогда не отрисовывался)            |
+| `markdownListItem`           | Элементы списков                                                 |
+| `markdownListEnumeration`    | Отбрасывается при миграции (никогда не отрисовывался)            |
+| `markdownImage`              | Отбрасывается при миграции (никогда не отрисовывался)            |
+| `markdownImageText`          | Отбрасывается при миграции (никогда не отрисовывался)            |
+| `markdownCodeBlock`          | Отбрасывается при миграции (никогда не отрисовывался)            |
+| `syntaxComment`              | Комментарии                                                      |
+| `syntaxKeyword`              | Ключевые слова                                                   |
+| `syntaxFunction`             | Функции                                                          |
+| `syntaxVariable`             | Переменные                                                       |
+| `syntaxString`               | Строки                                                           |
+| `syntaxNumber`               | Числа                                                            |
+| `syntaxType`                 | Типы                                                             |
+| `syntaxOperator`             | Операторы                                                        |
+| `syntaxPunctuation`          | Знаки препинания                                                 |
+
+---
+
+### Каталог элементов
+
+Каталог ниже перечисляет все адресуемые элементы — это закрытый набор, и тема, называющая элемент вне его, отклоняется с ошибкой `UNKNOWN_ELEMENT`. Столбцы — значения по умолчанию для каждого канала:
+
+- `—` означает прозрачный цвет для `fg`/`bg` и пустой набор атрибутов для атрибутов
+- Имя в обратных кавычках — это ссылка на палитру, разрешаемая против палитры темы по умолчанию
+- `selected-foreground` — вычисляемое правило контраста, оцениваемое по собственному разрешенному фону элемента
+- `tint(...)` — вычисляемое смешение цветов
+- Элементы границ отрисовывают одноцветные штрихи по каналу `fg`
+
+### app
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `app.background` | — | `background` | — |
+
+---
+
+### dialog — общее оформление диалогов и универсальные диалоговые поверхности
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `dialog.panel` | — | `backgroundPanel` | — |
+| `dialog.underlay` | — | `#00000096` | — |
+| `dialog.title` | `text` | — | `bold` |
+| `dialog.body` | `text` | — | — |
+| `dialog.muted` | `textMuted` | — | — |
+| `dialog.action` | `selected-foreground` | `primary` | — |
+| `dialog.link` | `primary` | — | — |
+| `dialog.notice` | `accent` | — | — |
+| `dialog.error` | `error` | `backgroundPanel` | — |
+| `dialog.retry` | `selected-foreground` | `backgroundPanel` | — |
+| `dialog.session.gutter` | `accent` | — | — |
+| `dialog.session.deleted` | — | `error` | — |
+| `dialog.console.email` | `accent` | — | — |
+| `dialog.plugins.active` | `success` | — | — |
+| `dialog.plugins.inactive` | `error` | — | — |
+| `dialog.mcp.enabled` | `success` | — | — |
+| `dialog.debug.copied` | `success` | — | — |
+| `dialog.export.option` | `text` | — | — |
+| `dialog.export.option.active` | `primary` | `backgroundElement` | — |
+
+---
+
+### dialog.select — диалоги-списки с фильтром (DialogSelect и аналогичные)
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `dialog.select.filter` | `textMuted` | `backgroundPanel` | — |
+| `dialog.select.filter.cursor` | `primary` | — | — |
+| `dialog.select.row` | `text` | — | — |
+| `dialog.select.row.selected` | `selected-foreground` | `primary` | `bold` |
+| `dialog.select.row.selected.unfocused` | `text` | `backgroundElement` | — |
+| `dialog.select.category` | `accent` | — | `bold` |
+| `dialog.select.footer` | `text` | — | — |
+| `dialog.select.footer.label` | `textMuted` | — | — |
+| `dialog.select.footer.active` | `selected-foreground` | `primary` | `bold` |
+| `dialog.select.footer.disabled` | `textMuted` | — | — |
+| `dialog.select.marker` | `primary` | — | — |
+
+---
+
+### autocomplete — меню автодополнения в строке ввода
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `autocomplete.menu` | — | `backgroundMenu` | — |
+| `autocomplete.menu.border` | `border` | — | — |
+| `autocomplete.row` | `text` | — | — |
+| `autocomplete.row.selected` | `selected-foreground` | `primary` | — |
+
+---
+
+### prompt — редактор, плейсхолдеры, чипы, extmark-метки
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `prompt.container` | — | `backgroundElement` | — |
+| `prompt.container.border` | `border` | — | — |
+| `prompt.shell.border` | `primary` | — | — |
+| `prompt.text` | `text` | — | — |
+| `prompt.placeholder` | `textMuted` | — | — |
+| `prompt.cursor` | `primary` | — | — |
+| `prompt.cursor.unfocused` | `textMuted` | — | — |
+| `prompt.cursor.disabled` | — | `backgroundElement` | — |
+| `prompt.notice` | `accent` | — | — |
+| `prompt.chip` | `text` | `backgroundElement` | — |
+| `prompt.extmark.file` | `warning` | — | `bold` |
+| `prompt.extmark.agent` | `secondary` | — | `bold` |
+| `prompt.extmark.paste` | `selected-foreground` | `warning` | `bold` |
+
+---
+
+### message — сообщения транскрипта по ролям
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `message.user.body` | `text` | `backgroundPanel` | — |
+| `message.user.body.hover` | `text` | `backgroundElement` | — |
+| `message.user.badge` | `selected-foreground` | `secondary` | — |
+| `message.assistant.body` | `text` | — | — |
+| `message.assistant.meta` | `textMuted` | — | — |
+| `message.assistant.meta.mode` | `text` | — | — |
+| `message.assistant.meta.variant` | `warning` | — | `bold` |
+| `message.system.body` | `textMuted` | — | — |
+| `message.reasoning.header` | `warning` | — | — |
+| `message.reasoning.body` | `textMuted` | — | — |
+| `message.tool.card` | — | `backgroundPanel` | — |
+| `message.tool.card.hover` | — | `backgroundMenu` | — |
+| `message.tool.header` | `textMuted` | — | — |
+| `message.tool.body` | `text` | — | — |
+| `message.tool.body.pending` | `textMuted` | — | — |
+| `message.tool.status.pending` | `warning` | — | — |
+| `message.tool.status.error` | `error` | — | — |
+| `message.tool.status.done` | `textMuted` | — | — |
+| `message.tool.args.denied` | `text` | — | `strikethrough` |
+| `message.error.panel` | — | `backgroundPanel` | — |
+| `message.error.border` | `error` | — | — |
+| `message.error.body` | `error` | — | — |
+| `message.revert` | `textMuted` | `backgroundPanel` | — |
+| `message.revert.hover` | `textMuted` | `backgroundElement` | — |
+| `message.queued` | `textMuted` | — | `bold` |
+| `message.timestamp` | `textMuted` | — | — |
+| `message.compaction` | `borderActive` | — | — |
+
+---
+
+### footer — нижняя панель сессии
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `footer.panel` | — | `backgroundPanel` | — |
+| `footer.text` | `text` | — | — |
+| `footer.muted` | `textMuted` | — | — |
+| `footer.permission` | `warning` | — | — |
+| `footer.status.ok` | `success` | — | — |
+| `footer.status.warn` | `warning` | — | — |
+| `footer.status.error` | `error` | — | — |
+
+---
+
+### sidebar — боковая панель и её секции
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `sidebar.panel` | — | `backgroundPanel` | — |
+| `sidebar.dim` | — | `#00000046` | — |
+| `sidebar.text` | `text` | — | — |
+| `sidebar.muted` | `textMuted` | — | — |
+| `sidebar.strong` | `text` | — | `bold` |
+| `sidebar.emphasized` | `text` | — | `italic` |
+| `sidebar.item.open` | `success` | — | — |
+| `sidebar.status.ok` | `success` | — | — |
+| `sidebar.status.warn` | `warning` | — | — |
+| `sidebar.status.error` | `error` | — | — |
+| `sidebar.todo.pending` | `warning` | — | — |
+| `sidebar.files.added` | `diffAdded` | — | — |
+| `sidebar.files.removed` | `diffRemoved` | — | — |
+
+---
+
+### scrollbar — общие полосы прокрутки
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `scrollbar.track` | — | `backgroundPanel` | — |
+| `scrollbar.track.overlay` | — | `background` | — |
+| `scrollbar.thumb` | `border` | — | — |
+| `scrollbar.thumb.active` | `borderActive` | — | — |
+
+---
+
+### diff — просмотр diff, тела diff в диалогах разрешений, баннеры diff
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `diff.text` | `text` | — | — |
+| `diff.border` | `border` | — | — |
+| `diff.line.added` | `text` | `diffAddedBg` | — |
+| `diff.line.removed` | `text` | `diffRemovedBg` | — |
+| `diff.line.context` | `text` | `diffContextBg` | — |
+| `diff.sign.added` | `diffHighlightAdded` | — | — |
+| `diff.sign.removed` | `diffHighlightRemoved` | — | — |
+| `diff.gutter` | `diffLineNumber` | `diffContextBg` | — |
+| `diff.gutter.added` | `diffLineNumber` | `diffAddedLineNumberBg` | — |
+| `diff.gutter.removed` | `diffLineNumber` | `diffRemovedLineNumberBg` | — |
+| `diff.banner.added` | `diffAdded` | — | — |
+| `diff.banner.removed` | `diffRemoved` | — | — |
+| `diff.filetree.row` | `textMuted` | — | — |
+| `diff.filetree.row.selected` | `selected-foreground` | `primary` | — |
+
+---
+
+### markdown — рендеринг markdown (управляется scope-правилами)
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `markdown.text` | `markdownText` | — | — |
+| `markdown.bg` | — | `background` | — |
+| `markdown.heading` | `markdownHeading` | — | `bold` |
+| `markdown.heading.h1` | `markdownHeading` | — | `bold`, `underline` |
+| `markdown.strong` | `markdownStrong` | — | `bold` |
+| `markdown.emph` | `markdownEmph` | — | `italic` |
+| `markdown.quote` | `markdownBlockQuote` | — | `italic` |
+| `markdown.list` | `markdownListItem` | — | — |
+| `markdown.code` | `markdownCode` | `background` | — |
+| `markdown.link` | `markdownLink` | — | `underline` |
+| `markdown.link.label` | `markdownLinkText` | — | — |
+
+---
+
+### syntax — подсветка кода (управляется scope-правилами)
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `syntax.default` | `text` | — | — |
+| `syntax.comment` | `syntaxComment` | — | `italic` |
+| `syntax.keyword` | `syntaxKeyword` | — | `italic` |
+| `syntax.string` | `syntaxString` | — | — |
+| `syntax.number` | `syntaxNumber` | — | — |
+| `syntax.type` | `syntaxType` | — | `bold` |
+| `syntax.function` | `syntaxFunction` | — | — |
+| `syntax.variable` | `syntaxVariable` | — | — |
+| `syntax.operator` | `syntaxOperator` | — | — |
+| `syntax.punctuation` | `syntaxPunctuation` | — | — |
+| `syntax.error` | `error` | — | — |
+| `syntax.warning` | `warning` | — | — |
+| `syntax.todo` | `info` | — | — |
+| `syntax.checked` | `success` | — | — |
+| `syntax.conceal` | `textMuted` | — | — |
+| `syntax.prompt` | `accent` | — | — |
+| `syntax.diff.plus` | — | `diffAddedBg` | — |
+| `syntax.diff.minus` | — | `diffRemovedBg` | — |
+| `syntax.diff.delta` | `diffContext` | `diffContextBg` | — |
+
+---
+
+### toast
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `toast.panel` | — | `backgroundPanel` | — |
+| `toast.title` | `text` | — | `bold` |
+| `toast.body` | `text` | — | — |
+| `toast.error.border` | `error` | — | — |
+| `toast.info.border` | `info` | — | — |
+
+---
+
+### permission — диалог запроса разрешения
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `permission.panel` | — | `backgroundPanel` | — |
+| `permission.border` | `borderActive` | — | — |
+| `permission.border.reject` | `error` | — | — |
+| `permission.marker` | `warning` | — | — |
+| `permission.option` | `text` | `backgroundMenu` | — |
+| `permission.option.selected` | `selected-foreground` | `warning` | — |
+| `permission.caption` | `textMuted` | — | — |
+
+---
+
+### question — диалог вопросов
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `question.panel` | — | `backgroundPanel` | — |
+| `question.border` | `accent` | — | — |
+| `question.tab` | `text` | `backgroundPanel` | — |
+| `question.tab.active` | `selected-foreground` | `accent` | — |
+| `question.tab.hover` | `text` | `backgroundElement` | — |
+| `question.option` | `text` | `backgroundPanel` | — |
+| `question.option.hover` | `text` | `backgroundElement` | — |
+| `question.option.selected` | `selected-foreground` | `secondary` | — |
+| `question.option.picked` | `success` | — | — |
+| `question.muted` | `textMuted` | — | — |
+| `question.unanswered` | `error` | — | — |
+
+---
+
+### subagent — нижняя панель сабагента
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `subagent.footer.panel` | — | `backgroundPanel` | — |
+| `subagent.footer.border` | `border` | — | — |
+| `subagent.footer.text` | `text` | — | — |
+| `subagent.footer.strong` | `text` | — | `bold` |
+| `subagent.footer.hover` | `text` | `backgroundElement` | — |
+
+---
+
+### which-key — оверлей which-key
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `which-key.panel` | — | `backgroundMenu` | — |
+| `which-key.key` | `warning` | — | — |
+| `which-key.subtle` | `borderSubtle` | — | — |
+| `which-key.tab` | `selectedListItemText` | — | — |
+| `which-key.accent` | `primary` | — | — |
+
+---
+
+### startup — стартовый блок загрузки
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `startup.panel` | — | `backgroundPanel` | — |
+| `startup.loading` | `textMuted` | — | — |
+
+---
+
+### logo — стартовый логотип
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `logo.left` | `textMuted` | — | — |
+| `logo.right` | `text` | — | `bold` |
+| `logo.shadow` | — | `tint(background, element fg, logo-shadow-alpha)` | — |
+
+---
+
+### bg-pulse — анимация пульсации фона
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `bg-pulse.panel` | — | `backgroundPanel` | — |
+| `bg-pulse.accent` | `primary` | — | — |
+| `bg-pulse.base` | — | `tint(background, text, bg-pulse-base-alpha)` | — |
+
+---
+
+### tips — подсказки на домашнем экране
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `tips.marker` | `warning` | — | — |
+
+---
+
+### run — run CLI (скроллбэк, футер, сплэш)
+
+| Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
+|---|---|---|---|
+| `run.background` | — | `background` | — |
+| `run.footer.text` | `text` | — | — |
+| `run.footer.muted` | `textMuted` | — | — |
+| `run.footer.highlight` | `primary` | — | — |
+| `run.footer.warn` | `warning` | — | — |
+| `run.footer.success` | `success` | — | — |
+| `run.footer.error` | `error` | — | — |
+| `run.footer.selected` | — | `backgroundElement` | — |
+| `run.footer.selectedText` | `selectedListItemText` | — | — |
+| `run.footer.pane` | — | `backgroundMenu` | — |
+| `run.footer.border` | `border` | — | — |
+| `run.entry.system` | `textMuted` | — | — |
+| `run.entry.user` | `primary` | — | — |
+| `run.entry.assistant` | `text` | — | — |
+| `run.entry.reasoning` | `textMuted` | — | — |
+| `run.entry.tool` | `text` | — | — |
+| `run.entry.tool.start` | `textMuted` | — | — |
+| `run.entry.error` | `error` | — | — |
+| `run.splash.left` | `textMuted` | — | — |
+| `run.splash.right` | `text` | — | — |
+| `run.block.highlight` | `primary` | — | — |
+| `run.block.warning` | `warning` | — | — |
+| `run.block.text` | `text` | — | — |
+| `run.block.muted` | `textMuted` | — | — |
+
+Run-zone derivatives stay computed and carry no elements: the footer
+`status`, `statusAccent`, `shade`, `surface`, and `line` fields are
+tui-theme/tint or tui-theme/fade derivations of `run.footer.pane`,
+`run.background`, and the footer mode with the Configuration constants; the
+splash `leftShadow`/`rightShadow` fields are tui-theme/tint derivations of
+the splash colors with `splash-shadow-alpha`; the run block diff fields
+(`diffAdded`, `diffRemoved`, `diffAddedBg`, `diffRemovedBg`, `diffContextBg`,
+`diffHighlightAdded`, `diffHighlightRemoved`, `diffLineNumber`,
+`diffAddedLineNumberBg`, `diffRemovedLineNumberBg`) resolve from the palette
+diff names of the effective theme.
+
