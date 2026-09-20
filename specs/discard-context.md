@@ -29,7 +29,7 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 - Config key `discard_context` (boolean; a root key of both the V2 and V1 config surfaces, read in the V1 runtime through the V1 config service, with the V1 document value carried into the V2 surface by config migration): name and type here; allowed values, default, and effect in Configuration.
 - Tool `discard_context`:
   - input: `{ ids: string[] }` — ids of assistant message parts (text, reasoning, or tool call parts) to hide from the model's own later context; every element must be a string.
-  - output: `{ ids: string[] }` — equals the input ids.
+  - output (V2): `{ ids: string[] }` — equals the input ids. The V1 `Tool.Def` shape has no structured-output channel: a settled V1 call exposes the same counter text line as its model-facing output, and the echoed ids are available only in the persisted tool part's `state.input`.
   - model-facing output: one text line stating the marked count.
   - execution performs no permission assertion (V2: the internal built-in-only exception of v2-tools; V1: no permission ask is issued).
 - System instruction: a fixed instruction appended after the agent system prompt and the context-epoch baseline on provider turns where the flag is enabled; in the V1 runtime the same fixed text is appended to the per-turn system parts, which the provider request joins into one combined system message. It explains the tool, the origin of part ids, that unknown ids are ignored, and that the discard calls themselves are hidden.
@@ -49,7 +49,7 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 ## Requirements
 
 - R1. Tool contract:
-- R1.1. The structured output of a settled `discard_context` call equals its input `ids` array.
+- R1.1. In the V2 runtime the structured output of a settled `discard_context` call equals its input `ids` array. In the V1 runtime the settled call has no structured-output channel; the model-facing output is the R1.2 counter line, with the echoed ids readable only from the tool part's `state.input` persisted by the processor.
 - R1.2. The model-facing output of a settled call is a single text line stating the count of marked parts.
 - R1.3. Tool execution performs no permission assertion.
 - R1.4. Tool execution performs no effect other than the durable persistence of the tool part that records the call.
@@ -195,7 +195,8 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 
 ## Used by
 
-None yet.
+- config-v1 — the `discard_context` configuration row delegates the key's effect to this spec.
+- core-tools-permissions — hosts the V1 wrapper as a registry built-in with the `tools()` config gate and no permission ask of its own.
 
 ## Verification
 
