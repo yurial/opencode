@@ -14,7 +14,7 @@ import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { Prompt } from "@opencode-ai/core/session/prompt"
+import { FileAttachment, Prompt } from "@opencode-ai/core/session/prompt"
 import { SessionHistory } from "@opencode-ai/core/session/history"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
@@ -169,6 +169,125 @@ describe("DiscardContext.filterEntries", () => {
       user("user-1", "Start"),
       assistant("assistant-1", [textPart("text-1", "Stay")]),
     ])
+  })
+
+  test("removes a marked user text part, keeps the message when files remain, and drops emptied user messages (T2.7)", () => {
+    const withFile = SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_user-files"),
+      type: "user",
+      text: "Look at this",
+      files: [FileAttachment.create({ uri: "file:///tmp/a.png", mime: "image/png" })],
+      time: { created },
+    })
+    const filtered = DiscardContext.filterEntries([
+      entry(1, user("user-1", "Start")),
+      entry(2, assistant("assistant-1", [textPart("text-1", "A")])),
+      entry(3, assistant("assistant-2", [discardCall(["text-1", "msg_user-files", "msg_user-temp"])])),
+      entry(4, withFile),
+      entry(5, user("user-temp", "Temp")),
+      entry(6, user("user-2", "End")),
+    ])
+
+    expect(messages(filtered)).toEqual([
+      user("user-1", "Start"),
+      { ...withFile, text: "" },
+      user("user-2", "End"),
+    ])
+    // The emptied user text part never reaches the projection; the file part
+    // and the message remain (A4.2).
+    const lowered = toLLMMessages(messages(filtered), translationModel)
+    expect(JSON.stringify(lowered)).not.toContain("Look at this")
+    expect(JSON.stringify(lowered)).toContain("a.png")
+  })
+
+  test("ignores marked ids naming parts of the most recent user entry (T2.8)", () => {
+    const filtered = DiscardContext.filterEntries([
+      entry(1, user("user-1", "Keep")),
+      entry(2, assistant("assistant-1", [discardCall(["msg_user-2"])])),
+      entry(3, user("user-2", "Current")),
+    ])
+
+    expect(messages(filtered)).toEqual([user("user-1", "Keep"), user("user-2", "Current")])
+  })
+
+  test("matches user parts only by their own id, never by a tool call id (T2.9)", () => {
+    const filtered = DiscardContext.filterEntries([
+      entry(1, user("user-1", "Mine")),
+      entry(2, assistant("assistant-1", [settledToolPart("call-reader", "read", { path: "README.md" })])),
+      entry(3, assistant("assistant-2", [discardCall(["call-reader"])])),
+      entry(4, user("user-2", "End")),
+    ])
+
+    // The tool part goes via its call id; the user entries are untouched.
+    expect(messages(filtered)).toEqual([user("user-1", "Mine"), user("user-2", "End")])
+  })
+
+  test("keeps working without user entries; the most-recent-user guard is inert (R4.8)", () => {
+    const filtered = DiscardContext.filterEntries([
+      entry(1, assistant("assistant-1", [textPart("text-1", "Stay")])),
+      entry(2, assistant("assistant-2", [discardCall(["missing-1"])])),
+    ])
+
+    expect(messages(filtered)).toEqual([assistant("assistant-1", [textPart("text-1", "Stay")])])
+  })
+
+  test("keeps a marked user message that was already empty instead of dropping it (mirror, m5)", () => {
+    const empty = SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_user-empty"),
+      type: "user",
+      text: "",
+      time: { created },
+    })
+    const filtered = DiscardContext.filterEntries([
+      entry(1, empty),
+      entry(2, assistant("assistant-1", [discardCall(["msg_user-empty"])])),
+      entry(3, user("user-2", "Current")),
+    ])
+
+    // Filtering only drops what it empties; a message with no removable
+    // content stays, mirroring the V1 filter. The discard call itself hides.
+    expect(messages(filtered)).toEqual([empty, user("user-2", "Current")])
+  })
+
+  test("merges same-role neighbors stranded by filtering (R4.10)", () => {
+    // The runner lowers flag-on turns with both projection options; the merge
+    // must not apply to unfiltered turns.
+    const lower = (msgs: readonly SessionMessage.Message[]) =>
+      toLLMMessages(msgs, translationModel, { partIdMarkers: true, mergeSameRole: true })
+
+    // Two users stranded by the assistant emptied in between.
+    const strandedUsers = DiscardContext.filterEntries([
+      entry(1, user("user-1", "One")),
+      entry(2, assistant("assistant-1", [textPart("text-a", "A")])),
+      entry(3, assistant("assistant-2", [discardCall(["text-a"])])),
+      entry(4, user("user-2", "Two")),
+    ])
+    const loweredUsers = lower(messages(strandedUsers))
+    expect(loweredUsers.map((message) => message.role)).toEqual(["user"])
+    const texts = loweredUsers[0]!.content.flatMap((part) => (part.type === "text" ? [part.text] : []))
+    expect(texts.join("\n")).toContain("One")
+    expect(texts.join("\n")).toContain("Two")
+
+    // Two assistants stranded by the discard call dropped in between.
+    const strandedAssistants = DiscardContext.filterEntries([
+      entry(1, user("user-1", "Start")),
+      entry(2, assistant("assistant-1", [textPart("text-a", "A")])),
+      entry(3, assistant("assistant-2", [textPart("text-b", "B")])),
+      entry(4, assistant("assistant-3", [discardCall(["missing"])])),
+      entry(5, user("user-2", "End")),
+    ])
+    const loweredAssistants = lower(messages(strandedAssistants))
+    expect(loweredAssistants.map((message) => message.role)).toEqual(["user", "assistant", "user"])
+    const body = JSON.stringify(loweredAssistants)
+    expect(body).toContain("A")
+    expect(body).toContain("B")
+
+    // Unfiltered turns keep the unmerged shape.
+    const unfiltered = toLLMMessages(
+      [user("user-1", "One"), user("user-2", "Two")],
+      translationModel,
+    )
+    expect(unfiltered.map((message) => message.role)).toEqual(["user", "user"])
   })
 })
 
@@ -372,6 +491,11 @@ const userTexts = (request: LLMRequest) =>
 
 const systemTexts = (request: LLMRequest) => request.system.map((part) => part.text)
 
+const durableRow = (message: SessionMessage.Message, seq: number) => {
+  const { id, type, ...data } = Schema.encodeSync(SessionMessage.Message)(message)
+  return { id: SessionMessage.ID.make(id), session_id: sessionID, type, seq, data }
+}
+
 describe("SessionRunner discard_context", () => {
   itEnabled.effect("appends the discard instruction to system when the flag is enabled", () =>
     Effect.gen(function* () {
@@ -473,16 +597,12 @@ describe("SessionRunner discard_context", () => {
     Effect.gen(function* () {
       yield* setup
       const { db } = yield* Database.Service
-      const row = (message: SessionMessage.Message, seq: number) => {
-        const { id, type, ...data } = Schema.encodeSync(SessionMessage.Message)(message)
-        return { id: SessionMessage.ID.make(id), session_id: sessionID, type, seq, data }
-      }
       yield* db
         .insert(SessionMessageTable)
         .values([
-          row(user("user-1", "Start"), 1),
-          row(assistant("assistant-1", [textPart("text-old", "OLD PLAN")]), 2),
-          row(assistant("assistant-2", [discardCall(["text-old"])]), 3),
+          durableRow(user("user-1", "Start"), 1),
+          durableRow(assistant("assistant-1", [textPart("text-old", "OLD PLAN")]), 2),
+          durableRow(assistant("assistant-2", [discardCall(["text-old"])]), 3),
         ])
         .run()
         .pipe(Effect.orDie)
@@ -492,6 +612,104 @@ describe("SessionRunner discard_context", () => {
       expect(filtered).toHaveLength(1)
       expect(filtered[0]).toMatchObject({ seq: 1, message: { type: "user", text: "Start" } })
       expect(JSON.stringify(filtered)).not.toContain("OLD PLAN")
+    }),
+  )
+
+  itEnabled.effect("keeps the lowered request valid when filtering drops emptied user messages (T3.6)", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const { db } = yield* Database.Service
+      yield* db
+        .insert(SessionMessageTable)
+        .values([
+          durableRow(user("user-1", "Start"), 1),
+          durableRow(
+            assistant("assistant-1", [textPart("text-a", "A"), settledToolPart("call-read", "read", { path: "r" })]),
+            2,
+          ),
+          durableRow(assistant("assistant-2", [discardCall(["text-a", "msg_user-2", "msg_user-3"])]), 3),
+          durableRow(user("user-2", "Temp"), 4),
+          durableRow(user("user-3", "Current"), 5),
+        ])
+        .run()
+        .pipe(Effect.orDie)
+
+      const filtered = DiscardContext.filterEntries(yield* SessionHistory.entriesForRunner(db, sessionID, 0))
+      const lowered = toLLMMessages(
+        filtered.map((item) => item.message),
+        translationModel,
+      )
+
+      // user-1 stays, assistant-1 keeps its tool call, user-2 is emptied and
+      // dropped, the discard call disappears, user-3 (the most recent user
+      // entry) survives whole even though its id was marked.
+      expect(lowered.map((message) => message.role)).toEqual(["user", "assistant", "tool", "user"])
+      expect(JSON.stringify(lowered)).not.toContain("Temp")
+      expect(JSON.stringify(lowered)).toContain("Current")
+      expect(JSON.stringify(lowered)).not.toContain("[part id:")
+    }),
+  )
+
+  itEnabled.effect("projects text parts with the marker line and tool parts by their call ids (T3.7)", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      response = textTurn("text-plan", "OLD PLAN")
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Hi" }), resume: false })
+      yield* session.resume(sessionID)
+
+      // A later turn carries both messages: the user text part projects under
+      // the message id, the assistant text part under its part id.
+      requests.length = 0
+      responses = [textTurn("text-other", "STAY")]
+      yield* session.resume(sessionID)
+      expect(requests).toHaveLength(1)
+      const body = JSON.stringify(requests[0]!)
+      expect(body).toMatch(/\[part id: msg_[0-9A-Za-z]+\]/)
+      expect(body).toContain("[part id: text-plan]")
+
+      // Tool parts project their provider call id natively, with no marker
+      // line, whether or not the flag is enabled (R8.3).
+      const lowered = toLLMMessages([assistant("assistant-x", [settledToolPart("call-read", "read", { path: "r" })])], translationModel, {
+        partIdMarkers: true,
+      })
+      expect(JSON.stringify(lowered)).toContain("call-read")
+      expect(JSON.stringify(lowered)).not.toContain("[part id: call-")
+    }),
+  )
+
+  itPlain.effect("projects no marker line when the flag is disabled (T3.8)", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      response = textTurn("text-plan", "OLD PLAN")
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Hi" }), resume: false })
+      yield* session.resume(sessionID)
+
+      expect(requests).toHaveLength(1)
+      expect(JSON.stringify(requests[0])).not.toContain("[part id:")
+    }),
+  )
+
+  itEnabled.effect("keeps the projected-id-marker out of durable rows and session reads (T3.9)", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      response = textTurn("text-plan", "OLD PLAN")
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Hi" }), resume: false })
+      yield* session.resume(sessionID)
+
+      const { db } = yield* Database.Service
+      const rows = yield* db
+        .select({ data: SessionMessageTable.data })
+        .from(SessionMessageTable)
+        .where(eq(SessionMessageTable.session_id, sessionID))
+        .all()
+        .pipe(Effect.orDie)
+      expect(JSON.stringify(rows)).not.toContain("[part id:")
+      const context = yield* session.context(sessionID)
+      expect(JSON.stringify(context)).not.toContain("[part id:")
+      expect(JSON.stringify(context)).toContain("OLD PLAN")
     }),
   )
 })

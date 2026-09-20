@@ -212,4 +212,94 @@ describe("session discard-context filterEntries", () => {
 
     expect(ids(filtered)).toEqual([prtID("text-stranger"), prtID("text-1")])
   })
+
+  test("removes marked user text and file parts, drops emptied user messages, and preserves order (T6.8)", () => {
+    const filePart: SessionV1.FilePart = {
+      id: prtID("file-1"),
+      sessionID,
+      messageID: msgID("owner"),
+      type: "file",
+      mime: "image/png",
+      url: "file:///tmp/a.png",
+    }
+    const withFile = user("user-2")
+    withFile.parts.push(text("text-u", "Look"), filePart)
+    const emptied = user("user-emp")
+    emptied.parts.push(text("text-emp", "Temp"))
+    const filtered = DiscardContext.filterEntries([
+      user("user-1"),
+      assistant("assistant-1", [text("text-1", "A"), discardCall([prtID("text-1"), prtID("text-u"), prtID("text-emp")])]),
+      withFile,
+      emptied,
+      user("user-3"),
+    ])
+
+    expect(filtered.map((item) => item.info.id)).toEqual([msgID("user-1"), msgID("user-2"), msgID("user-3")])
+    expect(ids([filtered[1]!])).toEqual([prtID("file-1")])
+  })
+
+  test("ignores marked ids naming parts of the most recent user entry (R4.8)", () => {
+    const last = user("user-2")
+    last.parts.push(text("text-l", "Current"))
+    const filtered = DiscardContext.filterEntries([
+      user("user-1"),
+      assistant("assistant-1", [discardCall([prtID("text-l")])]),
+      last,
+    ])
+
+    expect(filtered).toHaveLength(2)
+    expect(filtered[1]).toBe(last)
+    expect(ids([filtered[1]!])).toEqual([prtID("text-l")])
+  })
+
+  test("never removes user parts through provider-call-id matching (R4.9)", () => {
+    const stranger = user("user-1")
+    stranger.parts.push(text("call-reader", "user-owned"))
+    const filtered = DiscardContext.filterEntries([
+      stranger,
+      assistant("assistant-1", [toolCall("tool-1", "call-reader", "read", {}), text("text-1", "Stay")]),
+      assistant("assistant-2", [discardCall(["call-reader"])]),
+      user("user-2"),
+    ])
+
+    // The assistant tool part goes via its call id; the user part whose id
+    // merely embeds the same string stays (user matching is part-id only).
+    expect(ids(filtered)).toEqual([prtID("call-reader"), prtID("text-1")])
+  })
+
+  test("keeps working without user entries; the most-recent-user guard is inert (R4.8)", () => {
+    const filtered = DiscardContext.filterEntries([
+      assistant("assistant-1", [text("text-1", "Stay")]),
+      assistant("assistant-2", [discardCall(["missing-1"])]),
+    ])
+
+    expect(ids(filtered)).toEqual([prtID("text-1")])
+  })
+
+  test("keeps the most recent user entry whole when several of its parts are marked (R4.8)", () => {
+    const last = user("user-2")
+    const filePart: SessionV1.FilePart = {
+      id: prtID("file-l"),
+      sessionID,
+      messageID: msgID("owner"),
+      type: "file",
+      mime: "image/png",
+      url: "file:///tmp/a.png",
+    }
+    last.parts.push(text("text-l1", "A"), text("text-l2", "B"), filePart)
+    const filtered = DiscardContext.filterEntries([
+      user("user-1"),
+      assistant("assistant-1", [discardCall([prtID("text-l1"), prtID("text-l2"), prtID("file-l")])]),
+      last,
+    ])
+
+    expect(filtered).toHaveLength(2)
+    expect(filtered[1]).toBe(last)
+    expect(ids([filtered[1]!])).toEqual([prtID("text-l1"), prtID("text-l2"), prtID("file-l")])
+  })
+
+  test("keeps the fixed instruction extended to user parts and markers", () => {
+    expect(DiscardContext.INSTRUCTION).toContain("user")
+    expect(DiscardContext.INSTRUCTION).toContain("[part id:")
+  })
 })

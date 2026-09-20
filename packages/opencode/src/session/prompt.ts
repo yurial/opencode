@@ -1266,7 +1266,10 @@ const layer = Layer.effect(
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
               sys.mcp(agent, session.permission),
-              MessageV2.toModelMessagesEffect(msgs, model),
+              // The part-id markers are projection-only and flag-gated: they
+              // ride the provider request on flag-enabled turns only (R8.1,
+              // R8.5). Compaction and title generation lower without them.
+              MessageV2.toModelMessagesEffect(msgs, model, { partIdMarkers: discardEnabled }),
             ])
             const system = [
               ...env,

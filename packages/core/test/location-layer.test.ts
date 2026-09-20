@@ -80,9 +80,15 @@ describe("LocationServiceMap", () => {
             fs.writeFile(
               path.join(blocked.path, "opencode.json"),
               JSON.stringify({
+                // Pin flag-dependent built-ins so the fixed tool inventories
+                // below stay independent of the ambient user config.
+                discard_context: false,
                 experimental: { policies: [{ effect: "deny", action: "provider.use", resource: "test" }] },
               }),
             ),
+          )
+          yield* Effect.promise(() =>
+            fs.writeFile(path.join(allowed.path, "opencode.json"), JSON.stringify({ discard_context: false })),
           )
 
           const update = (directory: string) =>
