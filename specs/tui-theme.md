@@ -110,7 +110,7 @@ type ThemeFileV2 = {
 }
 ```
 
-- Reference names: a dotless name matches `^[a-zA-Z][a-zA-Z0-9_]*$` and
+- Reference names: a dotless name matches `^[a-zA-Z][a-zA-Z0-9_-]*$` and
   resolves against `defs` first, then the tui-theme/palette; a dotted name
   must be a catalog element name and resolves channel-wise (R27, R28).
 - Load result: a theme file is either accepted (v2), migrated (v1, R21–R24),
@@ -465,7 +465,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `run.footer.success` | `success` | — | — |
 | `run.footer.error` | `error` | — | — |
 | `run.footer.selected` | — | `backgroundElement` | — |
-| `run.footer.selectedText` | `selectedListItemText` | — | — |
+| `run.footer.selected-text` | `selectedListItemText` | — | — |
 | `run.footer.pane` | — | `backgroundMenu` | — |
 | `run.footer.border` | `border` | — | — |
 | `run.entry.system` | `textMuted` | — | — |
