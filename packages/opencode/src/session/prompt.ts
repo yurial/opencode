@@ -5,6 +5,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import os from "os"
 import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
+import { DiscardContext } from "./discard-context"
 import { SessionRevert } from "./revert"
 import { Session } from "./session"
 import { Agent } from "../agent/agent"
@@ -1092,6 +1093,12 @@ const layer = Layer.effect(
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
             Effect.provideService(Database.Service, database),
           )
+          // Re-resolved on every loop iteration (spec R2.8): the tool set, the
+          // system instruction, and this filtering follow the current flag
+          // value together. With the flag off the history returns untouched
+          // (spec R2.10).
+          const discardEnabled = (yield* config.get()).discard_context === true
+          if (discardEnabled) msgs = DiscardContext.filterEntries(msgs)
 
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
@@ -1266,6 +1273,7 @@ const layer = Layer.effect(
               ...instructions,
               ...(mcpInstructions ? [mcpInstructions] : []),
               ...(skills ? [skills] : []),
+              ...(discardEnabled ? [DiscardContext.INSTRUCTION] : []),
             ]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)

@@ -2468,3 +2468,227 @@ noLLMServer.instance(
     }),
   30_000,
 )
+
+// discard_context (specs/discard-context.md, T6.3/T6.4)
+
+type ChatBody = {
+  messages: Array<{ role: string; content: unknown }>
+  tools?: unknown
+}
+
+const INSTRUCTION_SNIPPET = "hide parts of this conversation"
+
+const addAssistantWithPlan = Effect.fn("test.addAssistantWithPlan")(function* (sessionID: SessionID) {
+  const session = yield* Session.Service
+  const msgs = yield* session.messages({ sessionID })
+  const parent = msgs.findLast((item) => item.info.role === "user")
+  if (parent?.info.role !== "user") throw new Error("expected a user message")
+  const assistant: SessionV1.Assistant = {
+    id: MessageID.ascending(),
+    role: "assistant",
+    parentID: parent.info.id,
+    sessionID,
+    mode: "build",
+    agent: "build",
+    cost: 0,
+    path: { cwd: "/tmp", root: "/tmp" },
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    modelID: ref.modelID,
+    providerID: ref.providerID,
+    time: { created: Date.now() },
+  }
+  yield* session.updateMessage(assistant)
+  const planPartID = PartID.ascending()
+  yield* session.updatePart({
+    id: planPartID,
+    messageID: assistant.id,
+    sessionID,
+    type: "text",
+    text: "OLD PLAN",
+  })
+  return planPartID
+})
+
+it.instance(
+  "discard_context filters marked parts and discard calls from the next provider request",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({ ...providerCfg(url), discard_context: true }))
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({
+        title: "Pinned",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+      const planPartID = yield* addAssistantWithPlan(session.id)
+
+      yield* llm.tool("discard_context", { ids: [planPartID] })
+      yield* llm.text("done")
+
+      const result = yield* prompt.loop({ sessionID: session.id })
+      expect(result.info.role).toBe("assistant")
+      if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
+      expect(yield* llm.calls).toBe(2)
+
+      const inputs = yield* llm.inputs
+      // The marking turn still sees the plan, the instruction, and the tool.
+      expect(JSON.stringify(inputs[0])).toContain("OLD PLAN")
+      expect(JSON.stringify(inputs[0])).toContain(INSTRUCTION_SNIPPET)
+      expect(JSON.stringify((inputs[0] as ChatBody).tools ?? [])).toContain("discard_context")
+
+      // The continuation request reloads history and filters it.
+      const continuation = JSON.stringify((inputs[1] as ChatBody).messages.filter((message) => message.role !== "system"))
+      expect(continuation).not.toContain("OLD PLAN")
+      expect(continuation).not.toContain("discard_context")
+
+      // Durable history keeps the marked part and the settled discard call.
+      const history = yield* sessions.messages({ sessionID: session.id })
+      expect(history.some((item) => item.parts.some((part) => part.type === "text" && part.text === "OLD PLAN"))).toBe(
+        true,
+      )
+      const discardPart = history
+        .flatMap((item) => item.parts)
+        .find((part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "discard_context")
+      expect(discardPart).toBeDefined()
+      if (!discardPart) throw new Error("discard call part missing")
+      if (discardPart.state.status !== "completed") throw new Error("discard call did not settle")
+      expect(discardPart.state.input).toEqual({ ids: [planPartID] })
+      expect(discardPart.state.output).toContain("Marked 1 message part(s)")
+    }),
+  20_000,
+)
+
+it.instance(
+  "discard_context returns marked parts and discard calls to the provider request when the flag is off",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({ title: "Pinned" })
+
+      const msg = yield* user(session.id, "hello")
+      const planPartID = PartID.ascending()
+      const assistantID = MessageID.ascending()
+      yield* sessions.updateMessage({
+        id: assistantID,
+        role: "assistant",
+        parentID: msg.id,
+        sessionID: session.id,
+        mode: "build",
+        agent: "build",
+        cost: 0,
+        path: { cwd: "/tmp", root: "/tmp" },
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        modelID: ref.modelID,
+        providerID: ref.providerID,
+        time: { created: Date.now() },
+        finish: "tool-calls",
+      })
+      yield* sessions.updatePart({
+        id: planPartID,
+        messageID: assistantID,
+        sessionID: session.id,
+        type: "text",
+        text: "OLD PLAN",
+      })
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: assistantID,
+        sessionID: session.id,
+        type: "tool",
+        callID: "call-discard-seed",
+        tool: "discard_context",
+        state: {
+          status: "completed",
+          input: { ids: [planPartID] },
+          output: "Marked 1 message part(s) to discard from context.",
+          title: "Discard context",
+          metadata: {},
+          time: { start: 1, end: 2 },
+        },
+      })
+
+      yield* llm.text("done")
+      const result = yield* prompt.loop({ sessionID: session.id })
+      expect(result.info.role).toBe("assistant")
+      expect(yield* llm.calls).toBe(1)
+
+      const inputs = yield* llm.inputs
+      const body = JSON.stringify(inputs[0])
+      expect(body).toContain("OLD PLAN")
+      expect(body).toContain("call-discard-seed")
+      expect(body).not.toContain(INSTRUCTION_SNIPPET)
+      expect(JSON.stringify((inputs[0] as ChatBody).tools ?? [])).not.toContain("discard_context")
+    }),
+  20_000,
+)
+
+it.instance(
+  "discard_context keeps marked parts out of the auto-compaction summary (R5.5/R5.6)",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({ ...providerCfg(url), discard_context: true }))
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({
+        title: "Pinned",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+      const planPartID = yield* addAssistantWithPlan(session.id)
+
+      // The marking turn, then a reply whose reported usage crosses the model's
+      // overflow threshold so the loop's pressure path schedules auto-compaction
+      // (processor isOverflow -> compaction task -> compaction.process on the
+      // same loop iteration's already-filtered history).
+      yield* llm.push(reply().tool("discard_context", { ids: [planPartID] }).item())
+      yield* llm.push(
+        reply()
+          .text("PROCEED")
+          .usage({ input: 95_000, output: 1_000 })
+          .stop()
+          .item(),
+      )
+      yield* llm.push(reply().text("## Objective\n- Preserve the task").stop().item())
+      // The synthetic post-compaction continue prompt starts one more turn.
+      yield* llm.push(reply().text("DONE").stop().item())
+
+      const result = yield* prompt.loop({ sessionID: session.id })
+      expect(result.info.role).toBe("assistant")
+      expect(yield* llm.calls).toBe(4)
+
+      const inputs = yield* llm.inputs
+      // The compaction request serializes the loop's already-filtered history:
+      // the marked plan part and the discard call never reach the summary.
+      const summaryRequest = JSON.stringify((inputs[2] as ChatBody).messages)
+      expect(summaryRequest).toContain("Create a new anchored summary")
+      expect(summaryRequest).toContain("<conversation>")
+      expect(summaryRequest).not.toContain("OLD PLAN")
+      expect(summaryRequest).not.toContain("discard_context")
+      // The post-compaction turn is rebuilt from the summary, not the raw history.
+      const followup = JSON.stringify((inputs[3] as ChatBody).messages)
+      expect(followup).not.toContain("OLD PLAN")
+
+      // Durable history keeps the marked content and gains the summary turn.
+      const history = yield* sessions.messages({ sessionID: session.id })
+      expect(history.some((item) => item.parts.some((part) => part.type === "text" && part.text === "OLD PLAN"))).toBe(
+        true,
+      )
+      expect(history.some((item) => item.info.role === "assistant" && item.info.summary === true)).toBe(true)
+    }),
+  30_000,
+)

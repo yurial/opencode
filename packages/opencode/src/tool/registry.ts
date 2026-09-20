@@ -2,6 +2,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { PlanExitTool } from "./plan"
+import { DiscardContextTool } from "./discard-context"
 import { Session } from "@/session/session"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
@@ -112,6 +113,7 @@ const layer = Layer.effect(
     const todo = yield* TodoWriteTool
     const lsptool = yield* LspTool
     const plan = yield* PlanExitTool
+    const discard = yield* DiscardContextTool
     const webfetch = yield* WebFetchTool
     const websearch = yield* WebSearchTool
     const shell = yield* ShellTool
@@ -308,18 +310,26 @@ const layer = Layer.effect(
     })
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
-      const filtered = (yield* all()).filter((tool) => {
-        if (tool.id === WebSearchTool.id) {
-          return webSearchEnabled(input.providerID, { exa: flags.enableExa, parallel: flags.enableParallel })
-        }
+      // Per-call gate (spec R2.7/R2.8/R2.10): discard_context is offered only
+      // on turns whose resolved config enables it — deliberately not part of
+      // the build-time builtin list, so a flag flip steers the very next turn
+      // without any rebuild step.
+      const discardEnabled = (yield* config.get()).discard_context === true
+      const filtered = [
+        ...(yield* all()).filter((tool) => {
+          if (tool.id === WebSearchTool.id) {
+            return webSearchEnabled(input.providerID, { exa: flags.enableExa, parallel: flags.enableParallel })
+          }
 
-        const usePatch =
-          input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4")
-        if (tool.id === ApplyPatchTool.id) return usePatch
-        if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
+          const usePatch =
+            input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4")
+          if (tool.id === ApplyPatchTool.id) return usePatch
+          if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
 
-        return true
-      })
+          return true
+        }),
+        ...(discardEnabled ? [yield* Tool.init(discard)] : []),
+      ]
 
       const codeModeDescription = filtered.some((tool) => tool.id === "execute")
         ? yield* describeCodeMode(input)
