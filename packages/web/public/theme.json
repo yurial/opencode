@@ -13,7 +13,7 @@
       "type": "object",
       "description": "Optional named color constants that can be referenced by dotless name anywhere a color value is accepted",
       "patternProperties": {
-        "^[a-zA-Z][a-zA-Z0-9_]*$": {
+        "^[a-zA-Z][a-zA-Z0-9_-]*$": {
           "$ref": "#/definitions/defValue"
         }
       },
@@ -470,7 +470,7 @@
         "run.footer.selected": {
           "$ref": "#/definitions/elementStyle"
         },
-        "run.footer.selectedText": {
+        "run.footer.selected-text": {
           "$ref": "#/definitions/elementStyle"
         },
         "run.footer.success": {
@@ -946,7 +946,7 @@
     },
     "referenceName": {
       "type": "string",
-      "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
       "description": "Dotless reference name; resolves against defs first, then the palette"
     },
     "catalogElement": {
@@ -1145,7 +1145,7 @@
         "run.footer.success",
         "run.footer.error",
         "run.footer.selected",
-        "run.footer.selectedText",
+        "run.footer.selected-text",
         "run.footer.pane",
         "run.footer.border",
         "run.entry.system",
@@ -1204,7 +1204,7 @@
         },
         {
           "type": "string",
-          "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
           "description": "Dotless reference name; resolves against defs first, then the palette"
         },
         {
@@ -1403,7 +1403,7 @@
             "run.footer.success",
             "run.footer.error",
             "run.footer.selected",
-            "run.footer.selectedText",
+            "run.footer.selected-text",
             "run.footer.pane",
             "run.footer.border",
             "run.entry.system",
@@ -1465,7 +1465,7 @@
         },
         {
           "type": "string",
-          "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
           "description": "Dotless reference name; resolves against defs first, then the palette"
         },
         {
@@ -1664,7 +1664,7 @@
             "run.footer.success",
             "run.footer.error",
             "run.footer.selected",
-            "run.footer.selectedText",
+            "run.footer.selected-text",
             "run.footer.pane",
             "run.footer.border",
             "run.entry.system",

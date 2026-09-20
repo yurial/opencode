@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { RGBA } from "@opentui/core"
+import { RGBA, TextAttributes } from "@opentui/core"
 // The client build: bun resolves the bare "solid-js" export to the server
 // build under test conditions, and only the client build is reactive.
 import { createEffect, createMemo, createRoot, createSignal } from "solid-js/dist/solid.js"
@@ -17,6 +17,7 @@ import {
   type PreparedTheme,
   type ThemeRejectionReason,
 } from "../src/theme"
+import { textAttributes } from "../src/theme/catalog"
 
 function hex(rgba: RGBA) {
   return (
@@ -71,6 +72,27 @@ test("attribute vocabulary is exactly the eight spec names", () => {
     "strikethrough",
     "underline",
   ])
+})
+
+test("textAttributes maps each attribute name to its renderer flag", () => {
+  expect(textAttributes(new Set(["bold"]))).toBe(TextAttributes.BOLD)
+  expect(textAttributes(new Set(["dim"]))).toBe(TextAttributes.DIM)
+  expect(textAttributes(new Set(["italic"]))).toBe(TextAttributes.ITALIC)
+  expect(textAttributes(new Set(["underline"]))).toBe(TextAttributes.UNDERLINE)
+  expect(textAttributes(new Set(["blink"]))).toBe(TextAttributes.BLINK)
+  expect(textAttributes(new Set(["inverse"]))).toBe(TextAttributes.INVERSE)
+  expect(textAttributes(new Set(["hidden"]))).toBe(TextAttributes.HIDDEN)
+  expect(textAttributes(new Set(["strikethrough"]))).toBe(TextAttributes.STRIKETHROUGH)
+})
+
+test("textAttributes ORs combinations and returns NONE for the empty set", () => {
+  expect(
+    textAttributes(new Set(["bold", "italic", "strikethrough"])),
+  ).toBe(TextAttributes.BOLD | TextAttributes.ITALIC | TextAttributes.STRIKETHROUGH)
+  expect(textAttributes(new Set(["dim", "underline"]))).toBe(
+    TextAttributes.DIM | TextAttributes.UNDERLINE,
+  )
+  expect(textAttributes(new Set())).toBe(TextAttributes.NONE)
 })
 
 test("a v1 file without dotted keys migrates", () => {

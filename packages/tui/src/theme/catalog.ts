@@ -1,4 +1,4 @@
-import type { RGBA } from "@opentui/core"
+import { TextAttributes, type RGBA } from "@opentui/core"
 
 /**
  * One text attribute accepted in an element `attributes` array (R16).
@@ -428,7 +428,7 @@ const RUN = {
   "run.footer.success": { fg: SUCCESS },
   "run.footer.error": { fg: ERROR },
   "run.footer.selected": { bg: BACKGROUND_ELEMENT },
-  "run.footer.selectedText": { fg: SELECTED_LIST_ITEM_TEXT },
+  "run.footer.selected-text": { fg: SELECTED_LIST_ITEM_TEXT },
   "run.footer.pane": { bg: BACKGROUND_MENU },
   "run.footer.border": { fg: BORDER },
   "run.entry.system": { fg: TEXT_MUTED },
@@ -497,4 +497,36 @@ export type ElementName = keyof typeof CATALOG
  */
 export function isElementName(name: string): boolean {
   return Object.hasOwn(CATALOG, name)
+}
+
+const ATTRIBUTE_FLAGS: Record<Attribute, number> = {
+  bold: TextAttributes.BOLD,
+  dim: TextAttributes.DIM,
+  italic: TextAttributes.ITALIC,
+  underline: TextAttributes.UNDERLINE,
+  blink: TextAttributes.BLINK,
+  inverse: TextAttributes.INVERSE,
+  hidden: TextAttributes.HIDDEN,
+  strikethrough: TextAttributes.STRIKETHROUGH,
+}
+
+/**
+ * Converts attribute names into the renderer's attribute bitmask.
+ *
+ * Purpose: gives components migrating to the element API the @opentui/core
+ * attribute bitmask that an element `attributes` array stands for.
+ *
+ * Contract: `names` is a set whose members are `Attribute` names; the result
+ * is the bitwise OR of the corresponding @opentui/core flags (`bold` →
+ * `BOLD`, `dim` → `DIM`, `italic` → `ITALIC`, `underline` → `UNDERLINE`,
+ * `blink` → `BLINK`, `inverse` → `INVERSE`, `hidden` → `HIDDEN`,
+ * `strikethrough` → `STRIKETHROUGH`), and the empty set returns
+ * `TextAttributes.NONE`. Never throws and has no undefined behavior: the
+ * `Attribute` union is closed and every member has a mapped flag, so any
+ * set of valid names yields a defined number.
+ */
+export function textAttributes(names: ReadonlySet<Attribute>): number {
+  let result = TextAttributes.NONE
+  for (const name of names) result |= ATTRIBUTE_FLAGS[name]
+  return result
 }
