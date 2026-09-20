@@ -465,6 +465,7 @@ export type SessionsPromptOutput = {
     readonly prompt: {
       readonly text: string
       readonly files?: ReadonlyArray<{
+        readonly id?: string
         readonly uri: string
         readonly mime: string
         readonly name?: string
@@ -544,6 +545,7 @@ export type SessionsContextOutput = {
         readonly time: { readonly created: number }
         readonly text: string
         readonly files?: ReadonlyArray<{
+          readonly id?: string
           readonly uri: string
           readonly mime: string
           readonly name?: string
@@ -620,6 +622,7 @@ export type SessionsContextOutput = {
                     readonly status: "completed"
                     readonly input: { readonly [x: string]: JsonValue }
                     readonly attachments?: ReadonlyArray<{
+                      readonly id?: string
                       readonly uri: string
                       readonly mime: string
                       readonly name?: string
@@ -736,6 +739,7 @@ export type SessionsHistoryOutput = {
           readonly prompt: {
             readonly text: string
             readonly files?: ReadonlyArray<{
+              readonly id?: string
               readonly uri: string
               readonly mime: string
               readonly name?: string
@@ -763,6 +767,7 @@ export type SessionsHistoryOutput = {
           readonly prompt: {
             readonly text: string
             readonly files?: ReadonlyArray<{
+              readonly id?: string
               readonly uri: string
               readonly mime: string
               readonly name?: string
@@ -1194,6 +1199,7 @@ export type SessionsEventsOutput =
         readonly prompt: {
           readonly text: string
           readonly files?: ReadonlyArray<{
+            readonly id?: string
             readonly uri: string
             readonly mime: string
             readonly name?: string
@@ -1221,6 +1227,7 @@ export type SessionsEventsOutput =
         readonly prompt: {
           readonly text: string
           readonly files?: ReadonlyArray<{
+            readonly id?: string
             readonly uri: string
             readonly mime: string
             readonly name?: string
@@ -1622,6 +1629,7 @@ export type SessionsMessageOutput = {
         readonly time: { readonly created: number }
         readonly text: string
         readonly files?: ReadonlyArray<{
+          readonly id?: string
           readonly uri: string
           readonly mime: string
           readonly name?: string
@@ -1698,6 +1706,7 @@ export type SessionsMessageOutput = {
                     readonly status: "completed"
                     readonly input: { readonly [x: string]: JsonValue }
                     readonly attachments?: ReadonlyArray<{
+                      readonly id?: string
                       readonly uri: string
                       readonly mime: string
                       readonly name?: string
@@ -1794,6 +1803,7 @@ export type MessagesListOutput = {
         readonly time: { readonly created: number }
         readonly text: string
         readonly files?: ReadonlyArray<{
+          readonly id?: string
           readonly uri: string
           readonly mime: string
           readonly name?: string
@@ -1870,6 +1880,7 @@ export type MessagesListOutput = {
                     readonly status: "completed"
                     readonly input: { readonly [x: string]: JsonValue }
                     readonly attachments?: ReadonlyArray<{
+                      readonly id?: string
                       readonly uri: string
                       readonly mime: string
                       readonly name?: string
