@@ -9,6 +9,8 @@ import {
   generateSystem,
   hasTheme,
   isTheme,
+  loadTheme,
+  resolveElement,
   resolveTheme,
   selectedForeground,
   setCustomThemes,
@@ -17,6 +19,7 @@ import {
   terminalMode,
   tint,
   upsertTheme,
+  type PreparedTheme,
   type ThemeJson,
 } from "../theme"
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js"
@@ -69,13 +72,23 @@ export {
   generateSystem,
   hasTheme,
   isTheme,
+  loadTheme,
+  resolveElement,
   resolveTheme,
   selectedForeground,
   terminalMode,
   tint,
   upsertTheme,
+  type Attribute,
+  type ColorValue,
+  type ElementStyle,
+  type PreparedTheme,
+  type ResolvedElement,
   type Theme,
+  type ThemeFileV2,
   type ThemeJson,
+  type ThemeLoadResult,
+  type ThemeRejectionReason,
   type SyntaxStyleOverrides,
 } from "../theme"
 
@@ -132,13 +145,19 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     function syncCustomThemes() {
       return themes
         .discover()
-        .then((themes) => {
-          setCustomThemes(
-            Object.entries(themes).reduce<Record<string, ThemeJson>>((result, [name, theme]) => {
-              if (isTheme(theme)) result[name] = theme
-              return result
-            }, {}),
-          )
+        .then((discovered) => {
+          const accepted: Record<string, ThemeJson> = {}
+          for (const [name, theme] of Object.entries(discovered)) {
+            if (!isTheme(theme)) continue
+            const result = loadTheme(theme, store.mode)
+            if (!result.ok) {
+              console.warn(`[theme] "${name}" rejected (${result.reason}): ${result.message}`)
+              continue
+            }
+            // Registry transports both formats; validation happens at load.
+            accepted[name] = theme as ThemeJson
+          }
+          setCustomThemes(accepted)
         })
         .catch(() => setStore("active", "opencode"))
     }
@@ -253,18 +272,38 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       themeRefreshTimeouts.length = 0
     })
 
-    const values = createMemo(() => {
+    function loadPrepared(source: ThemeJson): PreparedTheme {
+      const result = loadTheme(source, store.mode)
+      if (result.ok) return result.theme
+      console.warn(`[theme] rejected (${result.reason}): ${result.message}`)
+      const fallback = loadTheme(store.themes.opencode, store.mode)
+      if (fallback.ok) return fallback.theme
+      throw new Error(fallback.message)
+    }
+
+    const prepared = createMemo(() => {
       const active = store.themes[store.active]
-      if (active) return resolveTheme(active, store.mode)
+      if (active) return loadPrepared(active)
 
       const saved = kv.get("theme")
       if (typeof saved === "string") {
         const theme = store.themes[saved]
-        if (theme) return resolveTheme(theme, store.mode)
+        if (theme) return loadPrepared(theme)
       }
 
-      return resolveTheme(store.themes.opencode, store.mode)
+      return loadPrepared(store.themes.opencode)
     })
+
+    const values = () => prepared().theme
+
+    /**
+     * Resolves one catalog element, reactively (R42, R43).
+     *
+     * Contract: `name` must be a catalog element name; the result re-evaluates
+     * on theme or mode change when read inside a reactive scope; a name
+     * outside the catalog throws.
+     */
+    const element = (name: string) => resolveElement(prepared(), name)
 
     createEffect(() => renderer.setBackgroundColor(values().background))
 
@@ -278,6 +317,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
           return values()[prop]
         },
       }),
+      element,
       get selected() {
         return store.active
       },
