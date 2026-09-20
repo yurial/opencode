@@ -43,9 +43,10 @@ export const successLine = (matched: number): string =>
  * Counts how many of the call's ids name a part eligible for marking in the
  * loaded history (R1.2): assistant text, reasoning, and tool parts by their
  * part id (which is the provider call id in V2), user text parts by the user
- * message id — the only id a V2 user part carries; V2 file attachments have no
- * id and are unaddressable. Duplicate ids count once. Ids already marked by
- * earlier calls still count: eligibility is decided against durable history.
+ * message id, and user file attachments by their attachment id — an
+ * attachment persisted without an id is never eligible. Duplicate ids count
+ * once. Ids already marked by earlier calls still count: eligibility is
+ * decided against durable history.
  */
 export const matchedCount = (ids: readonly string[], messages: readonly SessionMessage.Message[]): number => {
   if (ids.length === 0) return 0
@@ -54,7 +55,12 @@ export const matchedCount = (ids: readonly string[], messages: readonly SessionM
     if (message.type === "assistant") {
       for (const part of message.content) addressable.add(part.id)
     }
-    if (message.type === "user" && message.text !== "") addressable.add(message.id)
+    if (message.type === "user") {
+      if (message.text !== "") addressable.add(message.id)
+      for (const file of message.files ?? []) {
+        if (file.id !== undefined) addressable.add(file.id)
+      }
+    }
   }
   return [...new Set(ids)].filter((id) => addressable.has(id)).length
 }

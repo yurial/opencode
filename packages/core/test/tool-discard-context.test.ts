@@ -9,6 +9,7 @@ import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
+import { FileAttachment } from "@opencode-ai/core/session/prompt"
 import { SessionMessageTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -66,8 +67,9 @@ const call = (input: unknown, id = "call-discard") => ({
 })
 
 const created = DateTime.makeUnsafe(0)
-// Durable history the matched-count reads: one assistant text part and one
-// settled read call, both addressable by id.
+// Durable history the matched-count reads: an assistant text part, a settled
+// read call, and a user message carrying an id-bearing attachment — all
+// addressable.
 const seed = Effect.gen(function* () {
   const { db } = yield* Database.Service
   yield* db
@@ -89,7 +91,7 @@ const seed = Effect.gen(function* () {
     .onConflictDoNothing()
     .run()
     .pipe(Effect.orDie)
-  const { id, type, ...data } = Schema.encodeSync(SessionMessage.Message)(
+  const rows = [
     SessionMessage.Assistant.make({
       id: SessionMessage.ID.make("msg_seed"),
       type: "assistant",
@@ -112,13 +114,19 @@ const seed = Effect.gen(function* () {
       ],
       time: { created, completed: created },
     }),
-  )
-  yield* db
-    .insert(SessionMessageTable)
-    .values([{ id: SessionMessage.ID.make(id), session_id: sessionID, type, seq: 1, data }])
-    .onConflictDoNothing()
-    .run()
-    .pipe(Effect.orDie)
+    SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_seed_user"),
+      type: "user",
+      text: "with attachment",
+      files: [FileAttachment.create({ id: "file-seed", uri: "file:///tmp/seed.txt", mime: "text/plain" })],
+      time: { created },
+    }),
+  ]
+  const values = rows.map((message, seq) => {
+    const { id, type, ...data } = Schema.encodeSync(SessionMessage.Message)(message)
+    return { id: SessionMessage.ID.make(id), session_id: sessionID, type, seq: seq + 1, data }
+  })
+  yield* db.insert(SessionMessageTable).values(values).onConflictDoNothing().run().pipe(Effect.orDie)
 })
 
 describe("DiscardContextTool", () => {
@@ -190,6 +198,16 @@ describe("DiscardContextTool", () => {
       const registry = yield* ToolRegistry.Service
 
       const settled = yield* settleTool(registry, call({ ids: ["text-seed", "text-seed"] }))
+      expect(settled.result).toMatchObject({ type: "text", value: DiscardContextTool.successLine(1) })
+    }),
+  )
+
+  itEnabled.effect("counts an attachment id as an eligible user part (T3.10)", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const registry = yield* ToolRegistry.Service
+
+      const settled = yield* settleTool(registry, call({ ids: ["file-seed", "ghost"] }))
       expect(settled.result).toMatchObject({ type: "text", value: DiscardContextTool.successLine(1) })
     }),
   )

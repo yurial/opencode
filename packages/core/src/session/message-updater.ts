@@ -1,7 +1,18 @@
 import { castDraft, produce, type WritableDraft } from "immer"
 import { Effect } from "effect"
+import { ascending } from "@opencode-ai/schema/identifier"
 import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
+
+// Each file attachment of a projected user message gains its part id
+// (core-discard-context/attachment-id) at this boundary, following the same
+// generator shape as message ids. Any caller-supplied id is discarded here.
+// The assignment is durable and stable across restarts and resumes:
+// EventV2.commitDurableEvent guarantees idempotent durable replay (pruned
+// replay included), so a projected message is written once and never
+// re-assigned.
+const withAttachmentIDs = (files: SessionMessage.User["files"]): SessionMessage.User["files"] =>
+  files?.map((file) => ({ ...file, id: `prt_${ascending()}` }))
 
 export type MemoryState = {
   messages: SessionMessage.Message[]
@@ -130,7 +141,7 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
             type: "user",
             metadata: event.metadata,
             text: event.data.prompt.text,
-            files: event.data.prompt.files,
+            files: withAttachmentIDs(event.data.prompt.files),
             agents: event.data.prompt.agents,
             time: { created: event.data.timestamp },
           }),

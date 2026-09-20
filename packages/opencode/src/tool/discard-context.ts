@@ -17,8 +17,9 @@ export const Parameters = Schema.Struct({
 // check is mirrored here like filterEntries is mirrored in
 // `session/discard-context.ts` (spec Usage constraints). Assistant tool parts
 // are also addressable through their provider call id (R4.7); user text and
-// file parts only through their own part id (R4.9). V2 user file attachments
-// carry no id, so they are unaddressable there but addressable here.
+// file parts only through their own part id (R4.9). V2 file attachments are
+// addressed by their attachment id, which only exists on rows projected after
+// the field was introduced; V1 file parts always carry their part id.
 const matchedCount = (ids: readonly string[], msgs: Tool.Context["messages"]): number => {
   if (ids.length === 0) return 0
   const addressable = new Set<string>()

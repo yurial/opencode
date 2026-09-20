@@ -132,11 +132,18 @@ function toLLMMessage(message: SessionMessage.Message, model: Model, markers: bo
     case "model-switched":
       return []
     case "user": {
-      // The user text part is addressed by the message id (the only id a V2
-      // user part carries); an emptied text part (its id was marked) projects
-      // no text, but the message keeps any file attachments (A4.2).
+      // The user text part is addressed by the message id; a file attachment
+      // by its attachment id (R8.7): a marker text block immediately precedes
+      // the content of an id-bearing file, and an attachment persisted
+      // without an id projects no marker. An emptied text part (its id was
+      // marked) projects no text, but the message keeps any surviving files
+      // (A4.2).
       const text = withMarker(markers, message.id, message.text)
-      const files = (message.files ?? []).map(media)
+      const files = (message.files ?? []).flatMap((file): ContentPart[] => {
+        const mediaPart = media(file)
+        if (!markers || file.id === undefined) return [mediaPart]
+        return [{ type: "text", text: marker(file.id) }, mediaPart]
+      })
       const content: ContentPart[] =
         text === "" && files.length > 0 ? files : [{ type: "text", text }, ...files]
       return [

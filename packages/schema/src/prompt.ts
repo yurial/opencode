@@ -11,6 +11,7 @@ export const Source = Schema.Struct({
 
 export interface FileAttachment extends Schema.Schema.Type<typeof FileAttachment> {}
 export const FileAttachment = Schema.Struct({
+  id: Schema.String.pipe(optional),
   uri: Schema.String,
   mime: Schema.String,
   name: Schema.String.pipe(optional),
@@ -22,6 +23,7 @@ export const FileAttachment = Schema.Struct({
     statics((schema) => ({
       create: (input: FileAttachment) =>
         schema.make({
+          id: input.id,
           uri: input.uri,
           mime: input.mime,
           name: input.name,

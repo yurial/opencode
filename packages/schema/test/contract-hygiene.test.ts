@@ -4,6 +4,7 @@ import { Agent } from "../src/agent"
 import { FileSystem } from "../src/filesystem"
 import { Model } from "../src/model"
 import { Project } from "../src/project"
+import { FileAttachment } from "../src/prompt"
 import { Pty } from "../src/pty"
 import { Question } from "../src/question"
 import { Session } from "../src/session"
@@ -12,6 +13,27 @@ import { SessionTodo } from "../src/session-todo"
 import { optional } from "../src/schema"
 
 describe("contract hygiene", () => {
+  test("file attachment id stays optional and omits undefined while encoding", () => {
+    const decode = Schema.decodeUnknownSync(FileAttachment)
+    const encode = Schema.encodeSync(FileAttachment)
+
+    // A row persisted before the field existed decodes without an id.
+    expect(decode({ uri: "file:///tmp/a.txt", mime: "text/plain" })).toEqual({
+      uri: "file:///tmp/a.txt",
+      mime: "text/plain",
+    })
+    // An id-bearing attachment encodes with the id; an id-less one omits the
+    // key entirely.
+    expect(encode({ id: "prt_x", uri: "file:///tmp/a.txt", mime: "text/plain" })).toEqual({
+      id: "prt_x",
+      uri: "file:///tmp/a.txt",
+      mime: "text/plain",
+    })
+    expect(encode({ uri: "file:///tmp/a.txt", mime: "text/plain" })).toEqual({
+      uri: "file:///tmp/a.txt",
+      mime: "text/plain",
+    })
+  })
   test("optional properties preserve transformations and omit undefined while encoding", () => {
     const Value = Schema.Struct({ value: optional(Schema.FiniteFromString) })
     expect(Schema.decodeUnknownSync(Value)({ value: "1" })).toEqual({ value: 1 })

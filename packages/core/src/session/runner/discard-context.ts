@@ -46,15 +46,16 @@ export interface Entry {
  * in the history, then removes: (a) assistant parts whose id is marked, (b)
  * the `discard_context` tool parts themselves, so a marked tool call and its
  * result always disappear together, and (c) marked parts of user messages —
- * the user text part is addressed by the user message's own id (the only id a
- * V2 user part carries; file attachments have none), and user parts are never
- * matched by a tool call id (R4.9). Assistant and user messages that become
- * empty are dropped because providers require alternating user/assistant
- * turns (R4.4/R4.10). The most recent user entry of the loaded history is
- * never dropped and never loses parts: marked ids naming its parts are
- * ignored for the current pass, because the runner reads the current turn's
- * steering from the projected history (R4.8). Unknown ids are ignored, other
- * message types have no addressable parts, and entry order is preserved.
+ * the user text part is addressed by the user message's own id, a file
+ * attachment by its attachment id (an attachment persisted without an id is
+ * never addressable), and user parts are never matched by a tool call id
+ * (R4.9). Assistant and user messages that become empty are dropped because
+ * providers require alternating user/assistant turns (R4.4/R4.10). The most
+ * recent user entry of the loaded history is never dropped and never loses
+ * parts: marked ids naming its parts are ignored for the current pass,
+ * because the runner reads the current turn's steering from the projected
+ * history (R4.8). Unknown ids are ignored, other message types have no
+ * addressable parts, and entry order is preserved.
  *
  * The runner applies this right after loading entries from the database, so
  * it also applies after resume, and before compaction so marked content is
@@ -76,16 +77,29 @@ export const filterEntries = (entries: readonly Entry[]): readonly Entry[] => {
   return entries.flatMap((entry) => {
     const message = entry.message
     if (message.type === "user") {
-      if (entry === lastUser || !marked.has(message.id)) return [entry]
+      if (entry === lastUser) return [entry]
       const files = message.files ?? []
-      // A user message that is already empty loses nothing: filtering only
-      // drops what it empties (R4.4), mirroring the V1 filter's guard on
-      // messages with no removable parts.
-      if (message.text === "" && files.length === 0) return [entry]
-      // The marked text part is removed by projecting an empty text; the file
-      // attachments (unaddressable in V2) keep the message alive when present.
-      if (files.length === 0) return []
-      return [{ ...entry, message: { ...message, text: "" } }]
+      // The user text part is addressed by the message id; a file attachment
+      // by its attachment id; an attachment persisted without an id is never
+      // addressable and is never removed (R4.9, attachment-id).
+      const keptFiles = files.filter((file) => file.id === undefined || !marked.has(file.id))
+      const textRemoved = marked.has(message.id) && message.text !== ""
+      if (!textRemoved && keptFiles.length === files.length) return [entry]
+      const text = textRemoved ? "" : message.text
+      // A user message emptied by the marking drops (R4.4, A4.9); a message
+      // that was already empty loses nothing and stays (mirror of the V1
+      // filter's guard on messages with no removable parts).
+      if (text === "" && keptFiles.length === 0) return []
+      return [
+        {
+          ...entry,
+          message: {
+            ...message,
+            text,
+            ...(keptFiles.length === files.length ? {} : { files: keptFiles }),
+          },
+        },
+      ]
     }
     if (message.type !== "assistant") return [entry]
     const content = message.content.filter((part) => !isDiscardCall(part) && !marked.has(part.id))

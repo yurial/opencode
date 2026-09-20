@@ -231,6 +231,99 @@ describe("DiscardContext.filterEntries", () => {
     expect(messages(filtered)).toEqual([assistant("assistant-1", [textPart("text-1", "Stay")])])
   })
 
+  test("removes a marked user file attachment matched by its attachment id (T2.10)", () => {
+    const file = (id: string) => FileAttachment.make({ id, uri: `file:///tmp/${id}.png`, mime: "image/png" })
+    const keepsText = SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_user-1"),
+      type: "user",
+      text: "Look",
+      files: [file("file-1")],
+      time: { created },
+    })
+    const emptied = SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_user-2"),
+      type: "user",
+      text: "",
+      files: [file("file-2")],
+      time: { created },
+    })
+    const bothMarked = SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_user-3"),
+      type: "user",
+      text: "Gone",
+      files: [file("file-3")],
+      time: { created },
+    })
+
+    const filtered = DiscardContext.filterEntries([
+      entry(1, keepsText),
+      entry(2, assistant("assistant-1", [discardCall(["file-1", "file-2", "file-3", "msg_user-3"])])),
+      entry(3, emptied),
+      entry(4, bothMarked),
+      entry(5, user("user-2", "End")),
+    ])
+
+    // The marked attachment leaves the projection while the unmarked text
+    // keeps the message (A4.9); a user message whose text and attachment are
+    // both marked disappears as an emptied message.
+    expect(messages(filtered)).toEqual([{ ...keepsText, files: [] }, user("user-2", "End")])
+  })
+
+  test("ignores marked attachment ids naming parts of the most recent user entry (R4.8)", () => {
+    const last = SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_user-2"),
+      type: "user",
+      text: "Current",
+      files: [FileAttachment.make({ id: "file-9", uri: "file:///tmp/9.png", mime: "image/png" })],
+      time: { created },
+    })
+
+    const filtered = DiscardContext.filterEntries([
+      entry(1, user("user-1", "Keep")),
+      entry(2, assistant("assistant-1", [discardCall(["file-9"])])),
+      entry(3, last),
+    ])
+
+    expect(messages(filtered)).toEqual([user("user-1", "Keep"), last])
+  })
+
+  test("merges stranded user messages with their file attachment markers (R4.10, R8.7)", () => {
+    const first = SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_user-1"),
+      type: "user",
+      text: "One",
+      files: [FileAttachment.make({ id: "file-1", uri: "file:///tmp/1.png", mime: "image/png" })],
+      time: { created },
+    })
+    const second = SessionMessage.User.make({
+      id: SessionMessage.ID.make("msg_user-2"),
+      type: "user",
+      text: "Two",
+      files: [FileAttachment.make({ id: "file-2", uri: "file:///tmp/2.png", mime: "image/png" })],
+      time: { created },
+    })
+
+    const filtered = DiscardContext.filterEntries([
+      entry(1, first),
+      entry(2, assistant("assistant-1", [textPart("text-a", "A")])),
+      entry(3, assistant("assistant-2", [discardCall(["text-a"])])),
+      entry(4, second),
+    ])
+    const lowered = toLLMMessages(messages(filtered), translationModel, { partIdMarkers: true, mergeSameRole: true })
+
+    expect(lowered.map((message) => message.role)).toEqual(["user"])
+    // Files concatenate with their messages; each marker sits immediately
+    // ahead of its file content and appears exactly once.
+    expect(lowered[0]!.content).toEqual([
+      { type: "text", text: "[part id: msg_user-1]\nOne" },
+      { type: "text", text: "[part id: file-1]" },
+      { type: "media", mediaType: "image/png", data: "file:///tmp/1.png" },
+      { type: "text", text: "[part id: msg_user-2]\nTwo" },
+      { type: "text", text: "[part id: file-2]" },
+      { type: "media", mediaType: "image/png", data: "file:///tmp/2.png" },
+    ])
+  })
+
   test("keeps a marked user message that was already empty instead of dropping it (mirror, m5)", () => {
     const empty = SessionMessage.User.make({
       id: SessionMessage.ID.make("msg_user-empty"),
@@ -675,6 +768,69 @@ describe("SessionRunner discard_context", () => {
       })
       expect(JSON.stringify(lowered)).toContain("call-read")
       expect(JSON.stringify(lowered)).not.toContain("[part id: call-")
+    }),
+  )
+
+  itEnabled.effect("projects, counts, and filters a user file attachment by its attachment id (T3.10)", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      response = textTurn("text-plan", "OLD PLAN")
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({
+          text: "See the attached notes",
+          files: [
+            FileAttachment.create({ uri: "data:text/plain;base64,SGVsbG8=", mime: "text/plain", name: "notes.txt" }),
+          ],
+        }),
+        resume: false,
+      })
+      yield* session.resume(sessionID)
+      // A second user entry becomes the most recent one, so the first entry's
+      // attachment is no longer under the R4.8 guard.
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
+
+      requests.length = 0
+      responses = [textTurn("text-see", "Seen")]
+      yield* session.resume(sessionID)
+
+      // The projection assigns a part-format id; the durable row keeps the id
+      // and never the marker.
+      const context = yield* session.context(sessionID)
+      const userRow = context.find((message) => message.type === "user")
+      if (userRow?.type !== "user") throw new Error("user message missing")
+      const attachmentID = userRow.files?.[0]?.id
+      expect(attachmentID).toBeDefined()
+      expect(attachmentID).toMatch(/^prt_/)
+
+      const flagged = JSON.stringify(requests[0]!)
+      expect(flagged).toContain(`[part id: ${attachmentID}]`)
+
+      // A marking call naming the attachment id counts it and hides the file.
+      requests.length = 0
+      responses = [discardTurn([attachmentID!]), textTurn("text-done", "Done")]
+      yield* session.resume(sessionID)
+      const continuation = JSON.stringify(requests[1]!)
+      expect(continuation).not.toContain("notes.txt")
+      expect(continuation).toContain("Second")
+
+      const { db } = yield* Database.Service
+      const rows = yield* db
+        .select({ data: SessionMessageTable.data })
+        .from(SessionMessageTable)
+        .where(eq(SessionMessageTable.session_id, sessionID))
+        .all()
+        .pipe(Effect.orDie)
+      expect(JSON.stringify(rows)).toContain("notes.txt")
+      expect(JSON.stringify(rows)).not.toContain("[part id:")
+      const history = yield* session.context(sessionID)
+      const discardPart = history
+        .flatMap((message) => (message.type === "assistant" ? message.content : []))
+        .find((part) => part.type === "tool" && part.name === DiscardContextTool.name)
+      if (discardPart?.type !== "tool" || discardPart.state.status !== "completed")
+        throw new Error("discard call missing")
+      expect(JSON.stringify(discardPart.state.content)).toContain("marked 1 part(s)")
     }),
   )
 
