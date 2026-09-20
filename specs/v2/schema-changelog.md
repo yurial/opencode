@@ -1,5 +1,26 @@
 # V2 Schema Changelog
 
+## 2026-09-20: Addressable V2 User File Attachments
+
+Affected schema:
+
+- Optional `id` on `FileAttachment` (`Prompt.FileAttachment`) in projected V2 user messages.
+
+Change:
+
+- Fill the optional id, a string in the part-id format, on every file attachment where the projection creates a V2 user message from admitted session input.
+- Address user file parts by that id across `discard_context`: the id counts as an eligible user part in the settled marked count, marked attachments are removed from the provider projection, and a flag-enabled turn carries the `[part id: <id>]` marker line immediately ahead of the file content.
+
+Reason:
+
+- The `discard_context` contract declares user file parts eligible for marking, but the V2 attachment shape carried no id, so file attachments were unaddressable and never matched.
+
+Compatibility:
+
+- The field is additive and optional; stored attachments without an id remain decodable.
+- Existing durable V2 rows keep their id-less attachments unaddressable; experimental V2 databases are disposable one-shot state under the established policy, so no backfill is provided.
+- The V1 runtime is untouched: V1 file parts remain addressable by their own part ids.
+
 ## 2026-09-19: V2 Discard Context Tool
 
 Affected schema:
