@@ -31,9 +31,15 @@ const isDiscardCall = (part: SessionV1.Part): part is SessionV1.ToolPart => part
  *   part whose provider call id (`callID`) is marked — the model only sees
  *   provider tool-call ids (spec R4.7) — and the discard calls themselves, so
  *   a marked tool call and its result disappear together.
- * - Drops assistant messages whose parts become empty (providers require
- *   alternating user/assistant turns), preserves message order, and leaves
- *   non-assistant messages unchanged.
+ * - Removes from user messages every text or file part whose own part id is
+ *   marked; provider-call-id matching never applies to user parts (spec
+ *   R4.9), and other user part types are never removable.
+ * - Drops assistant and user messages whose parts become empty (providers
+ *   require alternating user/assistant turns), preserves message order.
+ * - Never drops the most recent user entry and never removes all of its
+ *   parts: marked ids naming its parts are ignored for the current pass,
+ *   because the loop reads the current turn's steering from the projected
+ *   history (spec R4.8).
  * - Returns the input array unchanged when the history has no discard calls.
  * - Never fails: malformed inputs only narrow what is filtered.
  *
@@ -52,7 +58,22 @@ export const filterEntries = (msgs: SessionV1.WithParts[]): SessionV1.WithParts[
     }
   }
   if (!hasDiscardCalls) return msgs
-  return msgs.flatMap((msg) => {
+  const lastUserIndex = msgs.findLastIndex((msg) => msg.info.role === "user")
+  return msgs.flatMap((msg, index) => {
+    if (msg.info.role === "user") {
+      if (index === lastUserIndex) return [msg]
+      const parts = msg.parts.filter((part) => {
+        if (part.type !== "text" && part.type !== "file") return true
+        return !marked.has(part.id)
+      })
+      // Only a message emptied BY the filtering drops; a message with no
+      // removable parts (including already empty ones) stays unchanged. V1
+      // user messages are matched by part id, so an empty one is never
+      // markable; the V2 mirror keeps its already-empty marked messages for
+      // the same reason.
+      if (parts.length === 0 && msg.parts.length > 0) return []
+      return parts.length === msg.parts.length ? [msg] : [{ ...msg, parts }]
+    }
     if (msg.info.role !== "assistant") return [msg]
     // A marked id removes a tool part under either name: the part's own id or
     // the provider tool-call id the model actually sees (spec R4.7).

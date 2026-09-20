@@ -14,6 +14,58 @@ const id = (value: string) => SessionMessage.ID.make(`msg_${value}`)
 const model = Model.make({ id: "model", provider: "provider", route: OpenAIChat.route })
 
 describe("toLLMMessages", () => {
+  test("projects the attachment-id marker immediately ahead of an id-bearing file part (R8.7)", () => {
+    const messages = toLLMMessages(
+      [
+        SessionMessage.User.make({
+          id: id("user"),
+          type: "user",
+          text: "See",
+          files: [
+            FileAttachment.make({ id: "file-notes", uri: "file:///tmp/n.txt", mime: "text/plain", name: "n.txt" }),
+            FileAttachment.make({ uri: "file:///tmp/legacy.bin", mime: "application/octet-stream" }),
+          ],
+          time: { created },
+        }),
+      ],
+      model,
+      { partIdMarkers: true },
+    )
+
+    // The id-bearing attachment carries a marker text block ahead of its
+    // content; an attachment persisted without an id projects none.
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "[part id: msg_user]\nSee" },
+      { type: "text", text: "[part id: file-notes]" },
+      { type: "media", mediaType: "text/plain", data: "file:///tmp/n.txt", filename: "n.txt" },
+      { type: "media", mediaType: "application/octet-stream", data: "file:///tmp/legacy.bin" },
+    ])
+  })
+
+  test("keeps the unmarked byte form of file parts when the flag is off (R8.5)", () => {
+    const messages = toLLMMessages(
+      [
+        SessionMessage.User.make({
+          id: id("user"),
+          type: "user",
+          text: "See",
+          files: [
+            FileAttachment.make({ id: "file-notes", uri: "file:///tmp/n.txt", mime: "text/plain", name: "n.txt" }),
+            FileAttachment.make({ uri: "file:///tmp/legacy.bin", mime: "application/octet-stream" }),
+          ],
+          time: { created },
+        }),
+      ],
+      model,
+    )
+
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "See" },
+      { type: "media", mediaType: "text/plain", data: "file:///tmp/n.txt", filename: "n.txt" },
+      { type: "media", mediaType: "application/octet-stream", data: "file:///tmp/legacy.bin" },
+    ])
+  })
+
   test("omits empty assistant turns", () => {
     const assistant = (value: string, content: SessionMessage.Assistant["content"]) =>
       SessionMessage.Assistant.make({

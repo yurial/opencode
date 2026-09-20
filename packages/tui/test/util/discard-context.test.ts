@@ -48,6 +48,10 @@ function assistant(id: string, output: number, reasoning: number): AssistantMess
   }
 }
 
+function user(id: string): Message {
+  return { id, sessionID: "ses", role: "user", agent: "build", model: { providerID: "p", modelID: "m" }, time: { created: 1 } }
+}
+
 function partsOfIndex(messages: Message[], parts: Part[]) {
   const byID = new Map<string, Part[]>()
   for (const part of parts) {
@@ -98,6 +102,13 @@ describe("discardedTokenTotal", () => {
   test("returns 0 when nothing is discarded", () => {
     const message = assistant("msg_a", 999, 999)
     const parts = [textPart("msg_a")]
+    expect(discardedTokenTotal([message], partsOfIndex([message], parts))).toBe(0)
+  })
+
+  test("non-assistant messages contribute nothing even when fully marked (T4.7)", () => {
+    const message = user("msg_u")
+    const marked = textPart("msg_u")
+    const parts = [marked, toolPart("msg_b", "discard_context", [marked.id])]
     expect(discardedTokenTotal([message], partsOfIndex([message], parts))).toBe(0)
   })
 })

@@ -211,7 +211,9 @@ describe("tool.registry", () => {
         } satisfies Tool.Context,
       )
 
-      expect(result.output).toBe("Marked 2 message part(s) to discard from context.")
+      expect(result.output).toBe(
+        "discard_context succeeded: marked 0 parts (ids empty, unknown, or ineligible). Do not call again unless you have ids of new parts to mark.",
+      )
       expect(result.metadata.truncated).toBe(false)
     }),
   )

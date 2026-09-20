@@ -317,6 +317,29 @@ describe("transcript", () => {
       expect(result).toBe("**Discarded 0 context parts**\n\n")
     })
 
+    test("discard_context marker line never renders marked ids, not even marker-shaped ones (T4.8)", () => {
+      const part: Part = {
+        id: "part_1",
+        sessionID: "ses_123",
+        messageID: "msg_123",
+        type: "tool",
+        callID: "call_1",
+        tool: "discard_context",
+        state: {
+          status: "completed",
+          input: { ids: ["[part id: sneaky]", "part_b"] },
+          output: "ok",
+          title: "Discard context",
+          metadata: {},
+          time: { start: 1000, end: 1100 },
+        },
+      }
+      const result = formatPart(part, { ...options, toolDetails: true })
+      expect(result).toBe("**Discarded 2 context parts**\n\n")
+      expect(result).not.toContain("[part id:")
+      expect(result).not.toContain("sneaky")
+    })
+
     test("appends compact token total when provided", () => {
       const part: Part = {
         id: "part_1",
@@ -453,6 +476,81 @@ describe("transcript", () => {
       expect(result).toContain("## Assistant (Build · Claude Sonnet 4 · 0.5s)")
       expect(result).toContain("Hi!")
       expect(result).toContain("---")
+    })
+
+    test("export keeps no projected-id-marker lines (T5.6)", () => {
+      const session = {
+        id: "ses_abc123",
+        title: "Marker Export",
+        time: { created: 1000000000000, updated: 1000000001000 },
+      }
+      const messages = [
+        {
+          info: {
+            id: "msg_1",
+            sessionID: "ses_abc123",
+            role: "user" as const,
+            agent: "build",
+            model: { providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
+            time: { created: 1000000000000 },
+          },
+          parts: [{ id: "p1", sessionID: "ses_abc123", messageID: "msg_1", type: "text" as const, text: "Hello" }],
+        },
+        {
+          info: {
+            id: "msg_2",
+            sessionID: "ses_abc123",
+            role: "assistant" as const,
+            agent: "build",
+            modelID: "claude-sonnet-4-20250514",
+            providerID: "anthropic",
+            mode: "",
+            parentID: "msg_1",
+            path: { cwd: "/test", root: "/test" },
+            cost: 0.001,
+            tokens: { input: 100, output: 50, reasoning: 0, cache: { read: 0, write: 0 } },
+            time: { created: 1000000000100, completed: 1000000000600 },
+          },
+          parts: [
+            {
+              id: "p2",
+              sessionID: "ses_abc123",
+              messageID: "msg_2",
+              type: "reasoning" as const,
+              text: "pondering",
+              time: { start: 1, end: 2 },
+            },
+            { id: "p3", sessionID: "ses_abc123", messageID: "msg_2", type: "text" as const, text: "Hi!" },
+            {
+              id: "p4",
+              sessionID: "ses_abc123",
+              messageID: "msg_2",
+              type: "tool" as const,
+              callID: "call_1",
+              tool: "discard_context",
+              state: {
+                status: "completed" as const,
+                input: { ids: ["p1", "p3"] },
+                output: "discard_context succeeded: marked 2 part(s) for exclusion from future context.",
+                title: "Discard context",
+                metadata: {},
+                time: { start: 1000, end: 1100 },
+              },
+            },
+          ],
+        },
+      ]
+      // The rawest export mode: reasoning and tool details included.
+      const options = { thinking: true, toolDetails: true, assistantMetadata: true, providers }
+
+      const result = formatTranscript(session, messages, options)
+
+      expect(result).toContain("Hello")
+      expect(result).toContain("pondering")
+      expect(result).toContain("**Discarded 2 context parts**")
+      // The projection-only marker never reaches the transcript, even though
+      // the settled tool output (which quotes it nowhere durable) is exported.
+      expect(result).not.toContain("[part id:")
     })
 
     test("orders messages by creation time and preserves part order", () => {

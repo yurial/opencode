@@ -131,10 +131,17 @@ function providerMeta(metadata: Record<string, any> | undefined) {
 export const toModelMessagesEffect = Effect.fnUntraced(function* (
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
+  options?: { stripMedia?: boolean; toolOutputMaxChars?: number; partIdMarkers?: boolean },
 ) {
   const result: UIMessage[] = []
   const toolNames = new Set<string>()
+  // Projection-only part-id markers (specs/discard-context.md R8): carried on
+  // provider turns where the discard_context flag resolves enabled; durable
+  // history, session reads, marker surfaces, and transcripts never contain
+  // them. Empty parts project no marker: there is no content to address, and
+  // the signed-reasoning separator texts must stay byte-stable across replays.
+  const markers = options?.partIdMarkers === true
+  const withMarker = (id: string, text: string) => (markers && text !== "" ? `[part id: ${id}]\n${text}` : text)
   // Track media from tool results that need to be injected as user messages
   // for providers that don't support that media type in tool results.
   //
@@ -209,7 +216,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         if (part.type === "text" && !part.ignored && part.text !== "")
           userMessage.parts.push({
             type: "text",
-            text: part.text,
+            text: withMarker(part.id, part.text),
           })
         // text/plain and directory files are converted into text parts, ignore them
         if (part.type === "file" && part.mime !== "text/plain" && part.mime !== "application/x-directory") {
@@ -282,7 +289,9 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         // enter provider context; explicit check, never fall-through.
         if (part.type === "meta") continue
         if (part.type === "text") {
-          const text = part.text === "" && hasSignedReasoning ? " " : part.text
+          // The marker keys off the durable part text, so the empty
+          // signed-reasoning separator (projected as " ") stays unmarked.
+          const text = part.text === "" && hasSignedReasoning ? " " : withMarker(part.id, part.text)
           assistantMessage.parts.push({
             type: "text",
             text,
@@ -370,13 +379,13 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             if (part.text.trim().length > 0)
               assistantMessage.parts.push({
                 type: "text",
-                text: part.text,
+                text: withMarker(part.id, part.text),
               })
             continue
           }
           assistantMessage.parts.push({
             type: "reasoning",
-            text: part.text,
+            text: withMarker(part.id, part.text),
             providerMetadata: part.metadata,
           })
         }
@@ -423,7 +432,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
 export function toModelMessages(
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
+  options?: { stripMedia?: boolean; toolOutputMaxChars?: number; partIdMarkers?: boolean },
 ): Promise<ModelMessage[]> {
   return Effect.runPromise(toModelMessagesEffect(input, model, options))
 }

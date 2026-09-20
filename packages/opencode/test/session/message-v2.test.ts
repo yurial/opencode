@@ -1803,3 +1803,52 @@ describe("session.message-v2.latest", () => {
     expect(state.tasks[0]).toMatchObject({ type: "subtask", prompt: "inspect" })
   })
 })
+
+describe("session.message-v2 part-id markers", () => {
+  const markerInput = (): SessionV1.WithParts[] => [
+    {
+      info: userInfo("msg_u1"),
+      parts: [{ ...basePart("msg_u1", "p1"), type: "text", text: "hello" }] as SessionV1.Part[],
+    },
+    {
+      info: assistantInfo("msg_a1", "msg_u1"),
+      parts: [
+        { ...basePart("msg_a1", "p2"), type: "text", text: "reply" },
+        { ...basePart("msg_a1", "p3"), type: "reasoning", text: "thought", time: { start: 0, end: 1 } },
+        {
+          ...basePart("msg_a1", "p4"),
+          type: "tool",
+          callID: "call-x",
+          tool: "read",
+          state: {
+            status: "completed",
+            input: {},
+            output: "out",
+            title: "read",
+            metadata: {},
+            time: { start: 0, end: 1 },
+          },
+        },
+      ] as SessionV1.Part[],
+    },
+  ]
+
+  test("flag-on lowering carries the marker line on projected text and reasoning parts, tools stay native (T6.7)", async () => {
+    const lowered = await MessageV2.toModelMessages(markerInput(), model, { partIdMarkers: true })
+    const body = JSON.stringify(lowered)
+
+    expect(body).toContain("[part id: prt_p1]")
+    expect(body).toContain("[part id: prt_p2]")
+    expect(body).toContain("[part id: prt_p3]")
+    // Tool parts are identified by their provider call id alone.
+    expect(body).toContain("call-x")
+    expect(body).not.toContain("[part id: call-")
+  })
+
+  test("flag-off lowering carries no marker line (R8.5)", async () => {
+    const lowered = await MessageV2.toModelMessages(markerInput(), model)
+    expect(JSON.stringify(lowered)).not.toContain("[part id:")
+    expect(JSON.stringify(lowered)).toContain("hello")
+    expect(JSON.stringify(lowered)).toContain("reply")
+  })
+})

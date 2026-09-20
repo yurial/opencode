@@ -2560,7 +2560,9 @@ it.instance(
       if (!discardPart) throw new Error("discard call part missing")
       if (discardPart.state.status !== "completed") throw new Error("discard call did not settle")
       expect(discardPart.state.input).toEqual({ ids: [planPartID] })
-      expect(discardPart.state.output).toContain("Marked 1 message part(s)")
+      expect(discardPart.state.output).toContain("succeeded: marked 1 part(s)")
+      // The flag-on marking turn projects the part-id marker line for the plan.
+      expect(JSON.stringify(inputs[0])).toContain(`[part id: ${planPartID}]`)
     }),
   20_000,
 )
@@ -2609,7 +2611,7 @@ it.instance(
         state: {
           status: "completed",
           input: { ids: [planPartID] },
-          output: "Marked 1 message part(s) to discard from context.",
+          output: "discard_context succeeded: marked 1 part(s) for exclusion from future context.",
           title: "Discard context",
           metadata: {},
           time: { start: 1, end: 2 },
@@ -2626,6 +2628,7 @@ it.instance(
       expect(body).toContain("OLD PLAN")
       expect(body).toContain("call-discard-seed")
       expect(body).not.toContain(INSTRUCTION_SNIPPET)
+      expect(body).not.toContain("[part id:")
       expect(JSON.stringify((inputs[0] as ChatBody).tools ?? [])).not.toContain("discard_context")
     }),
   20_000,
@@ -2679,6 +2682,9 @@ it.instance(
       expect(summaryRequest).toContain("<conversation>")
       expect(summaryRequest).not.toContain("OLD PLAN")
       expect(summaryRequest).not.toContain("discard_context")
+      // Compaction serializes durable parts, so the projected-id-marker never
+      // enters a summary.
+      expect(summaryRequest).not.toContain("[part id:")
       // The post-compaction turn is rebuilt from the summary, not the raw history.
       const followup = JSON.stringify((inputs[3] as ChatBody).messages)
       expect(followup).not.toContain("OLD PLAN")
@@ -2691,4 +2697,82 @@ it.instance(
       expect(history.some((item) => item.info.role === "assistant" && item.info.summary === true)).toBe(true)
     }),
   30_000,
+)
+
+it.instance(
+  "discard_context counts duplicate ids once (T1.8)",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({ ...providerCfg(url), discard_context: true }))
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({
+        title: "Pinned",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+      const planPartID = yield* addAssistantWithPlan(session.id)
+
+      yield* llm.tool("discard_context", { ids: [planPartID, planPartID] })
+      yield* llm.text("done")
+
+      yield* prompt.loop({ sessionID: session.id })
+      const history = yield* sessions.messages({ sessionID: session.id })
+      const discardPart = history
+        .flatMap((item) => item.parts)
+        .find((part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "discard_context")
+      expect(discardPart).toBeDefined()
+      if (!discardPart) throw new Error("discard call part missing")
+      if (discardPart.state.status !== "completed") throw new Error("discard call did not settle")
+      expect(discardPart.state.output).toContain("succeeded: marked 1 part(s)")
+    }),
+  20_000,
+)
+
+it.instance(
+  "discard_context settles an empty-ids call with the non-empty zero-count line instead of empty output (T6.6)",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({ ...providerCfg(url), discard_context: true }))
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({
+        title: "Pinned",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+
+      yield* llm.tool("discard_context", { ids: [] })
+      yield* llm.text("done")
+
+      const result = yield* prompt.loop({ sessionID: session.id })
+      expect(result.info.role).toBe("assistant")
+
+      // The settled model-facing output is a single non-empty line: success
+      // confirmation, zero count, and the no-repeat instruction.
+      const history = yield* sessions.messages({ sessionID: session.id })
+      const discardPart = history
+        .flatMap((item) => item.parts)
+        .find((part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "discard_context")
+      expect(discardPart).toBeDefined()
+      if (!discardPart) throw new Error("discard call part missing")
+      if (discardPart.state.status !== "completed") throw new Error("discard call did not settle")
+      expect(discardPart.state.output.length).toBeGreaterThan(0)
+      expect(discardPart.state.output).toContain("succeeded")
+      expect(discardPart.state.output).toContain("marked 0 parts")
+      expect(discardPart.state.output).toContain("Do not call again")
+    }),
+  20_000,
 )
