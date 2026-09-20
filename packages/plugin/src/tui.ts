@@ -356,13 +356,60 @@ export type TuiThemeCurrent = {
   readonly thinkingOpacity: number
 }
 
+/**
+ * One text attribute of a resolved element (tui-theme/attribute, R16).
+ *
+ * Contract: exactly the eight names of the renderer's text-attribute set;
+ * the theme catalog never carries others.
+ */
+export type TuiThemeAttribute =
+  | "bold"
+  | "dim"
+  | "italic"
+  | "underline"
+  | "blink"
+  | "inverse"
+  | "hidden"
+  | "strikethrough"
+
+/**
+ * The resolved view of one catalog element (the theme system's
+ * `ResolvedElement`, R42).
+ *
+ * Purpose: what `api.theme.element(name)` returns.
+ *
+ * Contract: `fg` and `bg` are always concrete colors (transparent when the
+ * element has no channel default); `attributes` is a read-only set (empty
+ * when the element has no attribute default). A name outside the element
+ * catalog throws (R43).
+ */
+export type TuiThemeElement = {
+  fg: RGBA
+  bg: RGBA
+  attributes: ReadonlySet<TuiThemeAttribute>
+}
+
 export type TuiTheme = {
+  /**
+   * Flat legacy projection of the resolved theme.
+   *
+   * @deprecated Use `element(name)` for the per-element resolved style.
+   * Kept during the v1-to-v2 transition; existing plugins keep working (R45).
+   */
   readonly current: TuiThemeCurrent
   readonly selected: string
   has: (name: string) => boolean
   set: (name: string) => boolean
   install: (jsonPath: string) => Promise<void>
   mode: () => "dark" | "light"
+  /**
+   * Resolves one catalog element, reactively (R42, R45).
+   *
+   * Contract: `name` is a catalog element name; the result re-evaluates on
+   * theme or mode change when read inside a reactive scope; a name outside
+   * the catalog throws (R43).
+   */
+  element: (name: string) => TuiThemeElement
   readonly ready: boolean
 }
 

@@ -335,6 +335,11 @@ export function createTuiApiAdapters(input: Input): Omit<TuiPluginApi, "lifecycl
       get selected() {
         return input.theme.selected
       },
+      // Forwards the context accessor: reads inside a reactive scope
+      // re-evaluate on theme or mode change (R42/R45).
+      element(name) {
+        return input.theme.element(name)
+      },
       has(name) {
         return input.theme.has(name)
       },
