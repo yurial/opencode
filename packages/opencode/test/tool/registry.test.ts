@@ -26,6 +26,23 @@ const configLayer = TestConfig.layer({
   directories: () => InstanceState.directory.pipe(Effect.map((dir) => [path.join(dir, ".opencode")])),
 })
 
+const discardConfigLayer = TestConfig.layer({
+  get: () => Effect.succeed({ discard_context: true }),
+})
+
+const discardOffConfigLayer = TestConfig.layer({
+  get: () => Effect.succeed({ discard_context: false }),
+})
+
+// Stateful Config.Service replacement (plain DI, no global state): the real
+// Config.Service never re-reads an instance config after the first get(), so
+// flipping the value in memory is the only way to observe that the registry
+// re-resolves the flag on every tools() call (spec R2.8 per-call gate).
+const discardToggle = { enabled: false }
+const discardToggleConfigLayer = TestConfig.layer({
+  get: () => Effect.succeed(discardToggle.enabled ? { discard_context: true } : {}),
+})
+
 // Fake Plugin.Service that returns a single plugin whose `tool` map contains
 // one definition with `args: undefined`. Used to exercise the plugin entry
 // point of `fromPlugin` for the #27451 / #27630 regression.
@@ -95,6 +112,27 @@ const withEmptyCodeMode = testEffect(
 )
 const withBrokenPlugin = testEffect(LayerNode.compile(root, [...replacements, [Plugin.node, brokenPluginLayer]]))
 
+const withDiscard = testEffect(
+  LayerNode.compile(root, [
+    [Config.node, discardConfigLayer],
+    [RuntimeFlags.node, RuntimeFlags.layer()],
+  ] as const),
+)
+
+const withDiscardOff = testEffect(
+  LayerNode.compile(root, [
+    [Config.node, discardOffConfigLayer],
+    [RuntimeFlags.node, RuntimeFlags.layer()],
+  ] as const),
+)
+
+const withDiscardToggle = testEffect(
+  LayerNode.compile(root, [
+    [Config.node, discardToggleConfigLayer],
+    [RuntimeFlags.node, RuntimeFlags.layer()],
+  ] as const),
+)
+
 afterEach(async () => {
   await disposeAllInstances()
 })
@@ -115,6 +153,87 @@ describe("tool.registry", () => {
       const ids = yield* registry.ids()
 
       expect(ids).not.toContain("execute")
+    }),
+  )
+
+  it.instance("does not offer discard_context when the flag is absent", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderV2.ID.opencode,
+        modelID: ModelV2.ID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+
+      expect(tools.map((tool) => tool.id)).not.toContain("discard_context")
+    }),
+  )
+
+  withDiscardOff.instance("does not offer discard_context when discard_context is false", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderV2.ID.opencode,
+        modelID: ModelV2.ID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+
+      expect(tools.map((tool) => tool.id)).not.toContain("discard_context")
+    }),
+  )
+
+  withDiscard.instance("offers discard_context when discard_context is enabled and executes without permission ask", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderV2.ID.opencode,
+        modelID: ModelV2.ID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+      const discard = tools.find((tool) => tool.id === "discard_context")
+      expect(discard).toBeDefined()
+      if (!discard) throw new Error("discard_context tool not found")
+
+      const result = yield* discard.execute(
+        { ids: ["a", "b"] },
+        {
+          sessionID: SessionID.make("ses_test"),
+          messageID: MessageID.make("msg_test"),
+          agent: (yield* agents.defaultInfo()).name,
+          abort: new AbortController().signal,
+          messages: [],
+          metadata: () => Effect.void,
+          // R1.3: execution performs no permission assertion
+          ask: () => Effect.die("discard_context must not ask for permission"),
+        } satisfies Tool.Context,
+      )
+
+      expect(result.output).toBe("Marked 2 message part(s) to discard from context.")
+      expect(result.metadata.truncated).toBe(false)
+    }),
+  )
+
+  withDiscardToggle.instance("re-resolves discard_context on every tools() call (per-call gate, R2.8)", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const input = {
+        providerID: ProviderV2.ID.opencode,
+        modelID: ModelV2.ID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      }
+
+      discardToggle.enabled = true
+      expect((yield* registry.tools(input)).map((tool) => tool.id)).toContain("discard_context")
+
+      discardToggle.enabled = false
+      expect((yield* registry.tools(input)).map((tool) => tool.id)).not.toContain("discard_context")
+
+      discardToggle.enabled = true
+      expect((yield* registry.tools(input)).map((tool) => tool.id)).toContain("discard_context")
     }),
   )
 

@@ -7,7 +7,7 @@
 | specs/config-parameters.md | config-v1 | stable | V1 configurable parameters: keys, values, channels, merge precedence |
 | specs/core-session.md | core-session | draft | As-built V2 session and prompt lifecycle: durable admission and delivery modes, serialized execution and the provider-turn runner, context epochs, compaction, revert, V1 boundary |
 | specs/core-tools-permissions.md | core-tools-permissions | draft | V1 tool system and permission flow: tool contract, registry, invocation, ask/reply rules |
-| specs/discard-context.md | core-discard-context | stable | discard_context flag and tool: marked-part history filtering before lowering and compaction, session-ui/TUI/transcript markers, exact token attribution |
+| specs/discard-context.md | core-discard-context | stable | discard_context flag and tool across the V2 and V1 runtimes: marked-part history filtering before lowering and compaction, session-ui/TUI/transcript markers, exact token attribution |
 | specs/event-retention.md | event-retention | draft | Sync-mode retention: pruning durable event rows below the in-memory watermark floor |
 | specs/integrations.md | integrations | draft | V1 integrations: LSP/MCP hosts, formatters, IDE detection, sharing, git/snapshot/worktree, plugin host, ACP adapter, experimental control-plane workspaces |
 | specs/provider-models.md | provider-models | stable | Provider/LLM layer behavior: model catalog sources, variants, auth, streaming contract, retries, V2 catalog |

@@ -93,6 +93,7 @@ Resource directories inside every config directory: `agent(s)/`, `mode(s)/`,
 | `autoshare` | boolean | deprecated alias | — | `true` + no `share` → `share: "auto"` |
 | `autoupdate` | bool \| `notify` | `true`, `false`, `"notify"` | runtime default | Auto-update behavior |
 | `snapshot` | boolean | — | `true` | Filesystem snapshot tracking (undo/revert) |
+| `discard_context` | boolean | — | `false` (absence disables) | Gates the `discard_context` tool, its system instruction, and marked-part history filtering in both runtimes; the V1 document value is carried into the V2 surface by config migration (see core-discard-context) |
 | `enterprise.url` | string | URL, unvalidated | none | Enterprise share endpoint |
 | `logLevel` | enum | `DEBUG` \| `INFO` \| `WARN` \| `ERROR` | — | Dead key: no config consumer; actual level comes from `OPENCODE_LOG_LEVEL` (env) |
 
@@ -551,6 +552,9 @@ None. This spec is the root of the V1 configuration surface.
 - config-v2-provider-model — adopts config-v1/prime-time window semantics
   (R17) for the `ModelV2.Info` prime-time fields and resolver enforcement,
   and the retryable-block semantics (R18) for `primeTimeRetry`.
+- core-discard-context — the `discard_context` root key gates the V1
+  runtime's discard-context tool, instruction, and filtering, and config
+  migration carries the V1 document value into the V2 surface.
 - tui-session-display — binds the `display_thinking` keybind (default unset)
   to the `session.toggle.thinking` command and routes user rebinding of it
   through this spec's `keybinds.<command>` channel of the TUI config file.

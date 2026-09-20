@@ -47,6 +47,10 @@ service; provider transport.
   precedent (ask on the full command text; `external_directory` for outside
   working directories) but targets `PermissionV2` in `packages/core` and does
   not change the V1 tool system specified here.
+- `specs/discard-context.md` (core-discard-context, stable) specifies the
+  `discard_context` tool, its config gate, and marked-part history filtering
+  in both runtimes. Its V1 wrapper is a built-in of this registry (T1), asks
+  no permission (P4), and stays subject to the doom-loop guard (R23).
 - `packages/opencode/specs/effect/instance-context.md` covers the
   `InstanceState` per-directory conventions used by the registry and permission
   state.
@@ -61,7 +65,7 @@ service; provider transport.
 | `packages/opencode/src/tool/truncation-dir.ts` | Truncation directory constant | `Global.Path.data/tool-output` |
 | `packages/opencode/src/tool/json-schema.ts` | Effect Schema → JSON Schema for tools | `fromSchema`/`fromTool` with reference inlining and AI-SDK-friendly normalization |
 | `packages/opencode/src/tool/schema.ts` | `ToolID` branded id (`tool_…`) | Used for truncation file names |
-| `packages/opencode/src/tool/read.ts`, `edit.ts`, `write.ts`, `apply_patch.ts`, `glob.ts`, `grep.ts`, `task.ts`, `webfetch.ts`, `websearch.ts`, `skill.ts`, `todo.ts`, `lsp.ts` | Built-in tool definitions | One `Tool.define` export each; ask permission before side effects |
+| `packages/opencode/src/tool/read.ts`, `edit.ts`, `write.ts`, `apply_patch.ts`, `glob.ts`, `grep.ts`, `task.ts`, `webfetch.ts`, `websearch.ts`, `skill.ts`, `todo.ts`, `lsp.ts`, `discard-context.ts` | Built-in tool definitions | One `Tool.define` export each; ask permission before side effects (`discard_context` asks none) |
 | `packages/opencode/src/tool/shell.ts` + `shell/` | Shell tool (`id: "bash"`), tree-sitter command scan, prompt rendering | Asks `external_directory` then `bash` permissions; streams output with truncation spool |
 | `packages/opencode/src/tool/question.ts`, `plan.ts` | Interactive tools | Use `Question.Service`, not `ctx.ask` |
 | `packages/opencode/src/tool/invalid.ts` | Fallback tool (`id: "invalid"`) | Returns the repair error text as a successful tool result |
@@ -102,6 +106,7 @@ Built-in `Tool.Def` ids produced by the registry
 | `execute` | `code-mode.ts` | per-MCP-tool key | Only `experimentalCodeMode`; dropped when no MCP tool is visible |
 | `lsp` | `lsp.ts` | `lsp` | Only `experimentalLspTool` |
 | `plan_exit` | `plan.ts` | — (Question service) | Only `experimentalPlanMode` + client `cli` |
+| `discard_context` | `discard-context.ts` | — (no `ctx.ask` call) | Only when config `discard_context` is enabled (filter in `tools()`); not exempt from the doom-loop ask (R23) |
 
 Session-level synthetic tools (`src/session/tools.ts`), not in the registry:
 `list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`
@@ -167,7 +172,8 @@ Categories used elsewhere in the pipeline:
   for the plugin), adds `directory`/`worktree` to the context, and applies
   `Truncate.output` itself (custom defs bypass the `Tool.define` wrapper).
 - R10. `tools(model)` filters the full list by model and flags: websearch by
-  `webSearchEnabled`; `apply_patch` vs `edit`/`write` by the `gpt-*` heuristic
+  `webSearchEnabled`; `discard_context` by the `discard_context` config flag;
+  `apply_patch` vs `edit`/`write` by the `gpt-*` heuristic
   (`modelID.includes("gpt-") && !oss && !gpt-4`); `execute` dropped unless a
   code-mode catalog description was produced. For each surviving tool the
   `tool.definition` plugin hook may mutate `description`, `parameters`, and
@@ -351,6 +357,7 @@ persists as a runtime rule):
 | (processor) doom loop | `doom_loop` | tool name | tool name |
 | (workflow models) | `workflow_tool_approval` | `name` or `name: title` | same |
 | question / plan_exit | — | Question service instead | — |
+| discard_context | — | no permission ask (config-gated in `tools()`) | — |
 | execute (code mode) | per-MCP-tool key | `*` | `*` |
 
 Shell specifics (`shell.ts`): commands are parsed with tree-sitter (bash or
