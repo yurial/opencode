@@ -7,7 +7,7 @@ import { createStore } from "solid-js/store"
 import { useRoute } from "../../context/route"
 
 export function Footer() {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const sync = useSync()
   const route = useRoute()
   const mcp = createMemo(() => Object.values(sync.data.mcp).filter((x) => x.status === "connected").length)
@@ -51,38 +51,41 @@ export function Footer() {
 
   return (
     <box flexDirection="row" justifyContent="space-between" gap={1} flexShrink={0}>
-      <text fg={theme.textMuted}>{directory()}</text>
+      <text fg={element("footer.muted").fg}>{directory()}</text>
       <box gap={2} flexDirection="row" flexShrink={0}>
         <Switch>
           <Match when={store.welcome}>
-            <text fg={theme.text}>
-              Get started <span style={{ fg: theme.textMuted }}>/connect</span>
+            <text fg={element("footer.text").fg}>
+              Get started <span style={{ fg: element("footer.muted").fg }}>/connect</span>
             </text>
           </Match>
           <Match when={connected()}>
             <Show when={permissions().length > 0}>
-              <text fg={theme.warning}>
-                <span style={{ fg: theme.warning }}>△</span> {permissions().length} Permission
+              <text fg={element("footer.permission").fg}>
+                <span style={{ fg: element("footer.permission").fg }}>△</span> {permissions().length} Permission
                 {permissions().length > 1 ? "s" : ""}
               </text>
             </Show>
-            <text fg={theme.text}>
-              <span style={{ fg: lsp().length > 0 ? theme.success : theme.textMuted }}>•</span> {lsp().length} LSP
+            <text fg={element("footer.text").fg}>
+              <span style={{ fg: lsp().length > 0 ? element("footer.status.ok").fg : element("footer.muted").fg }}>
+                •
+              </span>{" "}
+              {lsp().length} LSP
             </text>
             <Show when={mcp()}>
-              <text fg={theme.text}>
+              <text fg={element("footer.text").fg}>
                 <Switch>
                   <Match when={mcpError()}>
-                    <span style={{ fg: theme.error }}>⊙ </span>
+                    <span style={{ fg: element("footer.status.error").fg }}>⊙ </span>
                   </Match>
                   <Match when={true}>
-                    <span style={{ fg: theme.success }}>⊙ </span>
+                    <span style={{ fg: element("footer.status.ok").fg }}>⊙ </span>
                   </Match>
                 </Switch>
                 {mcp()} MCP
               </text>
             </Show>
-            <text fg={theme.textMuted}>/status</text>
+            <text fg={element("footer.muted").fg}>/status</text>
           </Match>
         </Switch>
       </box>

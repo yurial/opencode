@@ -24,7 +24,8 @@ import { SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner } from "../../component/spinner"
 import { createSyntaxStyleMemo, generateSubtleSyntax, selectedForeground, useTheme } from "../../context/theme"
-import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
+import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, RGBA } from "@opentui/core"
+import { textAttributes } from "../../theme/catalog"
 import { Prompt, type PromptRef } from "../../component/prompt"
 import type {
   AssistantMessage,
@@ -193,7 +194,7 @@ export function Session() {
   const paths = useTuiPaths()
   const tuiConfig = useTuiConfig()
   const kv = useKV()
-  const { theme } = useTheme()
+  const { theme, element } = useTheme()
   const promptRef = usePromptRef()
   const session = createMemo(() => sync.session.get(route.sessionID))
   const location = createMemo(() => {
@@ -1189,8 +1190,10 @@ export function Session() {
                   paddingLeft: 1,
                   visible: showScrollbar(),
                   trackOptions: {
+                    // No scrollbar element defaults to backgroundElement (track=backgroundPanel,
+                    // overlay=background) — spec gap; the flat read stays.
                     backgroundColor: theme.backgroundElement,
-                    foregroundColor: theme.border,
+                    foregroundColor: element("scrollbar.thumb").fg,
                   },
                 }}
                 stickyScroll={true}
@@ -1228,29 +1231,29 @@ export function Session() {
                               flexShrink={0}
                               border={["left"]}
                               customBorderChars={SplitBorder.customBorderChars}
-                              borderColor={theme.backgroundPanel}
+                              borderColor={element("message.revert").bg}
                             >
                               <box
                                 paddingTop={1}
                                 paddingBottom={1}
                                 paddingLeft={2}
-                                backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
+                                backgroundColor={hover() ? element("message.revert.hover").bg : element("message.revert").bg}
                               >
-                                <text fg={theme.textMuted}>{revert()!.reverted.length} message reverted</text>
-                                <text fg={theme.textMuted}>
+                                <text fg={element("message.revert").fg}>{revert()!.reverted.length} message reverted</text>
+                                <text fg={element("message.revert").fg}>
                                   <span style={{ fg: theme.text }}>{redoShortcut()}</span> or /redo to restore
                                 </text>
                                 <Show when={revert()!.diffFiles?.length}>
                                   <box marginTop={1}>
                                     <For each={revert()!.diffFiles}>
                                       {(file) => (
-                                        <text fg={theme.text}>
+                                        <text fg={element("diff.text").fg}>
                                           {file.filename}
                                           <Show when={file.additions > 0}>
-                                            <span style={{ fg: theme.diffAdded }}> +{file.additions}</span>
+                                            <span style={{ fg: element("diff.banner.added").fg }}> +{file.additions}</span>
                                           </Show>
                                           <Show when={file.deletions > 0}>
-                                            <span style={{ fg: theme.diffRemoved }}> -{file.deletions}</span>
+                                            <span style={{ fg: element("diff.banner.removed").fg }}> -{file.deletions}</span>
                                           </Show>
                                         </text>
                                       )}
@@ -1385,7 +1388,7 @@ function UserMessage(props: {
     return texts.join("\n\n")
   })
   const files = createMemo(() => props.parts.flatMap((x) => (x.type === "file" ? [x] : [])))
-  const { theme } = useTheme()
+  const { theme, element } = useTheme()
   const [hover, setHover] = createSignal(false)
   const queued = createMemo(() => props.pending !== undefined && props.index > props.pending)
   const color = createMemo(() => local.agent.color(props.message.agent))
@@ -1416,20 +1419,21 @@ function UserMessage(props: {
             paddingTop={1}
             paddingBottom={1}
             paddingLeft={2}
-            backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
+            backgroundColor={hover() ? element("message.user.body.hover").bg : element("message.user.body").bg}
             flexShrink={0}
           >
-            <text fg={theme.text}>{text()}</text>
+            <text fg={element("message.user.body").fg}>{text()}</text>
             <Show when={files().length}>
               <box flexDirection="row" paddingBottom={metadataVisible() ? 1 : 0} paddingTop={1} gap={1} flexWrap="wrap">
                 <For each={files()}>
                   {(file) => {
                     const directory = file.mime === "application/x-directory"
                     return (
-                      <text fg={theme.text}>
-                        <span style={{ bg: theme.secondary, fg: theme.background }}>
+                      <text fg={element("message.user.body").fg}>
+                        <span style={{ bg: element("message.user.badge").bg, fg: element("message.user.badge").fg }}>
                           {directory ? " Directory " : " File "}
                         </span>
+                        {/* No message-zone element covers the filename chip (backgroundElement/textMuted) — spec gap. */}
                         <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}> {file.filename} </span>
                       </text>
                     )
@@ -1441,16 +1445,21 @@ function UserMessage(props: {
               when={queued()}
               fallback={
                 <Show when={ctx.showTimestamps()}>
-                  <text fg={theme.textMuted}>
-                    <span style={{ fg: theme.textMuted }}>
+                  <text fg={element("message.timestamp").fg}>
+                    <span style={{ fg: element("message.timestamp").fg }}>
                       {Locale.todayTimeOrDateTime(props.message.time.created)}
                     </span>
                   </text>
                 </Show>
               }
             >
-              <text fg={theme.textMuted}>
-                <span style={{ bg: color(), fg: queuedFg(), bold: true }}> QUEUED </span>
+              <text fg={element("message.timestamp").fg}>
+                {/* QUEUED keeps the computed agent-color treatment (R39/R33); the bold
+                    emphasis comes from the message.queued attribute set. */}
+                <span style={{ bg: color(), fg: queuedFg(), bold: element("message.queued").attributes.has("bold") }}>
+                  {" "}
+                  QUEUED{" "}
+                </span>
               </text>
             </Show>
           </box>
@@ -1462,7 +1471,7 @@ function UserMessage(props: {
           border={["top"]}
           title=" Compaction "
           titleAlignment="center"
-          borderColor={theme.borderActive}
+          borderColor={element("message.compaction").fg}
         />
       </Show>
     </>
@@ -1472,7 +1481,7 @@ function UserMessage(props: {
 function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; last: boolean }) {
   const ctx = use()
   const local = useLocal()
-  const { theme } = useTheme()
+  const { theme, element } = useTheme()
   const sync = useSync()
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
   const model = createMemo(() => Model.name(ctx.providers(), props.message.providerID, props.message.modelID))
@@ -1511,9 +1520,9 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
       </For>
       <Show when={props.parts.some((x) => x.type === "tool" && x.tool === "task")}>
         <box paddingTop={1} paddingLeft={3}>
-          <text fg={theme.text}>
+          <text fg={element("message.assistant.body").fg}>
             {childShortcut()}
-            <span style={{ fg: theme.textMuted }}> view subagents</span>
+            <span style={{ fg: element("message.assistant.meta").fg }}> view subagents</span>
             <Show
               when={
                 sync.data.capabilities.experimentalBackgroundSubagents &&
@@ -1526,9 +1535,9 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
                 )
               }
             >
-              <span style={{ fg: theme.textMuted }}> · </span>
+              <span style={{ fg: element("message.assistant.meta").fg }}> · </span>
               {backgroundShortcut()}
-              <span style={{ fg: theme.textMuted }}> background</span>
+              <span style={{ fg: element("message.assistant.meta").fg }}> background</span>
             </Show>
           </text>
         </box>
@@ -1541,10 +1550,11 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
           paddingBottom={1}
           paddingLeft={2}
           marginTop={1}
-          backgroundColor={theme.backgroundPanel}
+          backgroundColor={element("message.error.panel").bg}
           customBorderChars={SplitBorder.customBorderChars}
-          borderColor={theme.error}
+          borderColor={element("message.error.border").fg}
         >
+          {/* message.error.body defaults to error, but the body renders muted today (spec conflict). */}
           <text fg={theme.textMuted}>{errorMessage(props.message.error)}</text>
         </box>
       </Show>
@@ -1556,19 +1566,21 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
                 style={{
                   fg:
                     props.message.error?.name === "MessageAbortedError"
-                      ? theme.textMuted
+                      ? element("message.assistant.meta").fg
                       : local.agent.color(props.message.agent),
                 }}
               >
                 ▣{" "}
               </span>{" "}
-              <span style={{ fg: theme.text }}>{Locale.titlecase(props.message.mode)}</span>
-              <span style={{ fg: theme.textMuted }}> · {model()}</span>
+              <span style={{ fg: element("message.assistant.meta.mode").fg }}>
+                {Locale.titlecase(props.message.mode)}
+              </span>
+              <span style={{ fg: element("message.assistant.meta").fg }}> · {model()}</span>
               <Show when={duration()}>
-                <span style={{ fg: theme.textMuted }}> · {Locale.duration(duration())}</span>
+                <span style={{ fg: element("message.assistant.meta").fg }}> · {Locale.duration(duration())}</span>
               </Show>
               <Show when={props.message.error?.name === "MessageAbortedError"}>
-                <span style={{ fg: theme.textMuted }}> · interrupted</span>
+                <span style={{ fg: element("message.assistant.meta").fg }}> · interrupted</span>
               </Show>
             </text>
           </box>
@@ -1588,7 +1600,7 @@ const PART_MAPPING = {
 const INLINE_TOOL_ICON_WIDTH = 2
 
 function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: AssistantMessage }) {
-  const { theme } = useTheme()
+  const { theme, element } = useTheme()
   const ctx = use()
   // Collapsed by default in hide mode: a single line throughout, so the
   // layout never shifts. Click to open the full markdown block, click to close.
@@ -1642,7 +1654,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
             syntaxStyle={syntax()}
             content={summary().body}
             conceal={ctx.conceal()}
-            fg={theme.textMuted}
+            fg={element("message.reasoning.body").fg}
           />
         </box>
       </Show>
@@ -1660,12 +1672,14 @@ export function ReasoningHeader(props: {
   end?: number
   encrypted?: boolean
 }) {
-  const { theme } = useTheme()
+  const { theme, element } = useTheme()
   const now = useNow()
+  // R36: the reasoning header foreground multiplies by thinkingOpacity while open.
+  const header = () => element("message.reasoning.header")
   const fg = () =>
     props.open
-      ? RGBA.fromValues(theme.warning.r, theme.warning.g, theme.warning.b, theme.thinkingOpacity)
-      : theme.warning
+      ? RGBA.fromValues(header().fg.r, header().fg.g, header().fg.b, theme.thinkingOpacity)
+      : header().fg
   // `start` is captured because it is immutable per part; reading it once
   // avoids needless prop reads as the timer ticks. Reactivity flows through
   // the shared `now()` signal (R5). `props.end` reads in the finalized
@@ -1716,16 +1730,17 @@ export function ReasoningHeader(props: {
 // accumulated transcript line — no dedup, no expiry, a pure projection of the
 // persisted parts in part order.
 export function MetaPartLine(props: { last: boolean; part: MetaPart; message: AssistantMessage }) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const line = createMemo(() => {
     const error = typeof props.part.payload.error === "string" ? props.part.payload.error : ""
     if (props.part.kind === "stream-retry")
       return {
         text: `Retry ${typeof props.part.payload.attempt === "number" ? props.part.payload.attempt : 1}: ${error}`,
-        fg: theme.warning,
+        fg: element("message.tool.status.pending").fg,
       }
-    if (props.part.kind === "stream-error") return { text: `Stream error: ${error}`, fg: theme.error }
-    return { text: props.part.kind, fg: theme.textMuted }
+    if (props.part.kind === "stream-error")
+      return { text: `Stream error: ${error}`, fg: element("message.tool.status.error").fg }
+    return { text: props.part.kind, fg: element("message.tool.status.done").fg }
   })
   return (
     <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3} marginTop={1} flexShrink={0}>
@@ -1738,7 +1753,7 @@ export function MetaPartLine(props: { last: boolean; part: MetaPart; message: As
 
 function TextPart(props: { last: boolean; part: TextPart; message: AssistantMessage }) {
   const ctx = use()
-  const { theme, syntax } = useTheme()
+  const { element, syntax } = useTheme()
   return (
     <Show when={props.part.text.trim()}>
       <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3} marginTop={1} flexShrink={0}>
@@ -1749,8 +1764,8 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
           content={props.part.text.trim()}
           tableOptions={{ style: "grid" }}
           conceal={ctx.conceal()}
-          fg={theme.markdownText}
-          bg={theme.background}
+          fg={element("markdown.text").fg}
+          bg={element("markdown.bg").bg}
         />
       </box>
     </Show>
@@ -1855,7 +1870,7 @@ type ToolProps = {
   part: ToolPart
 }
 function GenericTool(props: ToolProps) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const ctx = use()
   const output = createMemo(() => props.output?.trim() ?? "")
   const [expanded, setExpanded] = createSignal(false)
@@ -1882,9 +1897,11 @@ function GenericTool(props: ToolProps) {
         onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
       >
         <box gap={1}>
-          <text fg={theme.text}>{limited()}</text>
+          <text fg={element("message.tool.body").fg}>{limited()}</text>
           <Show when={collapsed().overflow}>
-            <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
+            <text fg={element("message.tool.body.pending").fg}>
+              {expanded() ? "Click to collapse" : "Click to expand"}
+            </text>
           </Show>
         </box>
       </BlockTool>
@@ -1905,7 +1922,7 @@ function InlineTool(props: {
   part: ToolPart
   onClick?: () => void
 }) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const ctx = use()
   const sync = useSync()
   const renderer = useRenderer()
@@ -1932,11 +1949,12 @@ function InlineTool(props: {
   const clickable = createMemo(() => Boolean(props.onClick || failed()))
   const fg = createMemo(() => {
     if (props.color) return props.color
-    if (permission()) return theme.warning
-    if (failed()) return theme.error
-    if (hover() && props.onClick) return theme.text
-    if (props.complete) return theme.textMuted
-    return theme.text
+    if (permission()) return element("message.tool.status.pending").fg
+    if (failed()) return element("message.tool.status.error").fg
+    // R38: the pending body pair swaps message.tool.body.pending (muted resting
+    // rows) for message.tool.body on hover, and pending rows render bright.
+    if ((hover() && props.onClick) || !props.complete) return element("message.tool.body").fg
+    return element("message.tool.body.pending").fg
   })
 
   return (
@@ -1944,9 +1962,10 @@ function InlineTool(props: {
       icon={props.icon}
       iconColor={props.iconColor}
       color={fg()}
-      errorColor={theme.error}
+      errorColor={element("message.tool.status.error").fg}
       failed={failed()}
       denied={Boolean(denied())}
+      deniedAttributes={textAttributes(element("message.tool.args.denied").attributes)}
       error={error()}
       errorExpanded={errorExpanded()}
       complete={props.complete}
@@ -1977,6 +1996,7 @@ export function InlineToolRow(props: {
   errorColor?: RGBA
   failed?: boolean
   denied?: boolean
+  deniedAttributes?: number
   error?: string
   errorExpanded?: boolean
   complete: unknown
@@ -2012,11 +2032,7 @@ export function InlineToolRow(props: {
         <Match when={true}>
           <Show
             fallback={
-              <text
-                paddingLeft={3}
-                fg={props.color}
-                attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
-              >
+              <text paddingLeft={3} fg={props.color} attributes={props.denied ? props.deniedAttributes : undefined}>
                 ~ {props.pending}
               </text>
             }
@@ -2026,14 +2042,14 @@ export function InlineToolRow(props: {
               <text
                 width={INLINE_TOOL_ICON_WIDTH}
                 fg={props.failed ? props.errorColor : (props.iconColor ?? props.color)}
-                attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
+                attributes={props.denied ? props.deniedAttributes : undefined}
               >
                 {props.icon}
               </text>
               <text
                 flexGrow={1}
                 fg={props.failed ? props.errorColor : props.color}
-                attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
+                attributes={props.denied ? props.deniedAttributes : undefined}
               >
                 {props.failed && !props.complete ? (props.failure ?? props.children) : props.children}
               </text>
@@ -2057,7 +2073,7 @@ function BlockTool(props: {
   part?: ToolPart
   spinner?: boolean
 }) {
-  const { theme } = useTheme()
+  const { theme, element } = useTheme()
   const renderer = useRenderer()
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
@@ -2070,8 +2086,9 @@ function BlockTool(props: {
       paddingLeft={2}
       marginTop={1}
       gap={1}
-      backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
+      backgroundColor={hover() ? element("message.tool.card.hover").bg : element("message.tool.card").bg}
       customBorderChars={SplitBorder.customBorderChars}
+      // Camouflage border painted with the app background; no catalog element covers it (spec gap).
       borderColor={theme.background}
       onMouseOver={() => props.onClick && setHover(true)}
       onMouseOut={() => setHover(false)}
@@ -2085,25 +2102,25 @@ function BlockTool(props: {
           <Show
             when={props.spinner}
             fallback={
-              <text paddingLeft={3} fg={theme.textMuted}>
+              <text paddingLeft={3} fg={element("message.tool.header").fg}>
                 {title()}
               </text>
             }
           >
-            <Spinner color={theme.textMuted}>{title().replace(/^# /, "")}</Spinner>
+            <Spinner color={element("message.tool.header").fg}>{title().replace(/^# /, "")}</Spinner>
           </Show>
         )}
       </Show>
       {props.children}
       <Show when={error()}>
-        <text fg={theme.error}>{error()}</text>
+        <text fg={element("message.tool.status.error").fg}>{error()}</text>
       </Show>
     </box>
   )
 }
 
 function Shell(props: ToolProps) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const pathFormatter = usePathFormatter()
   const ctx = use()
   const isRunning = createMemo(() => props.part.state.status === "running")
@@ -2140,14 +2157,19 @@ function Shell(props: ToolProps) {
           onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
         >
           <box gap={1}>
-            <Show when={isRunning()} fallback={<text fg={theme.text}>$ {stringValue(props.input.command)}</text>}>
-              <Spinner color={theme.text}>{stringValue(props.input.command)}</Spinner>
+            <Show
+              when={isRunning()}
+              fallback={<text fg={element("message.tool.body").fg}>$ {stringValue(props.input.command)}</text>}
+            >
+              <Spinner color={element("message.tool.body").fg}>{stringValue(props.input.command)}</Spinner>
             </Show>
             <Show when={output()}>
-              <text fg={theme.text}>{limited()}</text>
+              <text fg={element("message.tool.body").fg}>{limited()}</text>
             </Show>
             <Show when={collapsed().overflow}>
-              <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
+              <text fg={element("message.tool.body.pending").fg}>
+                {expanded() ? "Click to collapse" : "Click to expand"}
+              </text>
             </Show>
           </box>
         </BlockTool>
@@ -2162,7 +2184,7 @@ function Shell(props: ToolProps) {
 }
 
 function Write(props: ToolProps) {
-  const { theme, syntax } = useTheme()
+  const { theme, element, syntax } = useTheme()
   const pathFormatter = usePathFormatter()
   const code = createMemo(() => {
     return stringValue(props.input.content) ?? ""
@@ -2172,10 +2194,11 @@ function Write(props: ToolProps) {
     <Switch>
       <Match when={props.metadata.diagnostics !== undefined}>
         <BlockTool title={"# Wrote " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
+          {/* Write-preview gutter: no catalog element covers it (spec gap); flat read stays. */}
           <line_number fg={theme.textMuted} minWidth={3} paddingRight={1}>
             <code
               conceal={false}
-              fg={theme.text}
+              fg={element("message.tool.body").fg}
               filetype={filetype(stringValue(props.input.filePath))}
               syntaxStyle={syntax()}
               content={code()}
@@ -2207,7 +2230,7 @@ function Glob(props: ToolProps) {
 }
 
 function Read(props: ToolProps) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const pathFormatter = usePathFormatter()
   const isRunning = createMemo(() => props.part.state.status === "running")
   const loaded = createMemo(() => {
@@ -2231,7 +2254,7 @@ function Read(props: ToolProps) {
       <For each={loaded()}>
         {(filepath) => (
           <box paddingLeft={3}>
-            <text paddingLeft={3} fg={theme.textMuted}>
+            <text paddingLeft={3} fg={element("message.tool.body.pending").fg}>
               ↳ Loaded {pathFormatter.format(filepath)}
             </text>
           </box>
@@ -2272,7 +2295,7 @@ function WebSearch(props: ToolProps) {
 }
 
 function Task(props: ToolProps) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const { navigate } = useRoute()
   const sync = useSync()
   const dialog = useDialog()
@@ -2351,7 +2374,7 @@ function Task(props: ToolProps) {
     <InlineTool
       icon={props.part.state.status === "completed" ? "✓" : "│"}
       separate={true}
-      color={retry() ? theme.error : undefined}
+      color={retry() ? element("message.tool.status.error").fg : undefined}
       spinner={isRunning()}
       complete={stringValue(props.input.description)}
       pending="Delegating…"
@@ -2402,7 +2425,7 @@ function executeCalls(value: unknown): ExecuteCall[] {
 // The `execute` tool streams child tool calls through metadata, not a child session like Task.
 function Execute(props: ToolProps) {
   const ctx = use()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const isLoading = createMemo(() => props.part.state.status === "pending" || props.part.state.status === "running")
   const calls = createMemo(() => executeCalls(props.metadata.toolCalls))
   const output = createMemo(() => stripAnsi(props.output?.trim() ?? ""))
@@ -2422,7 +2445,7 @@ function Execute(props: ToolProps) {
     <>
       <InlineTool
         icon={hasRuntimeError() ? "✗" : props.part.state.status === "completed" ? "✓" : "│"}
-        color={hasRuntimeError() ? theme.error : undefined}
+        color={hasRuntimeError() ? element("message.tool.status.error").fg : undefined}
         spinner={isLoading()}
         pending="execute"
         complete={true}
@@ -2434,7 +2457,7 @@ function Execute(props: ToolProps) {
         <box paddingLeft={3}>
           <For each={outputPreview().split("\n")}>
             {(line, index) => (
-              <text paddingLeft={3} fg={theme.error}>
+              <text paddingLeft={3} fg={element("message.tool.status.error").fg}>
                 {index() === 0 ? "↳ " : "  "}
                 {line}
               </text>
@@ -2448,7 +2471,7 @@ function Execute(props: ToolProps) {
 
 function Edit(props: ToolProps) {
   const ctx = use()
-  const { theme, syntax } = useTheme()
+  const { element, syntax } = useTheme()
   const pathFormatter = usePathFormatter()
 
   const view = createMemo(() => {
@@ -2475,16 +2498,16 @@ function Edit(props: ToolProps) {
               showLineNumbers={true}
               width="100%"
               wrapMode={ctx.diffWrapMode()}
-              fg={theme.text}
-              addedBg={theme.diffAddedBg}
-              removedBg={theme.diffRemovedBg}
-              contextBg={theme.diffContextBg}
-              addedSignColor={theme.diffHighlightAdded}
-              removedSignColor={theme.diffHighlightRemoved}
-              lineNumberFg={theme.diffLineNumber}
-              lineNumberBg={theme.diffContextBg}
-              addedLineNumberBg={theme.diffAddedLineNumberBg}
-              removedLineNumberBg={theme.diffRemovedLineNumberBg}
+              fg={element("diff.text").fg}
+              addedBg={element("diff.line.added").bg}
+              removedBg={element("diff.line.removed").bg}
+              contextBg={element("diff.line.context").bg}
+              addedSignColor={element("diff.sign.added").fg}
+              removedSignColor={element("diff.sign.removed").fg}
+              lineNumberFg={element("diff.gutter").fg}
+              lineNumberBg={element("diff.gutter").bg}
+              addedLineNumberBg={element("diff.gutter.added").bg}
+              removedLineNumberBg={element("diff.gutter.removed").bg}
             />
           </box>
           <Diagnostics diagnostics={props.metadata.diagnostics} filePath={stringValue(props.input.filePath) ?? ""} />
@@ -2501,7 +2524,7 @@ function Edit(props: ToolProps) {
 
 function ApplyPatch(props: ToolProps) {
   const ctx = use()
-  const { theme, syntax } = useTheme()
+  const { element, syntax } = useTheme()
   const pathFormatter = usePathFormatter()
 
   const files = createMemo(() => parseApplyPatchFiles(props.metadata.files))
@@ -2523,16 +2546,16 @@ function ApplyPatch(props: ToolProps) {
           showLineNumbers={true}
           width="100%"
           wrapMode={ctx.diffWrapMode()}
-          fg={theme.text}
-          addedBg={theme.diffAddedBg}
-          removedBg={theme.diffRemovedBg}
-          contextBg={theme.diffContextBg}
-          addedSignColor={theme.diffHighlightAdded}
-          removedSignColor={theme.diffHighlightRemoved}
-          lineNumberFg={theme.diffLineNumber}
-          lineNumberBg={theme.diffContextBg}
-          addedLineNumberBg={theme.diffAddedLineNumberBg}
-          removedLineNumberBg={theme.diffRemovedLineNumberBg}
+          fg={element("diff.text").fg}
+          addedBg={element("diff.line.added").bg}
+          removedBg={element("diff.line.removed").bg}
+          contextBg={element("diff.line.context").bg}
+          addedSignColor={element("diff.sign.added").fg}
+          removedSignColor={element("diff.sign.removed").fg}
+          lineNumberFg={element("diff.gutter").fg}
+          lineNumberBg={element("diff.gutter").bg}
+          addedLineNumberBg={element("diff.gutter.added").bg}
+          removedLineNumberBg={element("diff.gutter.removed").bg}
         />
       </box>
     )
@@ -2554,7 +2577,7 @@ function ApplyPatch(props: ToolProps) {
               <Show
                 when={file.type !== "delete"}
                 fallback={
-                  <text fg={theme.diffRemoved}>
+                  <text fg={element("diff.banner.removed").fg}>
                     -{file.deletions} line{file.deletions !== 1 ? "s" : ""}
                   </text>
                 }
@@ -2596,7 +2619,7 @@ function TodoWrite(props: ToolProps) {
 }
 
 function Question(props: ToolProps) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const questions = createMemo(() => parseQuestions(props.input.questions))
   const answers = createMemo(() => parseQuestionAnswers(props.metadata.answers))
   const count = createMemo(() => questions().length)
@@ -2614,8 +2637,8 @@ function Question(props: ToolProps) {
             <For each={questions()}>
               {(q, i) => (
                 <box flexDirection="column">
-                  <text fg={theme.textMuted}>{q.question}</text>
-                  <text fg={theme.text}>{format(answers()?.[i()])}</text>
+                  <text fg={element("message.tool.body.pending").fg}>{q.question}</text>
+                  <text fg={element("message.tool.body").fg}>{format(answers()?.[i()])}</text>
                 </box>
               )}
             </For>
@@ -2671,7 +2694,7 @@ function DiscardContext(props: ToolProps) {
 }
 
 function Diagnostics(props: { diagnostics: unknown; filePath: string }) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const terminalEnvironment = useTuiTerminalEnvironment()
   const errors = createMemo(() => {
     const normalized = normalizePath(
@@ -2686,7 +2709,7 @@ function Diagnostics(props: { diagnostics: unknown; filePath: string }) {
       <box>
         <For each={errors()}>
           {(diagnostic) => (
-            <text fg={theme.error}>
+            <text fg={element("message.tool.status.error").fg}>
               Error [{diagnostic.range.start.line + 1}:{diagnostic.range.start.character + 1}] {diagnostic.message}
             </text>
           )}
