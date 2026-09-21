@@ -55,7 +55,7 @@ export function SubagentFooter() {
     }
   })
 
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const keymap = useOpencodeKeymap()
   const parentShortcut = useCommandShortcut("session.parent")
   const previousShortcut = useCommandShortcut("session.child.previous")
@@ -85,13 +85,13 @@ export function SubagentFooter() {
               {subagentInfo().label}
             </text>
             <Show when={subagentInfo().total > 0}>
-              <text style={{ fg: theme.textMuted }}>
+              <text style={{ fg: element("subagent.footer.muted").fg }}>
                 ({subagentInfo().index} of {subagentInfo().total})
               </text>
             </Show>
             <Show when={usage()}>
               {(item) => (
-                <text fg={theme.textMuted} wrapMode="none">
+                <text fg={element("subagent.footer.muted").fg} wrapMode="none">
                   {[item().context, item().cost].filter(Boolean).join(" · ")}
                 </text>
               )}
@@ -105,7 +105,7 @@ export function SubagentFooter() {
               backgroundColor={hover() === "parent" ? element("subagent.footer.hover").bg : element("subagent.footer.panel").bg}
             >
               <text fg={hover() === "parent" ? element("subagent.footer.hover").fg : element("subagent.footer.text").fg}>
-                Parent <span style={{ fg: theme.textMuted }}>{parentShortcut()}</span>
+                Parent <span style={{ fg: element("subagent.footer.muted").fg }}>{parentShortcut()}</span>
               </text>
             </box>
             <box
@@ -115,7 +115,7 @@ export function SubagentFooter() {
               backgroundColor={hover() === "prev" ? element("subagent.footer.hover").bg : element("subagent.footer.panel").bg}
             >
               <text fg={hover() === "prev" ? element("subagent.footer.hover").fg : element("subagent.footer.text").fg}>
-                Prev <span style={{ fg: theme.textMuted }}>{previousShortcut()}</span>
+                Prev <span style={{ fg: element("subagent.footer.muted").fg }}>{previousShortcut()}</span>
               </text>
             </box>
             <box
@@ -125,7 +125,7 @@ export function SubagentFooter() {
               backgroundColor={hover() === "next" ? element("subagent.footer.hover").bg : element("subagent.footer.panel").bg}
             >
               <text fg={hover() === "next" ? element("subagent.footer.hover").fg : element("subagent.footer.text").fg}>
-                Next <span style={{ fg: theme.textMuted }}>{nextShortcut()}</span>
+                Next <span style={{ fg: element("subagent.footer.muted").fg }}>{nextShortcut()}</span>
               </text>
             </box>
           </box>

@@ -1190,9 +1190,7 @@ export function Session() {
                   paddingLeft: 1,
                   visible: showScrollbar(),
                   trackOptions: {
-                    // No scrollbar element defaults to backgroundElement (track=backgroundPanel,
-                    // overlay=background) — spec gap; the flat read stays.
-                    backgroundColor: theme.backgroundElement,
+                    backgroundColor: element("scrollbar.track").bg,
                     foregroundColor: element("scrollbar.thumb").fg,
                   },
                 }}
@@ -1433,8 +1431,10 @@ function UserMessage(props: {
                         <span style={{ bg: element("message.user.badge").bg, fg: element("message.user.badge").fg }}>
                           {directory ? " Directory " : " File "}
                         </span>
-                        {/* No message-zone element covers the filename chip (backgroundElement/textMuted) — spec gap. */}
-                        <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}> {file.filename} </span>
+                        <span style={{ bg: element("message.user.file").bg, fg: element("message.user.file").fg }}>
+                          {" "}
+                          {file.filename}{" "}
+                        </span>
                       </text>
                     )
                   }}
@@ -1481,7 +1481,7 @@ function UserMessage(props: {
 function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; last: boolean }) {
   const ctx = use()
   const local = useLocal()
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const sync = useSync()
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
   const model = createMemo(() => Model.name(ctx.providers(), props.message.providerID, props.message.modelID))
@@ -1554,8 +1554,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
           customBorderChars={SplitBorder.customBorderChars}
           borderColor={element("message.error.border").fg}
         >
-          {/* message.error.body defaults to error, but the body renders muted today (spec conflict). */}
-          <text fg={theme.textMuted}>{errorMessage(props.message.error)}</text>
+          <text fg={element("message.error.body").fg}>{errorMessage(props.message.error)}</text>
         </box>
       </Show>
       <Switch>
@@ -2073,7 +2072,7 @@ function BlockTool(props: {
   part?: ToolPart
   spinner?: boolean
 }) {
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const renderer = useRenderer()
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
@@ -2088,8 +2087,7 @@ function BlockTool(props: {
       gap={1}
       backgroundColor={hover() ? element("message.tool.card.hover").bg : element("message.tool.card").bg}
       customBorderChars={SplitBorder.customBorderChars}
-      // Camouflage border painted with the app background; no catalog element covers it (spec gap).
-      borderColor={theme.background}
+      borderColor={element("message.tool.card.border").fg}
       onMouseOver={() => props.onClick && setHover(true)}
       onMouseOut={() => setHover(false)}
       onMouseUp={() => {
@@ -2184,7 +2182,7 @@ function Shell(props: ToolProps) {
 }
 
 function Write(props: ToolProps) {
-  const { theme, element, syntax } = useTheme()
+  const { element, syntax } = useTheme()
   const pathFormatter = usePathFormatter()
   const code = createMemo(() => {
     return stringValue(props.input.content) ?? ""
@@ -2194,8 +2192,7 @@ function Write(props: ToolProps) {
     <Switch>
       <Match when={props.metadata.diagnostics !== undefined}>
         <BlockTool title={"# Wrote " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
-          {/* Write-preview gutter: no catalog element covers it (spec gap); flat read stays. */}
-          <line_number fg={theme.textMuted} minWidth={3} paddingRight={1}>
+          <line_number fg={element("message.tool.gutter").fg} minWidth={3} paddingRight={1}>
             <code
               conceal={false}
               fg={element("message.tool.body").fg}

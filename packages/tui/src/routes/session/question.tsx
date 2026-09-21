@@ -2,7 +2,7 @@ import { createStore } from "solid-js/store"
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useRenderer } from "@opentui/solid"
 import type { TextareaRenderable } from "@opentui/core"
-import { tint, useTheme } from "../../context/theme"
+import { useTheme } from "../../context/theme"
 import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../../context/sdk"
 import { SplitBorder } from "../../ui/border"
@@ -13,7 +13,7 @@ const QUESTION_MODE = "question"
 
 export function QuestionPrompt(props: { request: QuestionRequest; directory?: string }) {
   const sdk = useSDK()
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const renderer = useRenderer()
   const tuiConfig = useTuiConfig()
   const modeStack = useOpencodeModeStack()
@@ -359,7 +359,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
         <Show when={!confirm()}>
           <box paddingLeft={1} gap={1}>
             <box>
-              <text fg={theme.text}>
+              <text fg={element("question.body").fg}>
                 {question()?.question}
                 {multi() ? " (select all that apply)" : ""}
               </text>
@@ -383,9 +383,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                           backgroundColor={active() ? element("question.option.hover").bg : element("question.option").bg}
                           paddingRight={1}
                         >
-                          {/* Highlighted label/number keep flat reads: question.option.hover defaults fg to
-                              text, but the highlighted label renders secondary today (spec conflict). */}
-                          <text fg={active() ? tint(theme.textMuted, theme.secondary, 0.6) : element("question.muted").fg}>
+                          <text fg={active() ? element("question.option.hover.number").fg : element("question.muted").fg}>
                             {`${i() + 1}.`}
                           </text>
                         </box>
@@ -393,7 +391,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                           <text
                             fg={
                               active()
-                                ? theme.secondary
+                                ? element("question.option.hover").fg
                                 : picked()
                                   ? element("question.option.picked").fg
                                   : element("question.option").fg
@@ -428,7 +426,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                       backgroundColor={other() ? element("question.option.hover").bg : element("question.option").bg}
                       paddingRight={1}
                     >
-                      <text fg={other() ? tint(theme.textMuted, theme.secondary, 0.6) : element("question.muted").fg}>
+                      <text fg={other() ? element("question.option.hover.number").fg : element("question.muted").fg}>
                         {`${options().length + 1}.`}
                       </text>
                     </box>
@@ -436,7 +434,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                       <text
                         fg={
                           other()
-                            ? theme.secondary
+                            ? element("question.option.hover").fg
                             : customPicked()
                               ? element("question.option.picked").fg
                               : element("question.option").fg
@@ -463,19 +461,19 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                         }}
                         initialValue={input()}
                         placeholder="Type your own answer"
-                        placeholderColor={theme.textMuted}
+                        placeholderColor={element("question.muted").fg}
                         minHeight={1}
                         maxHeight={6}
-                        textColor={theme.text}
-                        focusedTextColor={theme.text}
-                        cursorColor={theme.primary}
+                        textColor={element("question.text").fg}
+                        focusedTextColor={element("question.text").fg}
+                        cursorColor={element("question.text.cursor").fg}
                         cursorStyle={tuiConfig.cursor}
                       />
                     </box>
                   </Show>
                   <Show when={!store.editing && input()}>
                     <box paddingLeft={3}>
-                      <text fg={theme.textMuted}>{input()}</text>
+                      <text fg={element("question.muted").fg}>{input()}</text>
                     </box>
                   </Show>
                 </box>
@@ -486,7 +484,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
 
         <Show when={confirm() && !single()}>
           <box paddingLeft={1}>
-            <text fg={theme.text}>Review</text>
+            <text fg={element("question.review").fg}>Review</text>
           </box>
           <For each={questions()}>
             {(q, index) => {
@@ -496,7 +494,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                 <box paddingLeft={1}>
                   <text>
                     <span style={{ fg: element("question.muted").fg }}>{q.header}:</span>{" "}
-                    <span style={{ fg: answered() ? theme.text : element("question.unanswered").fg }}>
+                    <span style={{ fg: answered() ? element("question.review").fg : element("question.unanswered").fg }}>
                       {answered() ? value() : "(not answered)"}
                     </span>
                   </text>
@@ -517,23 +515,23 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
       >
         <box flexDirection="row" gap={2}>
           <Show when={!single()}>
-            <text fg={theme.text}>
+            <text fg={element("question.hint").fg}>
               {"⇆"} <span style={{ fg: element("question.muted").fg }}>tab</span>
             </text>
           </Show>
           <Show when={!confirm()}>
-            <text fg={theme.text}>
+            <text fg={element("question.hint").fg}>
               {"↑↓"} <span style={{ fg: element("question.muted").fg }}>select</span>
             </text>
           </Show>
-          <text fg={theme.text}>
+          <text fg={element("question.hint").fg}>
             enter{" "}
             <span style={{ fg: element("question.muted").fg }}>
               {confirm() ? "submit" : multi() ? "toggle" : single() ? "submit" : "confirm"}
             </span>
           </text>
 
-          <text fg={theme.text}>
+          <text fg={element("question.hint").fg}>
             esc <span style={{ fg: element("question.muted").fg }}>dismiss</span>
           </text>
         </box>
