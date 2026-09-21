@@ -171,6 +171,10 @@ const BORDER_ACTIVE: ColorDefault = palette("borderActive")
 const BORDER_SUBTLE: ColorDefault = palette("borderSubtle")
 const SELECTED_LIST_ITEM_TEXT: ColorDefault = palette("selectedListItemText")
 
+// question-hover-number-tint (Configuration): the tint share of the
+// `question.option.hover.number` foreground (R34).
+const QUESTION_HOVER_NUMBER_TINT = 0.6
+
 const APP = {
   "app.background": { bg: BACKGROUND },
 } as const
@@ -186,15 +190,25 @@ const DIALOG = {
   "dialog.notice": { fg: ACCENT },
   "dialog.error": { fg: ERROR, bg: BACKGROUND_PANEL },
   "dialog.retry": { fg: selected(), bg: BACKGROUND_PANEL },
+  "dialog.route.warning": { fg: WARNING },
+  "dialog.route.home": { fg: TEXT, bg: BACKGROUND_ELEMENT },
   "dialog.session.gutter": { fg: ACCENT },
   "dialog.session.deleted": { bg: ERROR },
+  "dialog.changes.list": { bg: BACKGROUND_ELEMENT },
+  "dialog.changes.added": { fg: palette("diffAdded") },
+  "dialog.changes.removed": { fg: palette("diffRemoved") },
   "dialog.console.email": { fg: ACCENT },
   "dialog.plugins.active": { fg: SUCCESS },
   "dialog.plugins.inactive": { fg: ERROR },
   "dialog.mcp.enabled": { fg: SUCCESS },
+  "dialog.provider.connected": { fg: SUCCESS },
+  "dialog.status.ok": { fg: SUCCESS },
+  "dialog.status.warn": { fg: WARNING },
+  "dialog.status.error": { fg: ERROR },
   "dialog.debug.copied": { fg: SUCCESS },
   "dialog.export.option": { fg: TEXT },
   "dialog.export.option.active": { fg: PRIMARY, bg: BACKGROUND_ELEMENT },
+  "dialog.prompt.cursor.busy": { fg: BACKGROUND_ELEMENT },
 } as const
 
 const DIALOG_SELECT = {
@@ -202,7 +216,7 @@ const DIALOG_SELECT = {
   "dialog.select.filter.cursor": { fg: PRIMARY },
   "dialog.select.row": { fg: TEXT },
   "dialog.select.row.selected": { fg: selected(), bg: PRIMARY, attributes: ["bold"] },
-  "dialog.select.row.selected.unfocused": { fg: TEXT, bg: BACKGROUND_ELEMENT },
+  "dialog.select.row.selected.unfocused": { fg: TEXT_MUTED, bg: BACKGROUND_ELEMENT },
   "dialog.select.category": { fg: ACCENT, attributes: ["bold"] },
   "dialog.select.footer": { fg: TEXT },
   "dialog.select.footer.label": { fg: TEXT_MUTED },
@@ -216,6 +230,7 @@ const AUTOCOMPLETE = {
   "autocomplete.menu.border": { fg: BORDER },
   "autocomplete.row": { fg: TEXT },
   "autocomplete.row.selected": { fg: selected(), bg: PRIMARY },
+  "autocomplete.muted": { fg: TEXT_MUTED },
 } as const
 
 const PROMPT = {
@@ -224,11 +239,14 @@ const PROMPT = {
   "prompt.shell.border": { fg: PRIMARY },
   "prompt.text": { fg: TEXT },
   "prompt.placeholder": { fg: TEXT_MUTED },
-  "prompt.cursor": { fg: PRIMARY },
-  "prompt.cursor.unfocused": { fg: TEXT_MUTED },
+  "prompt.cursor": { fg: TEXT },
   "prompt.cursor.disabled": { bg: BACKGROUND_ELEMENT },
   "prompt.notice": { fg: ACCENT },
   "prompt.chip": { fg: TEXT, bg: BACKGROUND_ELEMENT },
+  "prompt.meta": { fg: TEXT_MUTED },
+  "prompt.retry": { fg: ERROR },
+  "prompt.interrupt": { fg: PRIMARY },
+  "prompt.editor.pending": { fg: SECONDARY },
   "prompt.extmark.file": { fg: WARNING, attributes: ["bold"] },
   "prompt.extmark.agent": { fg: SECONDARY, attributes: ["bold"] },
   "prompt.extmark.paste": { fg: selected(), bg: WARNING, attributes: ["bold"] },
@@ -238,6 +256,7 @@ const MESSAGE = {
   "message.user.body": { fg: TEXT, bg: BACKGROUND_PANEL },
   "message.user.body.hover": { fg: TEXT, bg: BACKGROUND_ELEMENT },
   "message.user.badge": { fg: selected(), bg: SECONDARY },
+  "message.user.file": { fg: TEXT_MUTED, bg: BACKGROUND_ELEMENT },
   "message.assistant.body": { fg: TEXT },
   "message.assistant.meta": { fg: TEXT_MUTED },
   "message.assistant.meta.mode": { fg: TEXT },
@@ -247,6 +266,8 @@ const MESSAGE = {
   "message.reasoning.body": { fg: TEXT_MUTED },
   "message.tool.card": { bg: BACKGROUND_PANEL },
   "message.tool.card.hover": { bg: BACKGROUND_MENU },
+  "message.tool.card.border": { fg: BACKGROUND },
+  "message.tool.gutter": { fg: TEXT_MUTED },
   "message.tool.header": { fg: TEXT_MUTED },
   "message.tool.body": { fg: TEXT },
   "message.tool.body.pending": { fg: TEXT_MUTED },
@@ -256,7 +277,7 @@ const MESSAGE = {
   "message.tool.args.denied": { fg: TEXT, attributes: ["strikethrough"] },
   "message.error.panel": { bg: BACKGROUND_PANEL },
   "message.error.border": { fg: ERROR },
-  "message.error.body": { fg: ERROR },
+  "message.error.body": { fg: TEXT_MUTED },
   "message.revert": { fg: TEXT_MUTED, bg: BACKGROUND_PANEL },
   "message.revert.hover": { fg: TEXT_MUTED, bg: BACKGROUND_ELEMENT },
   "message.queued": { fg: TEXT_MUTED, attributes: ["bold"] },
@@ -286,12 +307,13 @@ const SIDEBAR = {
   "sidebar.status.warn": { fg: WARNING },
   "sidebar.status.error": { fg: ERROR },
   "sidebar.todo.pending": { fg: WARNING },
+  "sidebar.getting-started": { bg: BACKGROUND_ELEMENT },
   "sidebar.files.added": { fg: palette("diffAdded") },
   "sidebar.files.removed": { fg: palette("diffRemoved") },
 } as const
 
 const SCROLLBAR = {
-  "scrollbar.track": { bg: BACKGROUND_PANEL },
+  "scrollbar.track": { bg: BACKGROUND_ELEMENT },
   "scrollbar.track.overlay": { bg: BACKGROUND },
   "scrollbar.thumb": { fg: BORDER },
   "scrollbar.thumb.active": { fg: BORDER_ACTIVE },
@@ -311,7 +333,8 @@ const DIFF = {
   "diff.banner.added": { fg: palette("diffAdded") },
   "diff.banner.removed": { fg: palette("diffRemoved") },
   "diff.filetree.row": { fg: TEXT_MUTED },
-  "diff.filetree.row.selected": { fg: selected(), bg: PRIMARY },
+  "diff.filetree.row.selected": { fg: BACKGROUND, bg: PRIMARY },
+  "diff.filetree.row.selected.name": { fg: PRIMARY },
 } as const
 
 const MARKDOWN = {
@@ -323,30 +346,43 @@ const MARKDOWN = {
   "markdown.emph": { fg: palette("markdownEmph"), attributes: ["italic"] },
   "markdown.quote": { fg: palette("markdownBlockQuote"), attributes: ["italic"] },
   "markdown.list": { fg: palette("markdownListItem") },
-  "markdown.code": { fg: palette("markdownCode"), bg: BACKGROUND },
+  "markdown.code.inline": { fg: palette("markdownCode"), bg: BACKGROUND },
+  "markdown.code.block": { fg: palette("markdownCode") },
   "markdown.link": { fg: palette("markdownLink"), attributes: ["underline"] },
-  "markdown.link.label": { fg: palette("markdownLinkText") },
+  "markdown.link.label": { fg: palette("markdownLinkText"), attributes: ["underline"] },
+  "markdown.label": { fg: palette("markdownLinkText") },
+  "markdown.underline": { fg: TEXT, attributes: ["underline"] },
 } as const
 
 const SYNTAX = {
   "syntax.default": { fg: TEXT },
   "syntax.comment": { fg: palette("syntaxComment"), attributes: ["italic"] },
   "syntax.keyword": { fg: palette("syntaxKeyword"), attributes: ["italic"] },
+  "syntax.keyword.import": { fg: palette("syntaxKeyword") },
+  "syntax.escape": { fg: palette("syntaxKeyword") },
+  "syntax.tag.attribute": { fg: palette("syntaxKeyword") },
   "syntax.string": { fg: palette("syntaxString") },
   "syntax.number": { fg: palette("syntaxNumber") },
-  "syntax.type": { fg: palette("syntaxType"), attributes: ["bold"] },
+  "syntax.type": { fg: palette("syntaxType") },
+  "syntax.type.definition": { fg: palette("syntaxType"), attributes: ["bold"] },
+  "syntax.type.keyword": { fg: palette("syntaxType"), attributes: ["bold", "italic"] },
   "syntax.function": { fg: palette("syntaxFunction") },
   "syntax.variable": { fg: palette("syntaxVariable") },
   "syntax.operator": { fg: palette("syntaxOperator") },
   "syntax.punctuation": { fg: palette("syntaxPunctuation") },
   "syntax.error": { fg: ERROR },
+  "syntax.error.strong": { fg: ERROR, attributes: ["bold"] },
+  "syntax.comment.error": { fg: ERROR, attributes: ["italic", "bold"] },
   "syntax.warning": { fg: WARNING },
+  "syntax.warning.strong": { fg: WARNING, attributes: ["bold"] },
+  "syntax.comment.warning": { fg: WARNING, attributes: ["italic", "bold"] },
   "syntax.todo": { fg: INFO },
+  "syntax.comment.todo": { fg: INFO, attributes: ["italic", "bold"] },
   "syntax.checked": { fg: SUCCESS },
   "syntax.conceal": { fg: TEXT_MUTED },
   "syntax.prompt": { fg: ACCENT },
-  "syntax.diff.plus": { bg: palette("diffAddedBg") },
-  "syntax.diff.minus": { bg: palette("diffRemovedBg") },
+  "syntax.diff.plus": { fg: palette("diffAdded"), bg: palette("diffAddedBg") },
+  "syntax.diff.minus": { fg: palette("diffRemoved"), bg: palette("diffRemovedBg") },
   "syntax.diff.delta": { fg: palette("diffContext"), bg: palette("diffContextBg") },
 } as const
 
@@ -356,16 +392,23 @@ const TOAST = {
   "toast.body": { fg: TEXT },
   "toast.error.border": { fg: ERROR },
   "toast.info.border": { fg: INFO },
+  "toast.success.border": { fg: SUCCESS },
+  "toast.warning.border": { fg: WARNING },
 } as const
 
 const PERMISSION = {
   "permission.panel": { bg: BACKGROUND_PANEL },
-  "permission.border": { fg: BORDER_ACTIVE },
+  "permission.border": { fg: WARNING },
   "permission.border.reject": { fg: ERROR },
   "permission.marker": { fg: WARNING },
-  "permission.option": { fg: TEXT, bg: BACKGROUND_MENU },
+  "permission.marker.reject": { fg: ERROR },
+  "permission.option": { fg: TEXT_MUTED, bg: BACKGROUND_MENU },
   "permission.option.selected": { fg: selected(), bg: WARNING },
   "permission.caption": { fg: TEXT_MUTED },
+  "permission.bar": { bg: BACKGROUND_ELEMENT },
+  "permission.body": { fg: TEXT },
+  "permission.text": { fg: TEXT },
+  "permission.text.cursor": { fg: PRIMARY },
 } as const
 
 const QUESTION = {
@@ -375,11 +418,20 @@ const QUESTION = {
   "question.tab.active": { fg: selected(), bg: ACCENT },
   "question.tab.hover": { fg: TEXT, bg: BACKGROUND_ELEMENT },
   "question.option": { fg: TEXT, bg: BACKGROUND_PANEL },
-  "question.option.hover": { fg: TEXT, bg: BACKGROUND_ELEMENT },
+  "question.option.hover": { fg: SECONDARY, bg: BACKGROUND_ELEMENT },
+  "question.option.hover.number": {
+    fg: tintOf(TEXT_MUTED, SECONDARY, QUESTION_HOVER_NUMBER_TINT),
+    bg: BACKGROUND_ELEMENT,
+  },
   "question.option.selected": { fg: selected(), bg: SECONDARY },
   "question.option.picked": { fg: SUCCESS },
   "question.muted": { fg: TEXT_MUTED },
   "question.unanswered": { fg: ERROR },
+  "question.body": { fg: TEXT },
+  "question.review": { fg: TEXT },
+  "question.text": { fg: TEXT },
+  "question.text.cursor": { fg: PRIMARY },
+  "question.hint": { fg: TEXT },
 } as const
 
 const SUBAGENT = {
@@ -387,11 +439,14 @@ const SUBAGENT = {
   "subagent.footer.border": { fg: BORDER },
   "subagent.footer.text": { fg: TEXT },
   "subagent.footer.strong": { fg: TEXT, attributes: ["bold"] },
+  "subagent.footer.muted": { fg: TEXT_MUTED },
   "subagent.footer.hover": { fg: TEXT, bg: BACKGROUND_ELEMENT },
 } as const
 
 const WHICH_KEY = {
   "which-key.panel": { bg: BACKGROUND_MENU },
+  "which-key.text": { fg: TEXT },
+  "which-key.muted": { fg: TEXT_MUTED },
   "which-key.key": { fg: WARNING },
   "which-key.subtle": { fg: BORDER_SUBTLE },
   "which-key.tab": { fg: SELECTED_LIST_ITEM_TEXT },
@@ -444,6 +499,16 @@ const RUN = {
   "run.block.warning": { fg: WARNING },
   "run.block.text": { fg: TEXT },
   "run.block.muted": { fg: TEXT_MUTED },
+  "run.block.diff.added": { fg: palette("diffAdded") },
+  "run.block.diff.removed": { fg: palette("diffRemoved") },
+  "run.block.diff.added-bg": { bg: palette("diffAddedBg") },
+  "run.block.diff.removed-bg": { bg: palette("diffRemovedBg") },
+  "run.block.diff.context-bg": { bg: palette("diffContextBg") },
+  "run.block.diff.highlight-added": { fg: palette("diffHighlightAdded") },
+  "run.block.diff.highlight-removed": { fg: palette("diffHighlightRemoved") },
+  "run.block.diff.line-number": { fg: palette("diffLineNumber") },
+  "run.block.diff.added-line-number-bg": { bg: palette("diffAddedLineNumberBg") },
+  "run.block.diff.removed-line-number-bg": { bg: palette("diffRemovedLineNumberBg") },
 } as const
 
 /**

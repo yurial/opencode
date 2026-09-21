@@ -54,11 +54,125 @@ function reject(input: unknown, reason: ThemeRejectionReason, mode: "dark" | "li
 }
 
 test("catalog is closed and matches the spec element count", () => {
-  expect(Object.keys(CATALOG).length).toBe(209)
+  expect(Object.keys(CATALOG).length).toBe(267)
   expect(isElementName("dialog.title")).toBe(true)
   expect(isElementName("dialog.titel")).toBe(false)
   expect(isElementName("toString")).toBe(false)
   expect(isElementName("constructor")).toBe(false)
+})
+
+test("catalog matches the spec errata v1.1 element set", () => {
+  // Elements dropped by the errata: markdown.code split into inline/block,
+  // prompt.cursor.unfocused has no live surface.
+  expect(isElementName("markdown.code")).toBe(false)
+  expect(isElementName("prompt.cursor.unfocused")).toBe(false)
+  // Every element added by the errata, per the spec tables.
+  const added = [
+    "dialog.route.warning",
+    "dialog.route.home",
+    "dialog.changes.list",
+    "dialog.changes.added",
+    "dialog.changes.removed",
+    "dialog.provider.connected",
+    "dialog.status.ok",
+    "dialog.status.warn",
+    "dialog.status.error",
+    "dialog.prompt.cursor.busy",
+    "autocomplete.muted",
+    "prompt.meta",
+    "prompt.retry",
+    "prompt.interrupt",
+    "prompt.editor.pending",
+    "message.user.file",
+    "message.tool.card.border",
+    "message.tool.gutter",
+    "sidebar.getting-started",
+    "diff.filetree.row.selected.name",
+    "markdown.code.inline",
+    "markdown.code.block",
+    "markdown.label",
+    "markdown.underline",
+    "syntax.keyword.import",
+    "syntax.escape",
+    "syntax.tag.attribute",
+    "syntax.type.definition",
+    "syntax.type.keyword",
+    "syntax.error.strong",
+    "syntax.comment.error",
+    "syntax.comment.warning",
+    "syntax.warning.strong",
+    "syntax.comment.todo",
+    "toast.success.border",
+    "toast.warning.border",
+    "permission.marker.reject",
+    "permission.bar",
+    "permission.body",
+    "permission.text",
+    "permission.text.cursor",
+    "question.option.hover.number",
+    "question.body",
+    "question.review",
+    "question.text",
+    "question.text.cursor",
+    "question.hint",
+    "which-key.text",
+    "which-key.muted",
+    "subagent.footer.muted",
+    "run.block.diff.added",
+    "run.block.diff.removed",
+    "run.block.diff.added-bg",
+    "run.block.diff.removed-bg",
+    "run.block.diff.context-bg",
+    "run.block.diff.highlight-added",
+    "run.block.diff.highlight-removed",
+    "run.block.diff.line-number",
+    "run.block.diff.added-line-number-bg",
+    "run.block.diff.removed-line-number-bg",
+  ]
+  expect(added.length).toBe(60)
+  for (const name of added) expect(isElementName(name)).toBe(true)
+})
+
+test("catalog defaults match the spec errata v1.1 changed rows", () => {
+  const palette = (name: string) => ({ source: "palette", name }) as const
+  expect(CATALOG["permission.border"]).toEqual({ fg: palette("warning") })
+  expect(CATALOG["permission.option"]).toEqual({
+    fg: palette("textMuted"),
+    bg: palette("backgroundMenu"),
+  })
+  expect(CATALOG["message.error.body"]).toEqual({ fg: palette("textMuted") })
+  expect(CATALOG["question.option.hover"]).toEqual({
+    fg: palette("secondary"),
+    bg: palette("backgroundElement"),
+  })
+  expect(CATALOG["prompt.cursor"]).toEqual({ fg: palette("text") })
+  expect(CATALOG["dialog.select.row.selected.unfocused"]).toEqual({
+    fg: palette("textMuted"),
+    bg: palette("backgroundElement"),
+  })
+  expect(CATALOG["diff.filetree.row.selected"]).toEqual({
+    fg: palette("background"),
+    bg: palette("primary"),
+  })
+  expect(CATALOG["scrollbar.track"]).toEqual({ bg: palette("backgroundElement") })
+  expect(CATALOG["markdown.link.label"]).toEqual({
+    fg: palette("markdownLinkText"),
+    attributes: ["underline"],
+  })
+  expect(CATALOG["syntax.type"]).toEqual({ fg: palette("syntaxType") })
+  expect(CATALOG["syntax.diff.plus"]).toEqual({
+    fg: palette("diffAdded"),
+    bg: palette("diffAddedBg"),
+  })
+  expect(CATALOG["syntax.diff.minus"]).toEqual({
+    fg: palette("diffRemoved"),
+    bg: palette("diffRemovedBg"),
+  })
+  // question-hover-number-tint (Configuration): tint(textMuted, secondary, 0.6)
+  expect(CATALOG["question.option.hover.number"]).toEqual({
+    fg: { source: "tint", base: palette("textMuted"), overlay: palette("secondary"), alpha: 0.6 },
+    bg: palette("backgroundElement"),
+  } as const)
 })
 
 test("attribute vocabulary is exactly the eight spec names", () => {
@@ -346,13 +460,19 @@ test("migrated themes keep catalog defaults aligned with the flat palette", () =
         ["markdown.link.label", "fg", "markdownLinkText"],
         ["markdown.quote", "fg", "markdownBlockQuote"],
         ["markdown.list", "fg", "markdownListItem"],
-        ["markdown.code", "fg", "markdownCode"],
-        ["markdown.code", "bg", "background"],
+        ["markdown.code.inline", "fg", "markdownCode"],
+        ["markdown.code.inline", "bg", "background"],
+        ["markdown.code.block", "fg", "markdownCode"],
+        ["markdown.underline", "fg", "text"],
         ["syntax.comment", "fg", "syntaxComment"],
         ["syntax.keyword", "fg", "syntaxKeyword"],
+        ["syntax.keyword.import", "fg", "syntaxKeyword"],
         ["syntax.string", "fg", "syntaxString"],
         ["syntax.number", "fg", "syntaxNumber"],
         ["syntax.type", "fg", "syntaxType"],
+        ["syntax.type.definition", "fg", "syntaxType"],
+        ["syntax.error.strong", "fg", "error"],
+        ["syntax.warning.strong", "fg", "warning"],
         ["syntax.function", "fg", "syntaxFunction"],
         ["syntax.variable", "fg", "syntaxVariable"],
         ["syntax.operator", "fg", "syntaxOperator"],
@@ -373,6 +493,39 @@ test("migrated themes keep catalog defaults aligned with the flat palette", () =
         ["run.entry.reasoning", "fg", "textMuted"],
         ["run.splash.right", "fg", "text"],
         ["run.block.muted", "fg", "textMuted"],
+        ["permission.border", "fg", "warning"],
+        ["permission.option", "fg", "textMuted"],
+        ["permission.marker.reject", "fg", "error"],
+        ["permission.bar", "bg", "backgroundElement"],
+        ["message.error.body", "fg", "textMuted"],
+        ["prompt.cursor", "fg", "text"],
+        ["dialog.select.row.selected.unfocused", "fg", "textMuted"],
+        ["dialog.select.row.selected.unfocused", "bg", "backgroundElement"],
+        ["dialog.route.warning", "fg", "warning"],
+        ["dialog.route.home", "bg", "backgroundElement"],
+        ["dialog.changes.list", "bg", "backgroundElement"],
+        ["dialog.changes.added", "fg", "diffAdded"],
+        ["dialog.changes.removed", "fg", "diffRemoved"],
+        ["dialog.prompt.cursor.busy", "fg", "backgroundElement"],
+        ["question.option.hover", "fg", "secondary"],
+        ["question.option.hover", "bg", "backgroundElement"],
+        ["scrollbar.track", "bg", "backgroundElement"],
+        ["toast.success.border", "fg", "success"],
+        ["toast.warning.border", "fg", "warning"],
+        ["sidebar.getting-started", "bg", "backgroundElement"],
+        ["diff.filetree.row.selected", "fg", "background"],
+        ["diff.filetree.row.selected", "bg", "primary"],
+        ["diff.filetree.row.selected.name", "fg", "primary"],
+        ["run.block.diff.added", "fg", "diffAdded"],
+        ["run.block.diff.removed", "fg", "diffRemoved"],
+        ["run.block.diff.added-bg", "bg", "diffAddedBg"],
+        ["run.block.diff.removed-bg", "bg", "diffRemovedBg"],
+        ["run.block.diff.context-bg", "bg", "diffContextBg"],
+        ["run.block.diff.highlight-added", "fg", "diffHighlightAdded"],
+        ["run.block.diff.highlight-removed", "fg", "diffHighlightRemoved"],
+        ["run.block.diff.line-number", "fg", "diffLineNumber"],
+        ["run.block.diff.added-line-number-bg", "bg", "diffAddedLineNumberBg"],
+        ["run.block.diff.removed-line-number-bg", "bg", "diffRemovedLineNumberBg"],
       ]
       for (const [element, channel, paletteName] of table) {
         const resolved = resolveElement(prepared, element)
@@ -393,6 +546,20 @@ test("migrated themes keep catalog defaults aligned with the flat palette", () =
       expect(resolveElement(prepared, "bg-pulse.base").bg).toEqual(
         tint(flat.background, flat.text, 0.62),
       )
+      // question-hover-number-tint (Configuration): tint(textMuted, secondary, 0.6)
+      expect(resolveElement(prepared, "question.option.hover.number").fg).toEqual(
+        tint(flat.textMuted, flat.secondary, 0.6),
+      )
+      expect(resolveElement(prepared, "question.option.hover.number").bg).toEqual(
+        flat.backgroundElement,
+      )
+      // errata v1.1 attribute changes: markdown.link.label gains underline,
+      // syntax.type drops bold
+      expect(attrs(resolveElement(prepared, "markdown.link.label").attributes)).toEqual([
+        "underline",
+      ])
+      expect(attrs(resolveElement(prepared, "syntax.type").attributes)).toEqual([])
+      expect(attrs(resolveElement(prepared, "markdown.code.inline").attributes)).toEqual([])
     }
   }
 })
