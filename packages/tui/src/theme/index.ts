@@ -506,9 +506,8 @@ export function generateSubtleSyntax(source: PreparedTheme | Theme, overrides?: 
  * `getStyleId`) while their styles come from the `prompt.extmark.*` elements;
  * the scope `default` resolves to `syntax.default` (R41). Rule order matters
  * for scope specificity and mirrors the legacy highlight list. Styles resolve
- * through `elementStyle`: with the default themes the output reproduces the
- * legacy highlight list except where the catalog redefines a flag (each delta
- * is pinned by test against the catalog table).
+ * through `elementStyle`: with the default built-in theme the output is
+ * byte-identical to the legacy highlight list in both modes (R48).
  */
 function getSyntaxRules(prepared: PreparedTheme) {
   const from = (name: string) => elementStyle(prepared, name)
@@ -559,7 +558,7 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["keyword.type"],
-      style: from("syntax.type"),
+      style: from("syntax.type.keyword"),
     },
     {
       scope: ["keyword.function", "function.method"],
@@ -571,7 +570,7 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["keyword.import"],
-      style: from("syntax.keyword"),
+      style: from("syntax.keyword.import"),
     },
     {
       scope: ["operator", "keyword.operator", "punctuation.delimiter"],
@@ -623,7 +622,7 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["string.escape", "string.regexp"],
-      style: from("syntax.keyword"),
+      style: from("syntax.escape"),
     },
     {
       scope: ["keyword.directive"],
@@ -688,11 +687,11 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["markup.raw", "markup.raw.block"],
-      style: from("markdown.code"),
+      style: from("markdown.code.block"),
     },
     {
       scope: ["markup.raw.inline"],
-      style: from("markdown.code"),
+      style: from("markdown.code.inline"),
     },
     {
       scope: ["markup.link"],
@@ -708,7 +707,7 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["label"],
-      style: from("markdown.link.label"),
+      style: from("markdown.label"),
     },
     {
       scope: ["spell", "nospell"],
@@ -733,15 +732,15 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["comment.error"],
-      style: from("syntax.error"),
+      style: from("syntax.comment.error"),
     },
     {
       scope: ["comment.warning"],
-      style: from("syntax.warning"),
+      style: from("syntax.comment.warning"),
     },
     {
       scope: ["comment.todo", "comment.note"],
-      style: from("syntax.todo"),
+      style: from("syntax.comment.todo"),
     },
     {
       scope: ["namespace"],
@@ -753,11 +752,11 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["type.definition"],
-      style: from("syntax.type"),
+      style: from("syntax.type.definition"),
     },
     {
       scope: ["keyword.export"],
-      style: from("syntax.keyword"),
+      style: from("syntax.keyword.import"),
     },
     {
       scope: ["attribute", "annotation"],
@@ -769,7 +768,7 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["tag.attribute"],
-      style: from("syntax.keyword"),
+      style: from("syntax.tag.attribute"),
     },
     {
       scope: ["tag.delimiter"],
@@ -781,7 +780,7 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["markup.underline"],
-      style: from("markdown.text"),
+      style: from("markdown.underline"),
     },
     {
       scope: ["markup.list.checked"],
@@ -805,11 +804,11 @@ function getSyntaxRules(prepared: PreparedTheme) {
     },
     {
       scope: ["error"],
-      style: from("syntax.error"),
+      style: from("syntax.error.strong"),
     },
     {
       scope: ["warning"],
-      style: from("syntax.warning"),
+      style: from("syntax.warning.strong"),
     },
     {
       scope: ["info"],

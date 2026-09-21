@@ -62,11 +62,11 @@ const RULE_ELEMENTS: Record<string, string> = {
   "keyword.conditional": "syntax.keyword",
   "keyword.repeat": "syntax.keyword",
   "keyword.coroutine": "syntax.keyword",
-  "keyword.type": "syntax.type",
+  "keyword.type": "syntax.type.keyword",
   "keyword.function": "syntax.function",
   "function.method": "syntax.function",
   keyword: "syntax.keyword",
-  "keyword.import": "syntax.keyword",
+  "keyword.import": "syntax.keyword.import",
   operator: "syntax.operator",
   "keyword.operator": "syntax.operator",
   "punctuation.delimiter": "syntax.operator",
@@ -92,8 +92,8 @@ const RULE_ELEMENTS: Record<string, string> = {
   "module.builtin": "syntax.error",
   "constant.builtin": "syntax.error",
   "variable.super": "syntax.error",
-  "string.escape": "syntax.keyword",
-  "string.regexp": "syntax.keyword",
+  "string.escape": "syntax.escape",
+  "string.regexp": "syntax.escape",
   "keyword.directive": "syntax.keyword",
   "punctuation.special": "syntax.operator",
   "keyword.modifier": "syntax.keyword",
@@ -110,13 +110,13 @@ const RULE_ELEMENTS: Record<string, string> = {
   "markup.italic": "markdown.emph",
   "markup.list": "markdown.list",
   "markup.quote": "markdown.quote",
-  "markup.raw": "markdown.code",
-  "markup.raw.block": "markdown.code",
-  "markup.raw.inline": "markdown.code",
+  "markup.raw": "markdown.code.block",
+  "markup.raw.block": "markdown.code.block",
+  "markup.raw.inline": "markdown.code.inline",
   "markup.link": "markdown.link",
   "markup.link.label": "markdown.link.label",
   "markup.link.url": "markdown.link",
-  label: "markdown.link.label",
+  label: "markdown.label",
   spell: "syntax.default",
   nospell: "syntax.default",
   conceal: "syntax.conceal",
@@ -124,28 +124,28 @@ const RULE_ELEMENTS: Record<string, string> = {
   "string.special.url": "markdown.link",
   character: "syntax.string",
   float: "syntax.number",
-  "comment.error": "syntax.error",
-  "comment.warning": "syntax.warning",
-  "comment.todo": "syntax.todo",
-  "comment.note": "syntax.todo",
+  "comment.error": "syntax.comment.error",
+  "comment.warning": "syntax.comment.warning",
+  "comment.todo": "syntax.comment.todo",
+  "comment.note": "syntax.comment.todo",
   namespace: "syntax.type",
   field: "syntax.variable",
-  "type.definition": "syntax.type",
-  "keyword.export": "syntax.keyword",
+  "type.definition": "syntax.type.definition",
+  "keyword.export": "syntax.keyword.import",
   attribute: "syntax.warning",
   annotation: "syntax.warning",
   tag: "syntax.error",
-  "tag.attribute": "syntax.keyword",
+  "tag.attribute": "syntax.tag.attribute",
   "tag.delimiter": "syntax.operator",
   "markup.strikethrough": "syntax.conceal",
-  "markup.underline": "markdown.text",
+  "markup.underline": "markdown.underline",
   "markup.list.checked": "syntax.checked",
   "markup.list.unchecked": "syntax.conceal",
   "diff.plus": "syntax.diff.plus",
   "diff.minus": "syntax.diff.minus",
   "diff.delta": "syntax.diff.delta",
-  error: "syntax.error",
-  warning: "syntax.warning",
+  error: "syntax.error.strong",
+  warning: "syntax.warning.strong",
   info: "syntax.todo",
   debug: "syntax.conceal",
 }
@@ -154,6 +154,10 @@ const syntax = generateSyntax(prepared)
 
 test("every rule scope is registered exactly once under its mapped element", () => {
   expect([...syntax.getRegisteredNames()].sort()).toEqual(Object.keys(RULE_ELEMENTS).sort())
+})
+
+test("rule registration order mirrors the legacy highlight list exactly", () => {
+  expect(syntax.getRegisteredNames()).toEqual(LEGACY_RULES.flatMap(([scopes]) => scopes))
 })
 
 test("syntax zone rules resolve fg and attributes from their elements (R40, R41)", () => {
@@ -181,6 +185,10 @@ test("markdown zone rules carry exactly the catalog defaults", () => {
   expect(syntax.getStyle("markup.heading")!.underline).toBeUndefined()
   expect(syntax.getStyle("markup.link")!.underline).toBe(true)
   expect(syntax.getStyle("markup.quote")!.italic).toBe(true)
+  // Code blocks stay fg-only; inline code keeps the surface background.
+  expect(syntax.getStyle("markup.raw")!.bg).toBeUndefined()
+  expect(syntax.getStyle("markup.raw.block")!.bg).toBeUndefined()
+  expect(syntax.getStyle("markup.raw.inline")!.bg).toBeDefined()
 })
 
 test("extmark rules source the prompt.extmark.* elements under the legacy style ids", () => {
@@ -214,131 +222,127 @@ test("every mapped element's attributes are expressible as SyntaxStyle flags", (
 })
 
 /**
- * The legacy highlight table at the previous commit, transcribed scope by
- * scope: the foreground palette key and the hardcoded flags every rule had
- * before the element sourcing (R23 losslessness baseline for the default
- * theme).
+ * The complete legacy highlight table at the pre-v2 commit, transcribed in
+ * registration order: the foreground palette key (or the computed
+ * selected-foreground pair for extmark.paste), the optional background key,
+ * and the hardcoded flags every rule had before the element sourcing. The
+ * byte-identity baseline for the default theme (R48).
  */
-const LEGACY_RULES: Record<string, { fg: string; bg?: string; bold?: true; italic?: true; underline?: true }> = {
-  default: { fg: "text" },
-  prompt: { fg: "accent" },
-  comment: { fg: "syntaxComment", italic: true },
-  "comment.documentation": { fg: "syntaxComment", italic: true },
-  string: { fg: "syntaxString" },
-  symbol: { fg: "syntaxString" },
-  number: { fg: "syntaxNumber" },
-  boolean: { fg: "syntaxNumber" },
-  "character.special": { fg: "syntaxString" },
-  "keyword.return": { fg: "syntaxKeyword", italic: true },
-  "keyword.conditional": { fg: "syntaxKeyword", italic: true },
-  "keyword.repeat": { fg: "syntaxKeyword", italic: true },
-  "keyword.coroutine": { fg: "syntaxKeyword", italic: true },
-  "keyword.function": { fg: "syntaxFunction" },
-  "function.method": { fg: "syntaxFunction" },
-  keyword: { fg: "syntaxKeyword", italic: true },
-  operator: { fg: "syntaxOperator" },
-  "keyword.operator": { fg: "syntaxOperator" },
-  "punctuation.delimiter": { fg: "syntaxOperator" },
-  "keyword.conditional.ternary": { fg: "syntaxOperator" },
-  variable: { fg: "syntaxVariable" },
-  "variable.parameter": { fg: "syntaxVariable" },
-  "function.method.call": { fg: "syntaxVariable" },
-  "function.call": { fg: "syntaxVariable" },
-  "variable.member": { fg: "syntaxFunction" },
-  "function": { fg: "syntaxFunction" },
-  "constructor": { fg: "syntaxFunction" },
-  constant: { fg: "syntaxNumber" },
-  property: { fg: "syntaxVariable" },
-  parameter: { fg: "syntaxVariable" },
-  punctuation: { fg: "syntaxPunctuation" },
-  "punctuation.bracket": { fg: "syntaxPunctuation" },
-  "variable.builtin": { fg: "error" },
-  "type.builtin": { fg: "error" },
-  "function.builtin": { fg: "error" },
-  "module.builtin": { fg: "error" },
-  "constant.builtin": { fg: "error" },
-  "variable.super": { fg: "error" },
-  "keyword.directive": { fg: "syntaxKeyword", italic: true },
-  "punctuation.special": { fg: "syntaxOperator" },
-  "keyword.modifier": { fg: "syntaxKeyword", italic: true },
-  "keyword.exception": { fg: "syntaxKeyword", italic: true },
-  "markup.heading": { fg: "markdownHeading", bold: true },
-  "markup.heading.1": { fg: "markdownHeading", bold: true, underline: true },
-  "markup.heading.2": { fg: "markdownHeading", bold: true },
-  "markup.heading.3": { fg: "markdownHeading", bold: true },
-  "markup.heading.4": { fg: "markdownHeading", bold: true },
-  "markup.heading.5": { fg: "markdownHeading", bold: true },
-  "markup.heading.6": { fg: "markdownHeading", bold: true },
-  "markup.bold": { fg: "markdownStrong", bold: true },
-  "markup.strong": { fg: "markdownStrong", bold: true },
-  "markup.italic": { fg: "markdownEmph", italic: true },
-  "markup.list": { fg: "markdownListItem" },
-  "markup.quote": { fg: "markdownBlockQuote", italic: true },
-  "markup.raw.inline": { fg: "markdownCode", bg: "background" },
-  "markup.link": { fg: "markdownLink", underline: true },
-  "markup.link.url": { fg: "markdownLink", underline: true },
-  label: { fg: "markdownLinkText" },
-  spell: { fg: "text" },
-  nospell: { fg: "text" },
-  conceal: { fg: "textMuted" },
-  "string.special": { fg: "markdownLink", underline: true },
-  "string.special.url": { fg: "markdownLink", underline: true },
-  character: { fg: "syntaxString" },
-  float: { fg: "syntaxNumber" },
-  namespace: { fg: "syntaxType" },
-  field: { fg: "syntaxVariable" },
-  "type.definition": { fg: "syntaxType", bold: true },
-  attribute: { fg: "warning" },
-  annotation: { fg: "warning" },
-  tag: { fg: "error" },
-  "tag.delimiter": { fg: "syntaxOperator" },
-  "markup.strikethrough": { fg: "textMuted" },
-  "markup.list.checked": { fg: "success" },
-  "markup.list.unchecked": { fg: "textMuted" },
-  "diff.delta": { fg: "diffContext", bg: "diffContextBg" },
-  info: { fg: "info" },
-  debug: { fg: "textMuted" },
+type LegacyStyle = {
+  fg: string | ((flat: Theme) => RGBA)
+  bg?: string
+  bold?: true
+  italic?: true
+  underline?: true
 }
 
-// Scopes where the catalog redefines a legacy flag; each has its own test
-// below pinning the exact delta against the catalog table.
-const CATALOG_DELTAS = new Set([
-  "keyword.type",
-  "type",
-  "module",
-  "class",
-  "namespace",
-  "keyword.import",
-  "string.escape",
-  "string.regexp",
-  "keyword.export",
-  "tag.attribute",
-  "comment.error",
-  "comment.warning",
-  "comment.todo",
-  "comment.note",
-  "error",
-  "warning",
-  "markup.link.label",
-  "markup.underline",
-  "markup.raw",
-  "markup.raw.block",
-  "diff.plus",
-  "diff.minus",
-])
+const LEGACY_RULES: [scopes: string[], style: LegacyStyle][] = [
+  [["default"], { fg: "text" }],
+  [["prompt"], { fg: "accent" }],
+  [["extmark.file"], { fg: "warning", bold: true }],
+  [["extmark.agent"], { fg: "secondary", bold: true }],
+  [["extmark.paste"], { fg: (flat) => selectedForeground(flat, flat.warning), bg: "warning", bold: true }],
+  [["comment", "comment.documentation"], { fg: "syntaxComment", italic: true }],
+  [["string", "symbol"], { fg: "syntaxString" }],
+  [["number", "boolean"], { fg: "syntaxNumber" }],
+  [["character.special"], { fg: "syntaxString" }],
+  [["keyword.return", "keyword.conditional", "keyword.repeat", "keyword.coroutine"], { fg: "syntaxKeyword", italic: true }],
+  [["keyword.type"], { fg: "syntaxType", bold: true, italic: true }],
+  [["keyword.function", "function.method"], { fg: "syntaxFunction" }],
+  [["keyword"], { fg: "syntaxKeyword", italic: true }],
+  [["keyword.import"], { fg: "syntaxKeyword" }],
+  [["operator", "keyword.operator", "punctuation.delimiter"], { fg: "syntaxOperator" }],
+  [["keyword.conditional.ternary"], { fg: "syntaxOperator" }],
+  [["variable", "variable.parameter", "function.method.call", "function.call"], { fg: "syntaxVariable" }],
+  [["variable.member", "function", "constructor"], { fg: "syntaxFunction" }],
+  [["type", "module"], { fg: "syntaxType" }],
+  [["constant"], { fg: "syntaxNumber" }],
+  [["property"], { fg: "syntaxVariable" }],
+  [["class"], { fg: "syntaxType" }],
+  [["parameter"], { fg: "syntaxVariable" }],
+  [["punctuation", "punctuation.bracket"], { fg: "syntaxPunctuation" }],
+  [["variable.builtin", "type.builtin", "function.builtin", "module.builtin", "constant.builtin"], { fg: "error" }],
+  [["variable.super"], { fg: "error" }],
+  [["string.escape", "string.regexp"], { fg: "syntaxKeyword" }],
+  [["keyword.directive"], { fg: "syntaxKeyword", italic: true }],
+  [["punctuation.special"], { fg: "syntaxOperator" }],
+  [["keyword.modifier"], { fg: "syntaxKeyword", italic: true }],
+  [["keyword.exception"], { fg: "syntaxKeyword", italic: true }],
+  [["markup.heading"], { fg: "markdownHeading", bold: true }],
+  [["markup.heading.1"], { fg: "markdownHeading", bold: true, underline: true }],
+  [["markup.heading.2"], { fg: "markdownHeading", bold: true }],
+  [["markup.heading.3"], { fg: "markdownHeading", bold: true }],
+  [["markup.heading.4"], { fg: "markdownHeading", bold: true }],
+  [["markup.heading.5"], { fg: "markdownHeading", bold: true }],
+  [["markup.heading.6"], { fg: "markdownHeading", bold: true }],
+  [["markup.bold", "markup.strong"], { fg: "markdownStrong", bold: true }],
+  [["markup.italic"], { fg: "markdownEmph", italic: true }],
+  [["markup.list"], { fg: "markdownListItem" }],
+  [["markup.quote"], { fg: "markdownBlockQuote", italic: true }],
+  [["markup.raw", "markup.raw.block"], { fg: "markdownCode" }],
+  [["markup.raw.inline"], { fg: "markdownCode", bg: "background" }],
+  [["markup.link"], { fg: "markdownLink", underline: true }],
+  [["markup.link.label"], { fg: "markdownLinkText", underline: true }],
+  [["markup.link.url"], { fg: "markdownLink", underline: true }],
+  [["label"], { fg: "markdownLinkText" }],
+  [["spell", "nospell"], { fg: "text" }],
+  [["conceal"], { fg: "textMuted" }],
+  [["string.special", "string.special.url"], { fg: "markdownLink", underline: true }],
+  [["character"], { fg: "syntaxString" }],
+  [["float"], { fg: "syntaxNumber" }],
+  [["comment.error"], { fg: "error", italic: true, bold: true }],
+  [["comment.warning"], { fg: "warning", italic: true, bold: true }],
+  [["comment.todo", "comment.note"], { fg: "info", italic: true, bold: true }],
+  [["namespace"], { fg: "syntaxType" }],
+  [["field"], { fg: "syntaxVariable" }],
+  [["type.definition"], { fg: "syntaxType", bold: true }],
+  [["keyword.export"], { fg: "syntaxKeyword" }],
+  [["attribute", "annotation"], { fg: "warning" }],
+  [["tag"], { fg: "error" }],
+  [["tag.attribute"], { fg: "syntaxKeyword" }],
+  [["tag.delimiter"], { fg: "syntaxOperator" }],
+  [["markup.strikethrough"], { fg: "textMuted" }],
+  [["markup.underline"], { fg: "text", underline: true }],
+  [["markup.list.checked"], { fg: "success" }],
+  [["markup.list.unchecked"], { fg: "textMuted" }],
+  [["diff.plus"], { fg: "diffAdded", bg: "diffAddedBg" }],
+  [["diff.minus"], { fg: "diffRemoved", bg: "diffRemovedBg" }],
+  [["diff.delta"], { fg: "diffContext", bg: "diffContextBg" }],
+  [["error"], { fg: "error", bold: true }],
+  [["warning"], { fg: "warning", bold: true }],
+  [["info"], { fg: "info" }],
+  [["debug"], { fg: "textMuted" }],
+]
 
-test("default theme reproduces the legacy highlight output (R23 baseline)", () => {
-  for (const [scope, legacy] of Object.entries(LEGACY_RULES)) {
-    if (CATALOG_DELTAS.has(scope)) continue
-    const style = syntax.getStyle(scope)
-    expect(style, scope).toBeDefined()
-    expect(ints(style!.fg!), scope).toEqual(ints(flat[legacy.fg as keyof Theme] as RGBA))
-    if (legacy.bg) expect(ints(style!.bg!), scope).toEqual(ints(flat[legacy.bg as keyof Theme] as RGBA))
-    else expect(style!.bg, scope).toBeUndefined()
-    expect(style!.bold, scope).toBe(legacy.bold || undefined)
-    expect(style!.italic, scope).toBe(legacy.italic || undefined)
-    expect(style!.underline, scope).toBe(legacy.underline || undefined)
+function legacyDeltas(prepared: PreparedTheme): string[] {
+  const rules = generateSyntax(prepared)
+  const flat = prepared.theme
+  const deltas: string[] = []
+  for (const [scopes, legacy] of LEGACY_RULES) {
+    for (const scope of scopes) {
+      const style = rules.getStyle(scope)
+      if (!style) {
+        deltas.push(`${scope}: rule missing`)
+        continue
+      }
+      const fg = typeof legacy.fg === "function" ? legacy.fg(flat) : (flat[legacy.fg as keyof Theme] as RGBA)
+      if (!style.fg || ints(style.fg).join() !== ints(fg).join()) deltas.push(`${scope}: fg`)
+      const bg = legacy.bg ? (flat[legacy.bg as keyof Theme] as RGBA) : undefined
+      if (!bg !== !style.bg || (bg && style.bg && ints(style.bg).join() !== ints(bg).join())) deltas.push(`${scope}: bg`)
+      if (style.bold !== (legacy.bold || undefined)) deltas.push(`${scope}: bold`)
+      if (style.italic !== (legacy.italic || undefined)) deltas.push(`${scope}: italic`)
+      if (style.underline !== (legacy.underline || undefined)) deltas.push(`${scope}: underline`)
+    }
   }
+  return deltas
+}
+
+test("default opencode theme is byte-identical to legacy in dark mode (R48)", () => {
+  expect(legacyDeltas(prepared)).toEqual([])
+})
+
+test("default opencode theme is byte-identical to legacy in light mode (R48)", () => {
+  expect(legacyDeltas(prepare(DEFAULT_THEMES.opencode, "light"))).toEqual([])
 })
 
 test("extmark legacy output is preserved (warning/secondary bold, paste pair)", () => {
@@ -346,73 +350,6 @@ test("extmark legacy output is preserved (warning/secondary bold, paste pair)", 
   expect(syntax.getStyle("extmark.file")!.bold).toBe(true)
   expect(ints(syntax.getStyle("extmark.agent")!.fg!)).toEqual(ints(flat.secondary))
   expect(syntax.getStyle("extmark.agent")!.bold).toBe(true)
-})
-
-test("catalog redefinition: syntax.type unifies keyword.type and type scopes on bold", () => {
-  // Catalog `syntax.type` = { syntaxType, bold }: keyword.type loses the
-  // legacy italic, the plain type scopes gain the legacy-less bold.
-  expect(ints(syntax.getStyle("keyword.type")!.fg!)).toEqual(ints(flat.syntaxType))
-  expect(syntax.getStyle("keyword.type")!.bold).toBe(true)
-  expect(syntax.getStyle("keyword.type")!.italic).toBeUndefined()
-  for (const scope of ["type", "module", "class", "namespace"]) {
-    expect(syntax.getStyle(scope)!.bold, scope).toBe(true)
-    expect(syntax.getStyle(scope)!.italic, scope).toBeUndefined()
-  }
-})
-
-test("catalog redefinition: bare keyword scopes resolve syntax.keyword with italic", () => {
-  // Catalog `syntax.keyword` = { syntaxKeyword, italic }: the legacy plain
-  // keyword rules gain the element's italic.
-  for (const scope of ["keyword.import", "string.escape", "string.regexp", "keyword.export", "tag.attribute"]) {
-    expect(ints(syntax.getStyle(scope)!.fg!), scope).toEqual(ints(flat.syntaxKeyword))
-    expect(syntax.getStyle(scope)!.italic, scope).toBe(true)
-  }
-})
-
-test("catalog redefinition: comment.error/warning/todo lose the legacy emphasis", () => {
-  // Catalog `syntax.error`/`syntax.warning`/`syntax.todo` carry no attributes.
-  expect(syntax.getStyle("comment.error")!.italic).toBeUndefined()
-  expect(syntax.getStyle("comment.error")!.bold).toBeUndefined()
-  expect(syntax.getStyle("comment.warning")!.italic).toBeUndefined()
-  expect(syntax.getStyle("comment.todo")!.italic).toBeUndefined()
-  expect(syntax.getStyle("comment.note")!.bold).toBeUndefined()
-})
-
-test("catalog redefinition: error and warning scopes lose the legacy bold", () => {
-  expect(syntax.getStyle("error")!.bold).toBeUndefined()
-  expect(ints(syntax.getStyle("error")!.fg!)).toEqual(ints(flat.error))
-  expect(syntax.getStyle("warning")!.bold).toBeUndefined()
-  expect(ints(syntax.getStyle("warning")!.fg!)).toEqual(ints(flat.warning))
-})
-
-test("catalog redefinition: markdown.link.label loses the legacy underline", () => {
-  // Catalog `markdown.link.label` = { markdownLinkText }, no attributes.
-  expect(ints(syntax.getStyle("markup.link.label")!.fg!)).toEqual(ints(flat.markdownLinkText))
-  expect(syntax.getStyle("markup.link.label")!.underline).toBeUndefined()
-})
-
-test("catalog redefinition: markup.underline resolves markdown.text without underline", () => {
-  // No markdown.underline element exists; markdown.text keeps the default
-  // theme's foreground (markdownText == text there) and drops the flag.
-  expect(ints(syntax.getStyle("markup.underline")!.fg!)).toEqual(ints(flat.markdownText))
-  expect(syntax.getStyle("markup.underline")!.underline).toBeUndefined()
-})
-
-test("catalog redefinition: markup.raw gains the markdown.code background", () => {
-  // Catalog `markdown.code` = { markdownCode, background }: the raw-block
-  // rules gain the surface background the inline rule already had.
-  expect(ints(syntax.getStyle("markup.raw")!.bg!)).toEqual(ints(flat.background))
-  expect(ints(syntax.getStyle("markup.raw.block")!.bg!)).toEqual(ints(flat.background))
-  expect(ints(syntax.getStyle("markup.raw")!.fg!)).toEqual(ints(flat.markdownCode))
-})
-
-test("catalog redefinition: diff.plus/minus drop the legacy diff foregrounds", () => {
-  // Catalog rows give them only the diffAddedBg/diffRemovedBg backgrounds —
-  // the foreground channel resolves transparent and is omitted.
-  expect(syntax.getStyle("diff.plus")!.fg).toBeUndefined()
-  expect(ints(syntax.getStyle("diff.plus")!.bg!)).toEqual(ints(flat.diffAddedBg))
-  expect(syntax.getStyle("diff.minus")!.fg).toBeUndefined()
-  expect(ints(syntax.getStyle("diff.minus")!.bg!)).toEqual(ints(flat.diffRemovedBg))
 })
 
 test("subtle syntax multiplies the foreground alpha by thinkingOpacity (R37)", () => {
@@ -428,8 +365,10 @@ test("subtle syntax follows a custom thinkingOpacity and leaves foreground-less 
   const quiet = prepare({ theme: { thinkingOpacity: 0.25 } })
   const subtle = generateSubtleSyntax(quiet)
   expect(subtle.getStyle("comment")!.fg!.toInts()[3]).toBe(Math.round(0.25 * 255))
-  expect(subtle.getStyle("diff.plus")!.fg).toBeUndefined()
   expect(ints(subtle.getStyle("diff.plus")!.bg!)).toEqual(ints(prepare(DEFAULT_THEMES.opencode).theme.diffAddedBg))
+  // A transparent foreground omits the channel; the subtle variant leaves it alone.
+  const cleared = prepare({ theme: { "syntax.comment": { fg: "transparent" } } })
+  expect(generateSubtleSyntax(cleared).getStyle("comment")!.fg).toBeUndefined()
 })
 
 test("element entries override the rule styles (R25, R40)", () => {
