@@ -88,9 +88,7 @@ export function createDialogProviderOptions() {
   const dialog = useDialog()
   const sdk = useSDK()
   const toast = useToast()
-  // `theme` stays for the provider "connected" check mark: no catalog element
-  // governs it (reported as a spec gap).
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const onboarded = useConnected()
 
   async function promptCustomProviderID(): Promise<string | undefined> {
@@ -143,8 +141,7 @@ export function createDialogProviderOptions() {
           description: provider.description,
           footer: consoleManaged ? sync.data.console_state.activeOrgName : undefined,
           category: provider.category,
-          // No catalog element governs the provider "connected" check mark.
-          gutter: connected && onboarded() ? () => <text fg={theme.success}>✓</text> : undefined,
+          gutter: connected && onboarded() ? () => <text fg={element("dialog.provider.connected").fg}>✓</text> : undefined,
           async onSelect() {
             if (consoleManaged) return
 

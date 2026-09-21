@@ -761,13 +761,10 @@ function Option(props: {
   gutter?: () => JSX.Element
   onMouseOver?: () => void
 }) {
-  const { theme, element } = useTheme()
-  // `theme.textMuted` stays for the action-focused selection: the catalog's
-  // `dialog.select.row.selected.unfocused` defaults to `text`, which would
-  // change today's rendering (reported as a spec gap).
+  const { element } = useTheme()
   const text = createMemo(() => {
     if (props.active && !props.muted) return element("dialog.select.row.selected").fg
-    if (props.muted && (props.active || props.current)) return theme.textMuted
+    if (props.muted && (props.active || props.current)) return element("dialog.select.row.selected.unfocused").fg
     if (props.current) return element("dialog.select.marker").fg
     return element("dialog.select.row").fg
   })

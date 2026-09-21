@@ -14,7 +14,7 @@ type ToastInput = Omit<ToastOptions, "duration"> & { duration?: number }
 
 export function Toast() {
   const toast = useToast()
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const dimensions = useTerminalDimensions()
 
   return (
@@ -37,7 +37,9 @@ export function Toast() {
               ? element("toast.error.border").fg
               : current().variant === "info"
                 ? element("toast.info.border").fg
-                : theme[current().variant]
+                : current().variant === "success"
+                  ? element("toast.success.border").fg
+                  : element("toast.warning.border").fg
           }
           border={["left", "right"]}
           customBorderChars={SplitBorder.customBorderChars}

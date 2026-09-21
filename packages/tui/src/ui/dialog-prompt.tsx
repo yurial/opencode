@@ -20,9 +20,7 @@ export type DialogPromptProps = {
 
 export function DialogPrompt(props: DialogPromptProps) {
   const dialog = useDialog()
-  // `theme` stays for the busy cursor color: no catalog element renders a
-  // backgroundElement-colored cursor (reported as a spec gap).
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const tuiConfig = useTuiConfig()
   const submitShortcut = useCommandShortcut("dialog.prompt.submit")
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
@@ -98,7 +96,7 @@ export function DialogPrompt(props: DialogPromptProps) {
           placeholderColor={element("dialog.muted").fg}
           textColor={props.busy ? element("dialog.muted").fg : element("dialog.body").fg}
           focusedTextColor={props.busy ? element("dialog.muted").fg : element("dialog.body").fg}
-          cursorColor={props.busy ? theme.backgroundElement : element("dialog.body").fg}
+          cursorColor={props.busy ? element("dialog.prompt.cursor.busy").fg : element("dialog.body").fg}
           cursorStyle={tuiConfig.cursor}
         />
         <Show when={props.busy}>

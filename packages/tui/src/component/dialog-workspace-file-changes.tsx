@@ -31,9 +31,7 @@ export function DialogWorkspaceFileChanges(props: {
   message?: string
 }) {
   const dialog = useDialog()
-  // `theme` stays for the diff-count colors and the list surface: no catalog
-  // elements govern them (reported as a spec gap).
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const tuiConfig = useTuiConfig()
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
   const [store, setStore] = createStore({ active: "yes" as WorkspaceFileChangesChoice })
@@ -84,7 +82,7 @@ export function DialogWorkspaceFileChanges(props: {
       </box>
       <scrollbox
         height={height()}
-        backgroundColor={theme.backgroundElement}
+        backgroundColor={element("dialog.changes.list").bg}
         scrollbarOptions={{ visible: false }}
         scrollAcceleration={scrollAcceleration()}
       >
@@ -102,8 +100,10 @@ export function DialogWorkspaceFileChanges(props: {
               <box flexDirection="row" gap={1} minWidth={7} flexShrink={0} justifyContent="flex-end">
                 <text>
                   {" "}
-                  {item.additions ? <span style={{ fg: theme.diffAdded }}>+{item.additions}</span> : null}
-                  {item.deletions ? <span style={{ fg: theme.diffRemoved }}> -{item.deletions}</span> : null}
+                  {item.additions ? <span style={{ fg: element("dialog.changes.added").fg }}>+{item.additions}</span> : null}
+                  {item.deletions ? (
+                    <span style={{ fg: element("dialog.changes.removed").fg }}> -{item.deletions}</span>
+                  ) : null}
                 </text>
               </box>
             </box>

@@ -20,9 +20,7 @@ export function DialogWorkspaceList() {
   const sdk = useSDK()
   const toast = useToast()
   const project = useProject()
-  // `theme` stays for the workspace status dot: no catalog element governs it
-  // (reported as a spec gap).
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const [deleting, setDeleting] = createSignal<string>()
   const [removing, setRemoving] = createSignal<string>()
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({})
@@ -48,7 +46,7 @@ export function DialogWorkspaceList() {
           value: { workspace },
           footer: workspace.type,
           details: expanded[workspace.id] && workspace.directory ? [workspace.directory] : undefined,
-          gutter: () => <text fg={status === "connected" ? theme.success : theme.error}>●</text>,
+          gutter: () => <text fg={status === "connected" ? element("dialog.status.ok").fg : element("dialog.status.error").fg}>●</text>,
         }
       }),
   )

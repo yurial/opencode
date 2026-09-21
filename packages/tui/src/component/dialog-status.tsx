@@ -4,14 +4,13 @@ import { useDialog } from "../ui/dialog"
 import { useSync } from "../context/sync"
 import { For, Match, Switch, Show, createMemo } from "solid-js"
 import { textAttributes } from "../theme/catalog"
+import type { RGBA } from "@opentui/core"
 
 export type DialogStatusProps = {}
 
 export function DialogStatus() {
   const sync = useSync()
-  // `theme` stays for the MCP/LSP/formatter/plugin status dots: no catalog
-  // elements govern those status maps (reported as a spec gap).
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const dialog = useDialog()
 
   const enabledFormatters = createMemo(() => sync.data.formatter.filter((f) => f.enabled))
@@ -63,12 +62,12 @@ export function DialogStatus() {
                   style={{
                     fg: (
                       {
-                        connected: theme.success,
-                        failed: theme.error,
-                        disabled: theme.textMuted,
-                        needs_auth: theme.warning,
-                        needs_client_registration: theme.error,
-                      } as Record<string, typeof theme.success>
+                        connected: element("dialog.status.ok").fg,
+                        failed: element("dialog.status.error").fg,
+                        disabled: element("dialog.muted").fg,
+                        needs_auth: element("dialog.status.warn").fg,
+                        needs_client_registration: element("dialog.status.error").fg,
+                      } as Record<string, RGBA>
                     )[item.status],
                   }}
                 >
@@ -105,8 +104,8 @@ export function DialogStatus() {
                   flexShrink={0}
                   style={{
                     fg: {
-                      connected: theme.success,
-                      error: theme.error,
+                      connected: element("dialog.status.ok").fg,
+                      error: element("dialog.status.error").fg,
                     }[item.status],
                   }}
                 >
@@ -129,7 +128,7 @@ export function DialogStatus() {
                 <text
                   flexShrink={0}
                   style={{
-                    fg: theme.success,
+                    fg: element("dialog.status.ok").fg,
                   }}
                 >
                   •
@@ -151,7 +150,7 @@ export function DialogStatus() {
                 <text
                   flexShrink={0}
                   style={{
-                    fg: theme.success,
+                    fg: element("dialog.status.ok").fg,
                   }}
                 >
                   •
