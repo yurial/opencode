@@ -50,17 +50,15 @@ const UNKNOWN = "Unknown"
 
 type Layout = "dock" | "overlay"
 
-type Color = RGBA | string
-
 type Skin = {
-  panel: Color
-  text: Color
-  muted: Color
-  subtle: Color
-  key: Color
-  accent: Color
-  tab: Color
-  tabText: Color
+  panel: RGBA
+  text: RGBA
+  muted: RGBA
+  subtle: RGBA
+  key: RGBA
+  accent: RGBA
+  tab: RGBA
+  tabText: RGBA
 }
 
 type Entry = {
@@ -91,23 +89,16 @@ function text(value: unknown) {
   return trimmed || undefined
 }
 
-function ink(api: TuiPluginApi, name: string, fallback: string): Color {
-  const value = Reflect.get(api.theme.current, name)
-  if (typeof value === "string") return value
-  if (value instanceof RGBA) return value
-  return fallback
-}
-
 function skin(api: TuiPluginApi): Skin {
   return {
-    panel: ink(api, "backgroundMenu", "#1c1c1c"),
-    text: ink(api, "text", "#f0f0f0"),
-    muted: ink(api, "textMuted", "#a5a5a5"),
-    subtle: ink(api, "borderSubtle", "#6f6f6f"),
-    key: ink(api, "warning", "#ffd75f"),
-    accent: ink(api, "primary", "#5f87ff"),
-    tab: ink(api, "primary", "#5f87ff"),
-    tabText: ink(api, "selectedListItemText", "#ffffff"),
+    panel: api.theme.element("which-key.panel").bg,
+    text: api.theme.current.text,
+    muted: api.theme.current.textMuted,
+    subtle: api.theme.element("which-key.subtle").fg,
+    key: api.theme.element("which-key.key").fg,
+    accent: api.theme.element("which-key.accent").fg,
+    tab: api.theme.element("which-key.accent").fg,
+    tabText: api.theme.element("which-key.tab").fg,
   }
 }
 

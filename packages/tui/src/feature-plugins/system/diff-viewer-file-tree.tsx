@@ -10,14 +10,9 @@ const FILE_TREE_STATUS_WIDTH = 2
 
 export type DiffViewerFileTreeTheme = {
   readonly background: RGBA
-  readonly backgroundPanel: ColorInput
-  readonly backgroundElement: ColorInput
   readonly primary: ColorInput
-  readonly secondary: ColorInput
-  readonly selectedListItemText: ColorInput
   readonly text: RGBA
   readonly textMuted: RGBA
-  readonly error: ColorInput
 }
 
 export type DiffViewerFileTreeProps = {

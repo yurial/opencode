@@ -8,7 +8,6 @@ import { useHomeSessionDestination } from "../../routes/home/session-destination
 const id = "internal:home-footer"
 
 function Directory(props: { api: TuiPluginApi }) {
-  const theme = () => props.api.theme.current
   const destination = useHomeSessionDestination()
   const paths = useTuiPaths()
   const dir = createMemo(() => {
@@ -21,11 +20,10 @@ function Directory(props: { api: TuiPluginApi }) {
     return out
   })
 
-  return <Show when={dir()}>{(value) => <text fg={theme().textMuted}>{value()}</text>}</Show>
+  return <Show when={dir()}>{(value) => <text fg={props.api.theme.element("footer.muted").fg}>{value()}</text>}</Show>
 }
 
 function Mcp(props: { api: TuiPluginApi }) {
-  const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.mcp())
   const has = createMemo(() => list().length > 0)
   const err = createMemo(() => list().some((item) => item.status === "failed"))
@@ -34,29 +32,36 @@ function Mcp(props: { api: TuiPluginApi }) {
   return (
     <Show when={has()}>
       <box gap={1} flexDirection="row" flexShrink={0}>
-        <text fg={theme().text}>
+        <text fg={props.api.theme.element("footer.text").fg}>
           <Switch>
             <Match when={err()}>
-              <span style={{ fg: theme().error }}>⊙ </span>
+              <span style={{ fg: props.api.theme.element("footer.status.error").fg }}>⊙ </span>
             </Match>
             <Match when={true}>
-              <span style={{ fg: count() > 0 ? theme().success : theme().textMuted }}>⊙ </span>
+              <span
+                style={{
+                  fg:
+                    count() > 0
+                      ? props.api.theme.element("footer.status.ok").fg
+                      : props.api.theme.element("footer.muted").fg,
+                }}
+              >
+                ⊙{" "}
+              </span>
             </Match>
           </Switch>
           {count()} MCP
         </text>
-        <text fg={theme().textMuted}>/status</text>
+        <text fg={props.api.theme.element("footer.muted").fg}>/status</text>
       </box>
     </Show>
   )
 }
 
 function Version(props: { api: TuiPluginApi }) {
-  const theme = () => props.api.theme.current
-
   return (
     <box flexShrink={0}>
-      <text fg={theme().textMuted}>{props.api.app.version}</text>
+      <text fg={props.api.theme.element("footer.muted").fg}>{props.api.app.version}</text>
     </box>
   )
 }

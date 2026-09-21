@@ -10,11 +10,15 @@ const id = "internal:plugin-manager"
 
 function state(api: TuiPluginApi, item: TuiPluginStatus) {
   if (!item.enabled) {
-    return <span style={{ fg: api.theme.current.textMuted }}>disabled</span>
+    return <span style={{ fg: api.theme.element("dialog.muted").fg }}>disabled</span>
   }
 
   return (
-    <span style={{ fg: item.active ? api.theme.current.success : api.theme.current.error }}>
+    <span
+      style={{
+        fg: item.active ? api.theme.element("dialog.plugins.active").fg : api.theme.element("dialog.plugins.inactive").fg,
+      }}
+    >
       {item.active ? "active" : "inactive"}
     </span>
   )
@@ -52,12 +56,18 @@ function Install(props: { api: TuiPluginApi }) {
       busyText="Installing plugin…"
       description={() => (
         <box flexDirection="row" gap={1}>
-          <text fg={props.api.theme.current.textMuted}>scope:</text>
-          <text fg={busy() ? props.api.theme.current.textMuted : props.api.theme.current.text}>
+          <text fg={props.api.theme.element("dialog.muted").fg}>scope:</text>
+          <text
+            fg={
+              busy()
+                ? props.api.theme.element("dialog.muted").fg
+                : props.api.theme.element("dialog.body").fg
+            }
+          >
             {global() ? "global" : "local"}
           </text>
           <Show when={!busy()}>
-            <text fg={props.api.theme.current.textMuted}>(tab toggle)</text>
+            <text fg={props.api.theme.element("dialog.muted").fg}>(tab toggle)</text>
           </Show>
         </box>
       )}

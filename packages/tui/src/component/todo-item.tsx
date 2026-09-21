@@ -6,14 +6,14 @@ export interface TodoItemProps {
 }
 
 export function TodoItem(props: TodoItemProps) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
 
   return (
     <box flexDirection="row" gap={0}>
       <text
         flexShrink={0}
         style={{
-          fg: props.status === "in_progress" ? theme.warning : theme.textMuted,
+          fg: props.status === "in_progress" ? element("sidebar.todo.pending").fg : element("sidebar.muted").fg,
         }}
       >
         [{props.status === "completed" ? "✓" : props.status === "in_progress" ? "•" : " "}]{" "}
@@ -22,7 +22,7 @@ export function TodoItem(props: TodoItemProps) {
         flexGrow={1}
         wrapMode="word"
         style={{
-          fg: props.status === "in_progress" ? theme.warning : theme.textMuted,
+          fg: props.status === "in_progress" ? element("sidebar.todo.pending").fg : element("sidebar.muted").fg,
         }}
       >
         {props.content}
