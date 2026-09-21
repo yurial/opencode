@@ -2641,19 +2641,21 @@ function Skill(props: ToolProps) {
 
 // discard_context excludes parts from the LLM context; render one muted
 // marker line with the discarded count instead of a tool card or ids. The
-// session-wide output token total is appended only when it is exact (every
-// part of the discarded assistant messages is marked).
+// session-wide token total is appended only when it is positive (R6.4); a
+// leading "~" marks a total that includes estimated partial-message shares
+// (R7.8).
 function DiscardContext(props: ToolProps) {
   const ctx = use()
   const ids = props.input.ids
   const count = Array.isArray(ids) ? ids.length : 0
   const label = createMemo(() => {
     const base = `Discarded ${count} context part${count === 1 ? "" : "s"}`
-    const total = discardedTokenTotal(
+    const { total, estimated } = discardedTokenTotal(
       ctx.sync.data.message[ctx.sessionID] ?? [],
       (messageID) => ctx.sync.data.part[messageID],
     )
-    return total > 0 ? `${base} · ${formatCompactTokens(total)} tokens` : base
+    if (total <= 0) return base
+    return `${base} · ${estimated ? "~" : ""}${formatCompactTokens(total)} tokens`
   })
   return (
     <InlineTool

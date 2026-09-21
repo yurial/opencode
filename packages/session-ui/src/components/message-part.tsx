@@ -2649,9 +2649,9 @@ ToolRegistry.register({
 
 // discard_context marks context parts as excluded from the LLM context.
 // Like compaction it renders as a single divider line with a count, not a
-// tool card, so the ids payload is never shown. The session-wide output
-// token total is appended only when it is exact: tokens are attributed per
-// assistant message, so partial discards would be guesswork.
+// tool card, so the ids payload is never shown. The session-wide token
+// total is appended only when it is positive (R6.4); a leading "~" marks a
+// total that includes estimated partial-message shares (R7.8).
 ToolRegistry.register({
   name: "discard_context",
   render(props) {
@@ -2663,12 +2663,13 @@ ToolRegistry.register({
       const base = i18n.t("ui.messagePart.context.discarded", { count })
       const sessionID = props.sessionID
       if (!sessionID) return base
-      const total = discardedTokenTotal(
+      const { total, estimated } = discardedTokenTotal(
         data.store.message[sessionID] ?? [],
         (messageID) => data.store.part[messageID],
       )
       if (total <= 0) return base
-      return `${base} · ${i18n.t("ui.messagePart.context.discardedTokens", { count: formatCompactTokens(total) })}`
+      const rendered = `${estimated ? "~" : ""}${formatCompactTokens(total)}`
+      return `${base} · ${i18n.t("ui.messagePart.context.discardedTokens", { count: rendered })}`
     }
     return <MessageDivider label={label()} />
   },

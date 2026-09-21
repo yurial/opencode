@@ -8,11 +8,12 @@ export type TranscriptOptions = {
   toolDetails: boolean
   assistantMetadata: boolean
   providers?: Provider[]
-  // Session-wide output+reasoning token total of fully discarded assistant
-  // messages; computed by formatTranscript. Optional so standalone
-  // formatMessage/formatPart callers don't have to provide it (the discard
-  // marker then renders without the token suffix).
-  discardedTokens?: number
+  // Session-wide discarded token total (exact whole-message contributions
+  // plus char-weighted partial shares, R7.1) with its `estimated` flag;
+  // computed by formatTranscript. Optional so standalone formatMessage/
+  // formatPart callers don't have to provide it (the discard marker then
+  // renders without the token suffix).
+  discardedTokens?: { total: number; estimated: boolean }
 }
 
 export type SessionInfo = {
@@ -120,12 +121,15 @@ export function formatPart(part: Part, options: TranscriptOptions): string {
   if (part.type === "tool" && part.tool === "discard_context") {
     // discard_context only marks parts as excluded from the LLM context; the
     // exported transcript keeps a one-line marker instead of the raw ids. The
-    // token total is session-wide and only appended when it is exact (see
-    // TranscriptOptions.discardedTokens).
+    // token total is session-wide, appended only when positive (R6.4); "~"
+    // marks a total that includes estimated partial-message shares (R7.8).
     const ids = part.state.input?.ids
     const count = Array.isArray(ids) ? ids.length : 0
     const tokens = options.discardedTokens
-    const suffix = tokens && tokens > 0 ? ` · ${formatCompactTokens(tokens)} tokens` : ""
+    const suffix =
+      tokens && tokens.total > 0
+        ? ` · ${tokens.estimated ? "~" : ""}${formatCompactTokens(tokens.total)} tokens`
+        : ""
     return `**Discarded ${count} context part${count === 1 ? "" : "s"}${suffix}**\n\n`
   }
 
