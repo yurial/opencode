@@ -143,7 +143,7 @@ type ThemeFileV2 = {
 | `thinkingOpacity` | number 0–1; a non-numeric value falls back to the default without rejection, and a number outside 0–1 is accepted as-is | `0.6` | Multiplier on every reasoning-block foreground and on the subtle-syntax alpha (R36, R37) |
 | `ansiToRgba` | fixed table, ANSI index 0–255 → RGBA | — | Resolution of integer color values (R30) |
 | `retry-overlay-alpha` | magic 186/255 (nameless literal in the retry dialog) | — | Foreground alpha of `dialog.retry` (catalog) |
-| `logo-shadow-alpha` | magic `0.25` (nameless literal in the logo renderer) | — | tui-theme/tint share of `logo.shadow` (R34) |
+| `logo-shadow-alpha` | magic `0.25` (nameless literal in the logo renderer) | — | tui-theme/tint share of the renderer's computed per-half `logo.shadow` blend, parameterizing it while the element's background is unset (R34, R50) |
 | `bg-pulse-base-alpha` | magic `0.62` (nameless literal in the bg-pulse renderer) | — | tui-theme/tint share of `bg-pulse.base` (R34) |
 | `splash-shadow-alpha` | magic `0.14` (nameless literal in the run splash mapping) | — | tui-theme/tint share of the run splash shadows (R44) |
 | `run-footer-shade-fade` | magic fallback `0.12`, scale `0.56`, limit `0.72` (nameless literals in the run footer mapping) | — | tui-theme/fade parameters of the footer `shade` derivative (R44) |
@@ -165,8 +165,8 @@ background (R32). `tint(...)` marks a computed blend (R34). Border elements
 paint single-color strokes on the `fg` channel. Every default reproduces the
 rendering its surface had under the pre-v2 implementation (R48); where a live
 surface overrides its element with a computed color, the requirements name
-the override (R39, R49). Legacy v1 keys not named in
-any default cell are dropped by migration (R22): `diffHunkHeader`,
+the override (R39, R49, R50). Legacy v1 keys not named in any default cell
+are dropped by migration (R22): `diffHunkHeader`,
 `markdownHorizontalRule`, `markdownListEnumeration`, `markdownImage`,
 `markdownImageText`, `markdownCodeBlock`.
 
@@ -492,7 +492,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 |---|---|---|---|
 | `logo.left` | `textMuted` | — | — |
 | `logo.right` | `text` | — | `bold` |
-| `logo.shadow` | — | `tint(background, element fg, logo-shadow-alpha)` | — |
+| `logo.shadow` | — | — | — |
 
 ### Zone bg-pulse — background pulse animation
 
@@ -607,6 +607,7 @@ element of its own.
 - R47. A rejected theme file is dropped at load with its reason surfaced to the user, and the active theme falls back to the default built-in theme.
 - R48. With the default built-in theme, every tui-theme/catalog default and every element-sourced syntax or markdown rule resolves to exactly the foreground, background, and attribute set the same surface rendered under the pre-v2 implementation.
 - R49. The queued message chip takes its attribute set and its resting foreground from `message.queued`. While the computed agent color of R39 is available, the chip paints that color as its background and tui-theme/selected-foreground over it as its foreground.
+- R50. While the resolved background of `logo.shadow` is the transparent color, each logo half paints its shadow as the tui-theme/tint blend of the resolved background of `app.background` with the resolved foreground of that half at `logo-shadow-alpha`. A non-transparent resolved background of `logo.shadow` paints both halves.
 
 ## Examples
 
