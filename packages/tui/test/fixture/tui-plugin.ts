@@ -29,7 +29,10 @@ export function createTuiPluginApi(opts: Opts = {}) {
       ready: true,
     },
     state: { session: { get: () => undefined, ...opts.state?.session } },
-    theme: { current: new Proxy({}, { get: () => color }) },
+    theme: {
+      current: new Proxy({}, { get: () => color }),
+      element: () => ({ fg: color, bg: color, attributes: new Set() }),
+    },
     tuiConfig: createTuiResolvedConfig(),
     ui: { dialog },
   } as unknown as TuiPluginApi
