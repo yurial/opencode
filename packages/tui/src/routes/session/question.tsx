@@ -2,7 +2,7 @@ import { createStore } from "solid-js/store"
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useRenderer } from "@opentui/solid"
 import type { TextareaRenderable } from "@opentui/core"
-import { selectedForeground, tint, useTheme } from "../../context/theme"
+import { useTheme } from "../../context/theme"
 import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../../context/sdk"
 import { SplitBorder } from "../../ui/border"
@@ -13,7 +13,7 @@ const QUESTION_MODE = "question"
 
 export function QuestionPrompt(props: { request: QuestionRequest; directory?: string }) {
   const sdk = useSDK()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const renderer = useRenderer()
   const tuiConfig = useTuiConfig()
   const modeStack = useOpencodeModeStack()
@@ -287,9 +287,9 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
 
   return (
     <box
-      backgroundColor={theme.backgroundPanel}
+      backgroundColor={element("question.panel").bg}
       border={["left"]}
-      borderColor={theme.accent}
+      borderColor={element("question.border").fg}
       customBorderChars={SplitBorder.customBorderChars}
     >
       <box gap={1} paddingLeft={1} paddingRight={3} paddingTop={1} paddingBottom={1}>
@@ -307,10 +307,10 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                     paddingRight={1}
                     backgroundColor={
                       isActive()
-                        ? theme.accent
+                        ? element("question.tab.active").bg
                         : tabHover() === index()
-                          ? theme.backgroundElement
-                          : theme.backgroundPanel
+                          ? element("question.tab.hover").bg
+                          : element("question.tab").bg
                     }
                     onMouseOver={() => setTabHover(index())}
                     onMouseOut={() => setTabHover(null)}
@@ -322,10 +322,10 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                     <text
                       fg={
                         isActive()
-                          ? selectedForeground(theme, theme.accent)
+                          ? element("question.tab.active").fg
                           : isAnswered()
-                            ? theme.text
-                            : theme.textMuted
+                            ? element("question.tab").fg
+                            : element("question.muted").fg
                       }
                     >
                       {q.header}
@@ -338,7 +338,11 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
               paddingLeft={1}
               paddingRight={1}
               backgroundColor={
-                confirm() ? theme.accent : tabHover() === "confirm" ? theme.backgroundElement : theme.backgroundPanel
+                confirm()
+                  ? element("question.tab.active").bg
+                  : tabHover() === "confirm"
+                    ? element("question.tab.hover").bg
+                    : element("question.tab").bg
               }
               onMouseOver={() => setTabHover("confirm")}
               onMouseOut={() => setTabHover(null)}
@@ -347,7 +351,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                 selectTab(questions().length)
               }}
             >
-              <text fg={confirm() ? selectedForeground(theme, theme.accent) : theme.textMuted}>Confirm</text>
+              <text fg={confirm() ? element("question.tab.active").fg : element("question.muted").fg}>Confirm</text>
             </box>
           </box>
         </Show>
@@ -355,7 +359,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
         <Show when={!confirm()}>
           <box paddingLeft={1} gap={1}>
             <box>
-              <text fg={theme.text}>
+              <text fg={element("question.body").fg}>
                 {question()?.question}
                 {multi() ? " (select all that apply)" : ""}
               </text>
@@ -375,23 +379,34 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                       }}
                     >
                       <box flexDirection="row">
-                        <box backgroundColor={active() ? theme.backgroundElement : undefined} paddingRight={1}>
-                          <text fg={active() ? tint(theme.textMuted, theme.secondary, 0.6) : theme.textMuted}>
+                        <box
+                          backgroundColor={active() ? element("question.option.hover").bg : element("question.option").bg}
+                          paddingRight={1}
+                        >
+                          <text fg={active() ? element("question.option.hover.number").fg : element("question.muted").fg}>
                             {`${i() + 1}.`}
                           </text>
                         </box>
-                        <box backgroundColor={active() ? theme.backgroundElement : undefined}>
-                          <text fg={active() ? theme.secondary : picked() ? theme.success : theme.text}>
+                        <box backgroundColor={active() ? element("question.option.hover").bg : element("question.option").bg}>
+                          <text
+                            fg={
+                              active()
+                                ? element("question.option.hover").fg
+                                : picked()
+                                  ? element("question.option.picked").fg
+                                  : element("question.option").fg
+                            }
+                          >
                             {multi() ? `[${picked() ? "✓" : " "}] ${opt.label}` : opt.label}
                           </text>
                         </box>
                         <Show when={!multi()}>
-                          <text fg={theme.success}>{picked() ? " ✓" : ""}</text>
+                          <text fg={element("question.option.picked").fg}>{picked() ? " ✓" : ""}</text>
                         </Show>
                       </box>
 
                       <box paddingLeft={3}>
-                        <text fg={theme.textMuted}>{opt.description}</text>
+                        <text fg={element("question.muted").fg}>{opt.description}</text>
                       </box>
                     </box>
                   )
@@ -407,19 +422,30 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                   }}
                 >
                   <box flexDirection="row">
-                    <box backgroundColor={other() ? theme.backgroundElement : undefined} paddingRight={1}>
-                      <text fg={other() ? tint(theme.textMuted, theme.secondary, 0.6) : theme.textMuted}>
+                    <box
+                      backgroundColor={other() ? element("question.option.hover").bg : element("question.option").bg}
+                      paddingRight={1}
+                    >
+                      <text fg={other() ? element("question.option.hover.number").fg : element("question.muted").fg}>
                         {`${options().length + 1}.`}
                       </text>
                     </box>
-                    <box backgroundColor={other() ? theme.backgroundElement : undefined}>
-                      <text fg={other() ? theme.secondary : customPicked() ? theme.success : theme.text}>
+                    <box backgroundColor={other() ? element("question.option.hover").bg : element("question.option").bg}>
+                      <text
+                        fg={
+                          other()
+                            ? element("question.option.hover").fg
+                            : customPicked()
+                              ? element("question.option.picked").fg
+                              : element("question.option").fg
+                        }
+                      >
                         {multi() ? `[${customPicked() ? "✓" : " "}] Type your own answer` : "Type your own answer"}
                       </text>
                     </box>
 
                     <Show when={!multi()}>
-                      <text fg={theme.success}>{customPicked() ? " ✓" : ""}</text>
+                      <text fg={element("question.option.picked").fg}>{customPicked() ? " ✓" : ""}</text>
                     </Show>
                   </box>
                   <Show when={store.editing}>
@@ -435,19 +461,19 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
                         }}
                         initialValue={input()}
                         placeholder="Type your own answer"
-                        placeholderColor={theme.textMuted}
+                        placeholderColor={element("question.muted").fg}
                         minHeight={1}
                         maxHeight={6}
-                        textColor={theme.text}
-                        focusedTextColor={theme.text}
-                        cursorColor={theme.primary}
+                        textColor={element("question.text").fg}
+                        focusedTextColor={element("question.text").fg}
+                        cursorColor={element("question.text.cursor").fg}
                         cursorStyle={tuiConfig.cursor}
                       />
                     </box>
                   </Show>
                   <Show when={!store.editing && input()}>
                     <box paddingLeft={3}>
-                      <text fg={theme.textMuted}>{input()}</text>
+                      <text fg={element("question.muted").fg}>{input()}</text>
                     </box>
                   </Show>
                 </box>
@@ -458,7 +484,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
 
         <Show when={confirm() && !single()}>
           <box paddingLeft={1}>
-            <text fg={theme.text}>Review</text>
+            <text fg={element("question.review").fg}>Review</text>
           </box>
           <For each={questions()}>
             {(q, index) => {
@@ -467,8 +493,8 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
               return (
                 <box paddingLeft={1}>
                   <text>
-                    <span style={{ fg: theme.textMuted }}>{q.header}:</span>{" "}
-                    <span style={{ fg: answered() ? theme.text : theme.error }}>
+                    <span style={{ fg: element("question.muted").fg }}>{q.header}:</span>{" "}
+                    <span style={{ fg: answered() ? element("question.review").fg : element("question.unanswered").fg }}>
                       {answered() ? value() : "(not answered)"}
                     </span>
                   </text>
@@ -489,24 +515,24 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
       >
         <box flexDirection="row" gap={2}>
           <Show when={!single()}>
-            <text fg={theme.text}>
-              {"⇆"} <span style={{ fg: theme.textMuted }}>tab</span>
+            <text fg={element("question.hint").fg}>
+              {"⇆"} <span style={{ fg: element("question.muted").fg }}>tab</span>
             </text>
           </Show>
           <Show when={!confirm()}>
-            <text fg={theme.text}>
-              {"↑↓"} <span style={{ fg: theme.textMuted }}>select</span>
+            <text fg={element("question.hint").fg}>
+              {"↑↓"} <span style={{ fg: element("question.muted").fg }}>select</span>
             </text>
           </Show>
-          <text fg={theme.text}>
+          <text fg={element("question.hint").fg}>
             enter{" "}
-            <span style={{ fg: theme.textMuted }}>
+            <span style={{ fg: element("question.muted").fg }}>
               {confirm() ? "submit" : multi() ? "toggle" : single() ? "submit" : "confirm"}
             </span>
           </text>
 
-          <text fg={theme.text}>
-            esc <span style={{ fg: theme.textMuted }}>dismiss</span>
+          <text fg={element("question.hint").fg}>
+            esc <span style={{ fg: element("question.muted").fg }}>dismiss</span>
           </text>
         </box>
       </box>

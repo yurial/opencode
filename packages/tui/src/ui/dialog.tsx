@@ -1,7 +1,7 @@
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { batch, createContext, createEffect, onCleanup, Show, useContext, type JSX, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
-import { MouseButton, Renderable, RGBA } from "@opentui/core"
+import { MouseButton, Renderable } from "@opentui/core"
 import { createStore } from "solid-js/store"
 import { useToast } from "./toast"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -15,7 +15,7 @@ export function Dialog(
   }>,
 ) {
   const dimensions = useTerminalDimensions()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const renderer = useRenderer()
 
   let dismiss = false
@@ -45,7 +45,7 @@ export function Dialog(
       paddingTop={dimensions().height / 4}
       left={0}
       top={0}
-      backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
+      backgroundColor={element("dialog.underlay").bg}
     >
       <box
         onMouseUp={(e: { stopPropagation(): void }) => {
@@ -57,7 +57,7 @@ export function Dialog(
         }}
         width={width()}
         maxWidth={dimensions().width - 2}
-        backgroundColor={theme.backgroundPanel}
+        backgroundColor={element("dialog.panel").bg}
         paddingTop={1}
       >
         {props.children}

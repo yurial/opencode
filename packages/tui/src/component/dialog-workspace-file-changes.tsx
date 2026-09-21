@@ -1,4 +1,3 @@
-import { TextAttributes } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import type { VcsFileStatus } from "@opencode-ai/sdk/v2"
 import { createMemo, For } from "solid-js"
@@ -8,6 +7,7 @@ import { useTheme } from "../context/theme"
 import { useTuiConfig } from "../config"
 import { useDialog, type DialogContext } from "../ui/dialog"
 import { getScrollAcceleration } from "../util/scroll"
+import { textAttributes } from "../theme/catalog"
 
 const options = ["no", "yes"] as const
 
@@ -31,7 +31,7 @@ export function DialogWorkspaceFileChanges(props: {
   message?: string
 }) {
   const dialog = useDialog()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const tuiConfig = useTuiConfig()
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
   const [store, setStore] = createStore({ active: "yes" as WorkspaceFileChangesChoice })
@@ -68,21 +68,21 @@ export function DialogWorkspaceFileChanges(props: {
   return (
     <box gap={1}>
       <box flexDirection="row" justifyContent="space-between" paddingLeft={2} paddingRight={2}>
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
+        <text attributes={textAttributes(element("dialog.title").attributes)} fg={element("dialog.title").fg}>
           {props.title ?? "File Changes Found"}
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={element("dialog.muted").fg} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
       <box paddingLeft={2} paddingRight={2}>
-        <text fg={theme.textMuted} wrapMode="word">
+        <text fg={element("dialog.muted").fg} wrapMode="word">
           {props.message ?? "Do you want to move these changes with the session?"}
         </text>
       </box>
       <scrollbox
         height={height()}
-        backgroundColor={theme.backgroundElement}
+        backgroundColor={element("dialog.changes.list").bg}
         scrollbarOptions={{ visible: false }}
         scrollAcceleration={scrollAcceleration()}
       >
@@ -91,17 +91,19 @@ export function DialogWorkspaceFileChanges(props: {
             <box flexDirection="row" justifyContent="space-between" paddingLeft={2} paddingRight={2}>
               <box flexDirection="row" minWidth={0} flexShrink={1}>
                 <box width={2} flexShrink={0}>
-                  <text fg={theme.textMuted}>{statusLabel(item.status)}</text>
+                  <text fg={element("dialog.muted").fg}>{statusLabel(item.status)}</text>
                 </box>
-                <text fg={theme.textMuted} wrapMode="none">
+                <text fg={element("dialog.muted").fg} wrapMode="none">
                   {Locale.truncateLeft(item.file, fileNameWidth())}
                 </text>
               </box>
               <box flexDirection="row" gap={1} minWidth={7} flexShrink={0} justifyContent="flex-end">
                 <text>
                   {" "}
-                  {item.additions ? <span style={{ fg: theme.diffAdded }}>+{item.additions}</span> : null}
-                  {item.deletions ? <span style={{ fg: theme.diffRemoved }}> -{item.deletions}</span> : null}
+                  {item.additions ? <span style={{ fg: element("dialog.changes.added").fg }}>+{item.additions}</span> : null}
+                  {item.deletions ? (
+                    <span style={{ fg: element("dialog.changes.removed").fg }}> -{item.deletions}</span>
+                  ) : null}
                 </text>
               </box>
             </box>
@@ -114,14 +116,16 @@ export function DialogWorkspaceFileChanges(props: {
             <box
               paddingLeft={2}
               paddingRight={2}
-              backgroundColor={item === store.active ? theme.primary : undefined}
+              backgroundColor={item === store.active ? element("dialog.action").bg : undefined}
               onMouseUp={() => {
                 setStore("active", item)
                 props.onSelect(item)
                 dialog.clear()
               }}
             >
-              <text fg={item === store.active ? theme.selectedListItemText : theme.textMuted}>{item}</text>
+              <text fg={item === store.active ? element("dialog.action").fg : element("dialog.muted").fg}>
+                {item}
+              </text>
             </box>
           )}
         </For>

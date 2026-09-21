@@ -95,7 +95,7 @@ function configShortcut(api: TuiPluginApi, command: string): TipShortcut {
 }
 
 export function Tips(props: { api: TuiPluginApi; connected?: boolean }) {
-  const theme = useTheme().theme
+  const { theme, element } = useTheme()
   const tipOffset = Math.random()
   const shortcuts: Shortcuts = {
     agentCycle: useCommandShortcut("agent.cycle"),
@@ -149,7 +149,7 @@ export function Tips(props: { api: TuiPluginApi; connected?: boolean }) {
 
   return (
     <box flexDirection="row" maxWidth="100%">
-      <text flexShrink={0} style={{ fg: theme.warning }}>
+      <text flexShrink={0} style={{ fg: element("tips.marker").fg }}>
         ● Tip{" "}
       </text>
       <text flexShrink={1} wrapMode="word">

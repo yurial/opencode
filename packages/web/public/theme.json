@@ -1,183 +1,2072 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://opencode.ai/theme.json",
+  "title": "opencode TUI theme",
+  "description": "Schema for opencode TUI theme files. Format v2 maps dotted element names to {fg, bg, attributes} entries; the legacy v1 flat color keys are deprecated and auto-migrated at load.",
   "type": "object",
   "properties": {
     "$schema": {
-      "type": "string",
-      "description": "JSON schema reference for configuration validation"
+      "const": "https://opencode.ai/theme.json",
+      "description": "Schema reference for editor support; informational and never affects behavior"
     },
     "defs": {
       "type": "object",
-      "description": "Color definitions that can be referenced in the theme",
+      "description": "Optional named color constants that can be referenced by dotless name anywhere a color value is accepted",
       "patternProperties": {
-        "^[a-zA-Z][a-zA-Z0-9_]*$": {
-          "oneOf": [
-            {
-              "type": "string",
-              "pattern": "^#[0-9a-fA-F]{6}$",
-              "description": "Hex color value"
-            },
-            {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 255,
-              "description": "ANSI color code (0-255)"
-            },
-            {
-              "type": "string",
-              "enum": ["none"],
-              "description": "No color (uses terminal default)"
-            }
-          ]
+        "^[a-zA-Z][a-zA-Z0-9_-]*$": {
+          "$ref": "#/definitions/defValue"
         }
       },
       "additionalProperties": false
     },
     "theme": {
       "type": "object",
-      "description": "Theme color definitions",
+      "description": "Theme entries. Format v2 (the authoring format) maps catalog element names to {fg, bg, attributes} entries, plus the optional thinkingOpacity scalar. The legacy v1 flat color keys are still accepted by this schema and by opencode (auto-migrated at load) but are deprecated. Asymmetry to note: a file mixing v2 element entries and v1 color keys is valid against this schema so that editors keep offering both, but opencode rejects such mixed files at load with MIXED_FORMATS - use one format per file. Unknown names are not allowed: the element catalog is closed and unknown elements are rejected at load with UNKNOWN_ELEMENT.",
       "properties": {
-        "primary": { "$ref": "#/definitions/colorValue" },
-        "secondary": { "$ref": "#/definitions/colorValue" },
-        "accent": { "$ref": "#/definitions/colorValue" },
-        "error": { "$ref": "#/definitions/colorValue" },
-        "warning": { "$ref": "#/definitions/colorValue" },
-        "success": { "$ref": "#/definitions/colorValue" },
-        "info": { "$ref": "#/definitions/colorValue" },
-        "text": { "$ref": "#/definitions/colorValue" },
-        "textMuted": { "$ref": "#/definitions/colorValue" },
-        "selectedListItemText": { "$ref": "#/definitions/colorValue" },
-        "background": { "$ref": "#/definitions/colorValue" },
-        "backgroundPanel": { "$ref": "#/definitions/colorValue" },
-        "backgroundElement": { "$ref": "#/definitions/colorValue" },
-        "border": { "$ref": "#/definitions/colorValue" },
-        "borderActive": { "$ref": "#/definitions/colorValue" },
-        "borderSubtle": { "$ref": "#/definitions/colorValue" },
-        "diffAdded": { "$ref": "#/definitions/colorValue" },
-        "diffRemoved": { "$ref": "#/definitions/colorValue" },
-        "diffContext": { "$ref": "#/definitions/colorValue" },
-        "diffHunkHeader": { "$ref": "#/definitions/colorValue" },
-        "diffHighlightAdded": { "$ref": "#/definitions/colorValue" },
-        "diffHighlightRemoved": { "$ref": "#/definitions/colorValue" },
-        "diffAddedBg": { "$ref": "#/definitions/colorValue" },
-        "diffRemovedBg": { "$ref": "#/definitions/colorValue" },
-        "diffContextBg": { "$ref": "#/definitions/colorValue" },
-        "diffLineNumber": { "$ref": "#/definitions/colorValue" },
-        "diffAddedLineNumberBg": { "$ref": "#/definitions/colorValue" },
-        "diffRemovedLineNumberBg": { "$ref": "#/definitions/colorValue" },
-        "markdownText": { "$ref": "#/definitions/colorValue" },
-        "markdownHeading": { "$ref": "#/definitions/colorValue" },
-        "markdownLink": { "$ref": "#/definitions/colorValue" },
-        "markdownLinkText": { "$ref": "#/definitions/colorValue" },
-        "markdownCode": { "$ref": "#/definitions/colorValue" },
-        "markdownBlockQuote": { "$ref": "#/definitions/colorValue" },
-        "markdownEmph": { "$ref": "#/definitions/colorValue" },
-        "markdownStrong": { "$ref": "#/definitions/colorValue" },
-        "markdownHorizontalRule": { "$ref": "#/definitions/colorValue" },
-        "markdownListItem": { "$ref": "#/definitions/colorValue" },
-        "markdownListEnumeration": { "$ref": "#/definitions/colorValue" },
-        "markdownImage": { "$ref": "#/definitions/colorValue" },
-        "markdownImageText": { "$ref": "#/definitions/colorValue" },
-        "markdownCodeBlock": { "$ref": "#/definitions/colorValue" },
-        "syntaxComment": { "$ref": "#/definitions/colorValue" },
-        "syntaxKeyword": { "$ref": "#/definitions/colorValue" },
-        "syntaxFunction": { "$ref": "#/definitions/colorValue" },
-        "syntaxVariable": { "$ref": "#/definitions/colorValue" },
-        "syntaxString": { "$ref": "#/definitions/colorValue" },
-        "syntaxNumber": { "$ref": "#/definitions/colorValue" },
-        "syntaxType": { "$ref": "#/definitions/colorValue" },
-        "syntaxOperator": { "$ref": "#/definitions/colorValue" },
-        "syntaxPunctuation": { "$ref": "#/definitions/colorValue" }
+        "app.background": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "autocomplete.menu": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "autocomplete.menu.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "autocomplete.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "autocomplete.row": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "autocomplete.row.selected": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "bg-pulse.accent": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "bg-pulse.base": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "bg-pulse.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.action": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.changes.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.changes.list": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.changes.removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.console.email": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.debug.copied": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.export.option": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.export.option.active": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.link": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.mcp.enabled": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.notice": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.plugins.active": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.plugins.inactive": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.prompt.cursor.busy": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.provider.connected": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.retry": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.route.home": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.route.warning": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.category": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.filter": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.filter.cursor": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.footer": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.footer.active": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.footer.disabled": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.footer.label": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.marker": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.row": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.row.selected": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.select.row.selected.unfocused": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.session.deleted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.session.gutter": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.status.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.status.ok": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.status.warn": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.title": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.underlay": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.banner.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.banner.removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.filetree.row": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.filetree.row.selected": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.filetree.row.selected.name": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.gutter": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.gutter.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.gutter.removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.line.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.line.context": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.line.removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.sign.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.sign.removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "footer.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "footer.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "footer.permission": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "footer.status.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "footer.status.ok": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "footer.status.warn": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "footer.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "logo.left": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "logo.right": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "logo.shadow": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.code.block": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.code.inline": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.emph": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.heading": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.heading.h1": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.label": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.link": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.link.label": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.list": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.quote": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.strong": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.underline": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.assistant.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.assistant.meta": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.assistant.meta.mode": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.assistant.meta.variant": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.compaction": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.error.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.error.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.error.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.queued": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.reasoning.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.reasoning.header": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.revert": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.revert.hover": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.system.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.timestamp": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.args.denied": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.body.pending": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.card": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.card.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.card.hover": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.gutter": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.header": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.status.done": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.status.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.status.pending": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.user.badge": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.user.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.user.body.hover": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.user.file": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.bar": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.border.reject": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.caption": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.marker": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.marker.reject": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.option": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.option.selected": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.text.cursor": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.chip": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.container": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.container.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.cursor": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.cursor.disabled": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.editor.pending": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.extmark.agent": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.extmark.file": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.extmark.paste": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.interrupt": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.meta": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.notice": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.placeholder": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.retry": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.shell.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.hint": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.option": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.option.hover": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.option.hover.number": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.option.picked": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.option.selected": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.review": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.tab": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.tab.active": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.tab.hover": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.text.cursor": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.unanswered": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.background": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.added-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.added-line-number-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.context-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.highlight-added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.highlight-removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.line-number": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.removed-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.removed-line-number-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.highlight": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.warning": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.entry.assistant": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.entry.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.entry.reasoning": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.entry.system": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.entry.tool": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.entry.tool.start": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.entry.user": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.highlight": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.pane": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.selected": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.selected-text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.success": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.footer.warn": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.splash.left": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.splash.right": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "scrollbar.thumb": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "scrollbar.thumb.active": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "scrollbar.track": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "scrollbar.track.overlay": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.dim": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.emphasized": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.files.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.files.removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.getting-started": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.item.open": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.status.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.status.ok": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.status.warn": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.strong": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "sidebar.todo.pending": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "startup.loading": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "startup.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "subagent.footer.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "subagent.footer.hover": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "subagent.footer.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "subagent.footer.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "subagent.footer.strong": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "subagent.footer.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.checked": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.comment": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.comment.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.comment.todo": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.comment.warning": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.conceal": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.default": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.diff.delta": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.diff.minus": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.diff.plus": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.error.strong": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.escape": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.function": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.keyword": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.keyword.import": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.number": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.operator": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.prompt": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.punctuation": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.string": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.tag.attribute": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.todo": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.type": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.type.definition": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.type.keyword": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.variable": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.warning": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.warning.strong": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "tips.marker": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "toast.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "toast.error.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "toast.info.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "toast.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "toast.success.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "toast.title": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "toast.warning.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.accent": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.key": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.subtle": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.tab": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "accent": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "background": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "backgroundElement": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "backgroundMenu": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "backgroundPanel": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "border": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "borderActive": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "borderSubtle": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffAdded": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffAddedBg": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffAddedLineNumberBg": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffContext": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffContextBg": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffHighlightAdded": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffHighlightRemoved": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffHunkHeader": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output. This key is dropped at migration and has no effect."
+        },
+        "diffLineNumber": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffRemoved": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffRemovedBg": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "diffRemovedLineNumberBg": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "error": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "info": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownBlockQuote": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownCode": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownCodeBlock": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output. This key is dropped at migration and has no effect."
+        },
+        "markdownEmph": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownHeading": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownHorizontalRule": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output. This key is dropped at migration and has no effect."
+        },
+        "markdownImage": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output. This key is dropped at migration and has no effect."
+        },
+        "markdownImageText": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output. This key is dropped at migration and has no effect."
+        },
+        "markdownLink": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownLinkText": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownListEnumeration": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output. This key is dropped at migration and has no effect."
+        },
+        "markdownListItem": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownStrong": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "markdownText": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "primary": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "secondary": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "selectedListItemText": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "success": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxComment": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxFunction": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxKeyword": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxNumber": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxOperator": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxPunctuation": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxString": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxType": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "syntaxVariable": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "text": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "textMuted": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "warning": {
+          "$ref": "#/definitions/colorValue",
+          "deprecated": true,
+          "description": "Legacy v1 color key. Deprecated: author themes with the per-element entries above instead. v1 files are still accepted and auto-migrated at load, losslessly for rendered output."
+        },
+        "thinkingOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Multiplier applied to every reasoning-block foreground and to the subtle-syntax alpha (default 0.6); a scalar of theme, never part of an element entry"
+        }
       },
-      "required": ["primary", "secondary", "accent", "text", "textMuted", "background"],
       "additionalProperties": false
     }
   },
-  "required": ["theme"],
+  "required": [
+    "theme"
+  ],
   "additionalProperties": false,
   "definitions": {
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+      "description": "Hexadecimal color: #rgb, #rgba, #rrggbb or #rrggbbaa"
+    },
+    "ansiIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "description": "ANSI color index 0-255, resolved through the fixed VGA table (the terminal palette is never read)"
+    },
+    "noColor": {
+      "type": "string",
+      "enum": [
+        "none",
+        "transparent"
+      ],
+      "description": "No color: the terminal default (none) or transparent"
+    },
+    "referenceName": {
+      "type": "string",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+      "description": "Dotless reference name; resolves against defs first, then the palette"
+    },
+    "catalogElement": {
+      "type": "string",
+      "enum": [
+        "app.background",
+        "dialog.panel",
+        "dialog.underlay",
+        "dialog.title",
+        "dialog.body",
+        "dialog.muted",
+        "dialog.action",
+        "dialog.link",
+        "dialog.notice",
+        "dialog.error",
+        "dialog.retry",
+        "dialog.route.warning",
+        "dialog.route.home",
+        "dialog.session.gutter",
+        "dialog.session.deleted",
+        "dialog.changes.list",
+        "dialog.changes.added",
+        "dialog.changes.removed",
+        "dialog.console.email",
+        "dialog.plugins.active",
+        "dialog.plugins.inactive",
+        "dialog.mcp.enabled",
+        "dialog.provider.connected",
+        "dialog.status.ok",
+        "dialog.status.warn",
+        "dialog.status.error",
+        "dialog.debug.copied",
+        "dialog.export.option",
+        "dialog.export.option.active",
+        "dialog.prompt.cursor.busy",
+        "dialog.select.filter",
+        "dialog.select.filter.cursor",
+        "dialog.select.row",
+        "dialog.select.row.selected",
+        "dialog.select.row.selected.unfocused",
+        "dialog.select.category",
+        "dialog.select.footer",
+        "dialog.select.footer.label",
+        "dialog.select.footer.active",
+        "dialog.select.footer.disabled",
+        "dialog.select.marker",
+        "autocomplete.menu",
+        "autocomplete.menu.border",
+        "autocomplete.row",
+        "autocomplete.row.selected",
+        "autocomplete.muted",
+        "prompt.container",
+        "prompt.container.border",
+        "prompt.shell.border",
+        "prompt.text",
+        "prompt.placeholder",
+        "prompt.cursor",
+        "prompt.cursor.disabled",
+        "prompt.notice",
+        "prompt.chip",
+        "prompt.meta",
+        "prompt.retry",
+        "prompt.interrupt",
+        "prompt.editor.pending",
+        "prompt.extmark.file",
+        "prompt.extmark.agent",
+        "prompt.extmark.paste",
+        "message.user.body",
+        "message.user.body.hover",
+        "message.user.badge",
+        "message.user.file",
+        "message.assistant.body",
+        "message.assistant.meta",
+        "message.assistant.meta.mode",
+        "message.assistant.meta.variant",
+        "message.system.body",
+        "message.reasoning.header",
+        "message.reasoning.body",
+        "message.tool.card",
+        "message.tool.card.hover",
+        "message.tool.card.border",
+        "message.tool.gutter",
+        "message.tool.header",
+        "message.tool.body",
+        "message.tool.body.pending",
+        "message.tool.status.pending",
+        "message.tool.status.error",
+        "message.tool.status.done",
+        "message.tool.args.denied",
+        "message.error.panel",
+        "message.error.border",
+        "message.error.body",
+        "message.revert",
+        "message.revert.hover",
+        "message.queued",
+        "message.timestamp",
+        "message.compaction",
+        "footer.panel",
+        "footer.text",
+        "footer.muted",
+        "footer.permission",
+        "footer.status.ok",
+        "footer.status.warn",
+        "footer.status.error",
+        "sidebar.panel",
+        "sidebar.dim",
+        "sidebar.text",
+        "sidebar.muted",
+        "sidebar.strong",
+        "sidebar.emphasized",
+        "sidebar.item.open",
+        "sidebar.status.ok",
+        "sidebar.status.warn",
+        "sidebar.status.error",
+        "sidebar.todo.pending",
+        "sidebar.getting-started",
+        "sidebar.files.added",
+        "sidebar.files.removed",
+        "scrollbar.track",
+        "scrollbar.track.overlay",
+        "scrollbar.thumb",
+        "scrollbar.thumb.active",
+        "diff.text",
+        "diff.border",
+        "diff.line.added",
+        "diff.line.removed",
+        "diff.line.context",
+        "diff.sign.added",
+        "diff.sign.removed",
+        "diff.gutter",
+        "diff.gutter.added",
+        "diff.gutter.removed",
+        "diff.banner.added",
+        "diff.banner.removed",
+        "diff.filetree.row",
+        "diff.filetree.row.selected",
+        "diff.filetree.row.selected.name",
+        "markdown.text",
+        "markdown.bg",
+        "markdown.heading",
+        "markdown.heading.h1",
+        "markdown.strong",
+        "markdown.emph",
+        "markdown.quote",
+        "markdown.list",
+        "markdown.code.inline",
+        "markdown.code.block",
+        "markdown.link",
+        "markdown.link.label",
+        "markdown.label",
+        "markdown.underline",
+        "syntax.default",
+        "syntax.comment",
+        "syntax.keyword",
+        "syntax.keyword.import",
+        "syntax.escape",
+        "syntax.tag.attribute",
+        "syntax.string",
+        "syntax.number",
+        "syntax.type",
+        "syntax.type.definition",
+        "syntax.type.keyword",
+        "syntax.function",
+        "syntax.variable",
+        "syntax.operator",
+        "syntax.punctuation",
+        "syntax.error",
+        "syntax.error.strong",
+        "syntax.comment.error",
+        "syntax.warning",
+        "syntax.warning.strong",
+        "syntax.comment.warning",
+        "syntax.todo",
+        "syntax.comment.todo",
+        "syntax.checked",
+        "syntax.conceal",
+        "syntax.prompt",
+        "syntax.diff.plus",
+        "syntax.diff.minus",
+        "syntax.diff.delta",
+        "toast.panel",
+        "toast.title",
+        "toast.body",
+        "toast.error.border",
+        "toast.info.border",
+        "toast.success.border",
+        "toast.warning.border",
+        "permission.panel",
+        "permission.border",
+        "permission.border.reject",
+        "permission.marker",
+        "permission.marker.reject",
+        "permission.option",
+        "permission.option.selected",
+        "permission.caption",
+        "permission.bar",
+        "permission.body",
+        "permission.text",
+        "permission.text.cursor",
+        "question.panel",
+        "question.border",
+        "question.tab",
+        "question.tab.active",
+        "question.tab.hover",
+        "question.option",
+        "question.option.hover",
+        "question.option.hover.number",
+        "question.option.selected",
+        "question.option.picked",
+        "question.muted",
+        "question.unanswered",
+        "question.body",
+        "question.review",
+        "question.text",
+        "question.text.cursor",
+        "question.hint",
+        "subagent.footer.panel",
+        "subagent.footer.border",
+        "subagent.footer.text",
+        "subagent.footer.strong",
+        "subagent.footer.muted",
+        "subagent.footer.hover",
+        "which-key.panel",
+        "which-key.text",
+        "which-key.muted",
+        "which-key.key",
+        "which-key.subtle",
+        "which-key.tab",
+        "which-key.accent",
+        "startup.panel",
+        "startup.loading",
+        "logo.left",
+        "logo.right",
+        "logo.shadow",
+        "bg-pulse.panel",
+        "bg-pulse.accent",
+        "bg-pulse.base",
+        "tips.marker",
+        "run.background",
+        "run.footer.text",
+        "run.footer.muted",
+        "run.footer.highlight",
+        "run.footer.warn",
+        "run.footer.success",
+        "run.footer.error",
+        "run.footer.selected",
+        "run.footer.selected-text",
+        "run.footer.pane",
+        "run.footer.border",
+        "run.entry.system",
+        "run.entry.user",
+        "run.entry.assistant",
+        "run.entry.reasoning",
+        "run.entry.tool",
+        "run.entry.tool.start",
+        "run.entry.error",
+        "run.splash.left",
+        "run.splash.right",
+        "run.block.highlight",
+        "run.block.warning",
+        "run.block.text",
+        "run.block.muted",
+        "run.block.diff.added",
+        "run.block.diff.removed",
+        "run.block.diff.added-bg",
+        "run.block.diff.removed-bg",
+        "run.block.diff.context-bg",
+        "run.block.diff.highlight-added",
+        "run.block.diff.highlight-removed",
+        "run.block.diff.line-number",
+        "run.block.diff.added-line-number-bg",
+        "run.block.diff.removed-line-number-bg"
+      ],
+      "description": "Dotted reference to a catalog element; resolves channel-wise (an fg reference takes the element's foreground, a bg reference its background; attributes never flow)"
+    },
+    "variant": {
+      "type": "object",
+      "properties": {
+        "dark": {
+          "$ref": "#/definitions/colorValue"
+        },
+        "light": {
+          "$ref": "#/definitions/colorValue"
+        }
+      },
+      "required": [
+        "dark",
+        "light"
+      ],
+      "additionalProperties": false,
+      "description": "Separate color values for dark and light mode; the arm matching the active mode is used"
+    },
     "colorValue": {
-      "oneOf": [
+      "anyOf": [
         {
           "type": "string",
-          "pattern": "^#[0-9a-fA-F]{6}$",
-          "description": "Hex color value (same for dark and light)"
+          "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+          "description": "Hexadecimal color: #rgb, #rgba, #rrggbb or #rrggbbaa"
         },
         {
           "type": "integer",
           "minimum": 0,
           "maximum": 255,
-          "description": "ANSI color code (0-255, same for dark and light)"
+          "description": "ANSI color index 0-255, resolved through the fixed VGA table (the terminal palette is never read)"
         },
         {
           "type": "string",
-          "enum": ["none"],
-          "description": "No color (uses terminal default)"
+          "enum": [
+            "none",
+            "transparent"
+          ],
+          "description": "No color: the terminal default (none) or transparent"
         },
         {
           "type": "string",
-          "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
-          "description": "Reference to another color in the theme or defs"
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+          "description": "Dotless reference name; resolves against defs first, then the palette"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "app.background",
+            "dialog.panel",
+            "dialog.underlay",
+            "dialog.title",
+            "dialog.body",
+            "dialog.muted",
+            "dialog.action",
+            "dialog.link",
+            "dialog.notice",
+            "dialog.error",
+            "dialog.retry",
+            "dialog.route.warning",
+            "dialog.route.home",
+            "dialog.session.gutter",
+            "dialog.session.deleted",
+            "dialog.changes.list",
+            "dialog.changes.added",
+            "dialog.changes.removed",
+            "dialog.console.email",
+            "dialog.plugins.active",
+            "dialog.plugins.inactive",
+            "dialog.mcp.enabled",
+            "dialog.provider.connected",
+            "dialog.status.ok",
+            "dialog.status.warn",
+            "dialog.status.error",
+            "dialog.debug.copied",
+            "dialog.export.option",
+            "dialog.export.option.active",
+            "dialog.prompt.cursor.busy",
+            "dialog.select.filter",
+            "dialog.select.filter.cursor",
+            "dialog.select.row",
+            "dialog.select.row.selected",
+            "dialog.select.row.selected.unfocused",
+            "dialog.select.category",
+            "dialog.select.footer",
+            "dialog.select.footer.label",
+            "dialog.select.footer.active",
+            "dialog.select.footer.disabled",
+            "dialog.select.marker",
+            "autocomplete.menu",
+            "autocomplete.menu.border",
+            "autocomplete.row",
+            "autocomplete.row.selected",
+            "autocomplete.muted",
+            "prompt.container",
+            "prompt.container.border",
+            "prompt.shell.border",
+            "prompt.text",
+            "prompt.placeholder",
+            "prompt.cursor",
+            "prompt.cursor.disabled",
+            "prompt.notice",
+            "prompt.chip",
+            "prompt.meta",
+            "prompt.retry",
+            "prompt.interrupt",
+            "prompt.editor.pending",
+            "prompt.extmark.file",
+            "prompt.extmark.agent",
+            "prompt.extmark.paste",
+            "message.user.body",
+            "message.user.body.hover",
+            "message.user.badge",
+            "message.user.file",
+            "message.assistant.body",
+            "message.assistant.meta",
+            "message.assistant.meta.mode",
+            "message.assistant.meta.variant",
+            "message.system.body",
+            "message.reasoning.header",
+            "message.reasoning.body",
+            "message.tool.card",
+            "message.tool.card.hover",
+            "message.tool.card.border",
+            "message.tool.gutter",
+            "message.tool.header",
+            "message.tool.body",
+            "message.tool.body.pending",
+            "message.tool.status.pending",
+            "message.tool.status.error",
+            "message.tool.status.done",
+            "message.tool.args.denied",
+            "message.error.panel",
+            "message.error.border",
+            "message.error.body",
+            "message.revert",
+            "message.revert.hover",
+            "message.queued",
+            "message.timestamp",
+            "message.compaction",
+            "footer.panel",
+            "footer.text",
+            "footer.muted",
+            "footer.permission",
+            "footer.status.ok",
+            "footer.status.warn",
+            "footer.status.error",
+            "sidebar.panel",
+            "sidebar.dim",
+            "sidebar.text",
+            "sidebar.muted",
+            "sidebar.strong",
+            "sidebar.emphasized",
+            "sidebar.item.open",
+            "sidebar.status.ok",
+            "sidebar.status.warn",
+            "sidebar.status.error",
+            "sidebar.todo.pending",
+            "sidebar.getting-started",
+            "sidebar.files.added",
+            "sidebar.files.removed",
+            "scrollbar.track",
+            "scrollbar.track.overlay",
+            "scrollbar.thumb",
+            "scrollbar.thumb.active",
+            "diff.text",
+            "diff.border",
+            "diff.line.added",
+            "diff.line.removed",
+            "diff.line.context",
+            "diff.sign.added",
+            "diff.sign.removed",
+            "diff.gutter",
+            "diff.gutter.added",
+            "diff.gutter.removed",
+            "diff.banner.added",
+            "diff.banner.removed",
+            "diff.filetree.row",
+            "diff.filetree.row.selected",
+            "diff.filetree.row.selected.name",
+            "markdown.text",
+            "markdown.bg",
+            "markdown.heading",
+            "markdown.heading.h1",
+            "markdown.strong",
+            "markdown.emph",
+            "markdown.quote",
+            "markdown.list",
+            "markdown.code.inline",
+            "markdown.code.block",
+            "markdown.link",
+            "markdown.link.label",
+            "markdown.label",
+            "markdown.underline",
+            "syntax.default",
+            "syntax.comment",
+            "syntax.keyword",
+            "syntax.keyword.import",
+            "syntax.escape",
+            "syntax.tag.attribute",
+            "syntax.string",
+            "syntax.number",
+            "syntax.type",
+            "syntax.type.definition",
+            "syntax.type.keyword",
+            "syntax.function",
+            "syntax.variable",
+            "syntax.operator",
+            "syntax.punctuation",
+            "syntax.error",
+            "syntax.error.strong",
+            "syntax.comment.error",
+            "syntax.warning",
+            "syntax.warning.strong",
+            "syntax.comment.warning",
+            "syntax.todo",
+            "syntax.comment.todo",
+            "syntax.checked",
+            "syntax.conceal",
+            "syntax.prompt",
+            "syntax.diff.plus",
+            "syntax.diff.minus",
+            "syntax.diff.delta",
+            "toast.panel",
+            "toast.title",
+            "toast.body",
+            "toast.error.border",
+            "toast.info.border",
+            "toast.success.border",
+            "toast.warning.border",
+            "permission.panel",
+            "permission.border",
+            "permission.border.reject",
+            "permission.marker",
+            "permission.marker.reject",
+            "permission.option",
+            "permission.option.selected",
+            "permission.caption",
+            "permission.bar",
+            "permission.body",
+            "permission.text",
+            "permission.text.cursor",
+            "question.panel",
+            "question.border",
+            "question.tab",
+            "question.tab.active",
+            "question.tab.hover",
+            "question.option",
+            "question.option.hover",
+            "question.option.hover.number",
+            "question.option.selected",
+            "question.option.picked",
+            "question.muted",
+            "question.unanswered",
+            "question.body",
+            "question.review",
+            "question.text",
+            "question.text.cursor",
+            "question.hint",
+            "subagent.footer.panel",
+            "subagent.footer.border",
+            "subagent.footer.text",
+            "subagent.footer.strong",
+            "subagent.footer.muted",
+            "subagent.footer.hover",
+            "which-key.panel",
+            "which-key.text",
+            "which-key.muted",
+            "which-key.key",
+            "which-key.subtle",
+            "which-key.tab",
+            "which-key.accent",
+            "startup.panel",
+            "startup.loading",
+            "logo.left",
+            "logo.right",
+            "logo.shadow",
+            "bg-pulse.panel",
+            "bg-pulse.accent",
+            "bg-pulse.base",
+            "tips.marker",
+            "run.background",
+            "run.footer.text",
+            "run.footer.muted",
+            "run.footer.highlight",
+            "run.footer.warn",
+            "run.footer.success",
+            "run.footer.error",
+            "run.footer.selected",
+            "run.footer.selected-text",
+            "run.footer.pane",
+            "run.footer.border",
+            "run.entry.system",
+            "run.entry.user",
+            "run.entry.assistant",
+            "run.entry.reasoning",
+            "run.entry.tool",
+            "run.entry.tool.start",
+            "run.entry.error",
+            "run.splash.left",
+            "run.splash.right",
+            "run.block.highlight",
+            "run.block.warning",
+            "run.block.text",
+            "run.block.muted",
+            "run.block.diff.added",
+            "run.block.diff.removed",
+            "run.block.diff.added-bg",
+            "run.block.diff.removed-bg",
+            "run.block.diff.context-bg",
+            "run.block.diff.highlight-added",
+            "run.block.diff.highlight-removed",
+            "run.block.diff.line-number",
+            "run.block.diff.added-line-number-bg",
+            "run.block.diff.removed-line-number-bg"
+          ],
+          "description": "Dotted reference to a catalog element; resolves channel-wise (an fg reference takes the element's foreground, a bg reference its background; attributes never flow)"
         },
         {
           "type": "object",
           "properties": {
             "dark": {
-              "oneOf": [
-                {
-                  "type": "string",
-                  "pattern": "^#[0-9a-fA-F]{6}$",
-                  "description": "Hex color value for dark mode"
-                },
-                {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 255,
-                  "description": "ANSI color code for dark mode"
-                },
-                {
-                  "type": "string",
-                  "enum": ["none"],
-                  "description": "No color (uses terminal default)"
-                },
-                {
-                  "type": "string",
-                  "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
-                  "description": "Reference to another color for dark mode"
-                }
-              ]
+              "$ref": "#/definitions/colorValue"
             },
             "light": {
-              "oneOf": [
-                {
-                  "type": "string",
-                  "pattern": "^#[0-9a-fA-F]{6}$",
-                  "description": "Hex color value for light mode"
-                },
-                {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 255,
-                  "description": "ANSI color code for light mode"
-                },
-                {
-                  "type": "string",
-                  "enum": ["none"],
-                  "description": "No color (uses terminal default)"
-                },
-                {
-                  "type": "string",
-                  "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
-                  "description": "Reference to another color for light mode"
-                }
-              ]
+              "$ref": "#/definitions/colorValue"
             }
           },
-          "required": ["dark", "light"],
+          "required": [
+            "dark",
+            "light"
+          ],
           "additionalProperties": false,
-          "description": "Separate colors for dark and light modes"
+          "description": "Separate color values for dark and light mode; the arm matching the active mode is used"
         }
-      ]
+      ],
+      "description": "A color value: hex string, ANSI index, none/transparent, a reference name, or a {dark, light} variant pair"
+    },
+    "defValue": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+          "description": "Hexadecimal color: #rgb, #rgba, #rrggbb or #rrggbbaa"
+        },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "ANSI color index 0-255, resolved through the fixed VGA table (the terminal palette is never read)"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "none",
+            "transparent"
+          ],
+          "description": "No color: the terminal default (none) or transparent"
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+          "description": "Dotless reference name; resolves against defs first, then the palette"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "app.background",
+            "dialog.panel",
+            "dialog.underlay",
+            "dialog.title",
+            "dialog.body",
+            "dialog.muted",
+            "dialog.action",
+            "dialog.link",
+            "dialog.notice",
+            "dialog.error",
+            "dialog.retry",
+            "dialog.route.warning",
+            "dialog.route.home",
+            "dialog.session.gutter",
+            "dialog.session.deleted",
+            "dialog.changes.list",
+            "dialog.changes.added",
+            "dialog.changes.removed",
+            "dialog.console.email",
+            "dialog.plugins.active",
+            "dialog.plugins.inactive",
+            "dialog.mcp.enabled",
+            "dialog.provider.connected",
+            "dialog.status.ok",
+            "dialog.status.warn",
+            "dialog.status.error",
+            "dialog.debug.copied",
+            "dialog.export.option",
+            "dialog.export.option.active",
+            "dialog.prompt.cursor.busy",
+            "dialog.select.filter",
+            "dialog.select.filter.cursor",
+            "dialog.select.row",
+            "dialog.select.row.selected",
+            "dialog.select.row.selected.unfocused",
+            "dialog.select.category",
+            "dialog.select.footer",
+            "dialog.select.footer.label",
+            "dialog.select.footer.active",
+            "dialog.select.footer.disabled",
+            "dialog.select.marker",
+            "autocomplete.menu",
+            "autocomplete.menu.border",
+            "autocomplete.row",
+            "autocomplete.row.selected",
+            "autocomplete.muted",
+            "prompt.container",
+            "prompt.container.border",
+            "prompt.shell.border",
+            "prompt.text",
+            "prompt.placeholder",
+            "prompt.cursor",
+            "prompt.cursor.disabled",
+            "prompt.notice",
+            "prompt.chip",
+            "prompt.meta",
+            "prompt.retry",
+            "prompt.interrupt",
+            "prompt.editor.pending",
+            "prompt.extmark.file",
+            "prompt.extmark.agent",
+            "prompt.extmark.paste",
+            "message.user.body",
+            "message.user.body.hover",
+            "message.user.badge",
+            "message.user.file",
+            "message.assistant.body",
+            "message.assistant.meta",
+            "message.assistant.meta.mode",
+            "message.assistant.meta.variant",
+            "message.system.body",
+            "message.reasoning.header",
+            "message.reasoning.body",
+            "message.tool.card",
+            "message.tool.card.hover",
+            "message.tool.card.border",
+            "message.tool.gutter",
+            "message.tool.header",
+            "message.tool.body",
+            "message.tool.body.pending",
+            "message.tool.status.pending",
+            "message.tool.status.error",
+            "message.tool.status.done",
+            "message.tool.args.denied",
+            "message.error.panel",
+            "message.error.border",
+            "message.error.body",
+            "message.revert",
+            "message.revert.hover",
+            "message.queued",
+            "message.timestamp",
+            "message.compaction",
+            "footer.panel",
+            "footer.text",
+            "footer.muted",
+            "footer.permission",
+            "footer.status.ok",
+            "footer.status.warn",
+            "footer.status.error",
+            "sidebar.panel",
+            "sidebar.dim",
+            "sidebar.text",
+            "sidebar.muted",
+            "sidebar.strong",
+            "sidebar.emphasized",
+            "sidebar.item.open",
+            "sidebar.status.ok",
+            "sidebar.status.warn",
+            "sidebar.status.error",
+            "sidebar.todo.pending",
+            "sidebar.getting-started",
+            "sidebar.files.added",
+            "sidebar.files.removed",
+            "scrollbar.track",
+            "scrollbar.track.overlay",
+            "scrollbar.thumb",
+            "scrollbar.thumb.active",
+            "diff.text",
+            "diff.border",
+            "diff.line.added",
+            "diff.line.removed",
+            "diff.line.context",
+            "diff.sign.added",
+            "diff.sign.removed",
+            "diff.gutter",
+            "diff.gutter.added",
+            "diff.gutter.removed",
+            "diff.banner.added",
+            "diff.banner.removed",
+            "diff.filetree.row",
+            "diff.filetree.row.selected",
+            "diff.filetree.row.selected.name",
+            "markdown.text",
+            "markdown.bg",
+            "markdown.heading",
+            "markdown.heading.h1",
+            "markdown.strong",
+            "markdown.emph",
+            "markdown.quote",
+            "markdown.list",
+            "markdown.code.inline",
+            "markdown.code.block",
+            "markdown.link",
+            "markdown.link.label",
+            "markdown.label",
+            "markdown.underline",
+            "syntax.default",
+            "syntax.comment",
+            "syntax.keyword",
+            "syntax.keyword.import",
+            "syntax.escape",
+            "syntax.tag.attribute",
+            "syntax.string",
+            "syntax.number",
+            "syntax.type",
+            "syntax.type.definition",
+            "syntax.type.keyword",
+            "syntax.function",
+            "syntax.variable",
+            "syntax.operator",
+            "syntax.punctuation",
+            "syntax.error",
+            "syntax.error.strong",
+            "syntax.comment.error",
+            "syntax.warning",
+            "syntax.warning.strong",
+            "syntax.comment.warning",
+            "syntax.todo",
+            "syntax.comment.todo",
+            "syntax.checked",
+            "syntax.conceal",
+            "syntax.prompt",
+            "syntax.diff.plus",
+            "syntax.diff.minus",
+            "syntax.diff.delta",
+            "toast.panel",
+            "toast.title",
+            "toast.body",
+            "toast.error.border",
+            "toast.info.border",
+            "toast.success.border",
+            "toast.warning.border",
+            "permission.panel",
+            "permission.border",
+            "permission.border.reject",
+            "permission.marker",
+            "permission.marker.reject",
+            "permission.option",
+            "permission.option.selected",
+            "permission.caption",
+            "permission.bar",
+            "permission.body",
+            "permission.text",
+            "permission.text.cursor",
+            "question.panel",
+            "question.border",
+            "question.tab",
+            "question.tab.active",
+            "question.tab.hover",
+            "question.option",
+            "question.option.hover",
+            "question.option.hover.number",
+            "question.option.selected",
+            "question.option.picked",
+            "question.muted",
+            "question.unanswered",
+            "question.body",
+            "question.review",
+            "question.text",
+            "question.text.cursor",
+            "question.hint",
+            "subagent.footer.panel",
+            "subagent.footer.border",
+            "subagent.footer.text",
+            "subagent.footer.strong",
+            "subagent.footer.muted",
+            "subagent.footer.hover",
+            "which-key.panel",
+            "which-key.text",
+            "which-key.muted",
+            "which-key.key",
+            "which-key.subtle",
+            "which-key.tab",
+            "which-key.accent",
+            "startup.panel",
+            "startup.loading",
+            "logo.left",
+            "logo.right",
+            "logo.shadow",
+            "bg-pulse.panel",
+            "bg-pulse.accent",
+            "bg-pulse.base",
+            "tips.marker",
+            "run.background",
+            "run.footer.text",
+            "run.footer.muted",
+            "run.footer.highlight",
+            "run.footer.warn",
+            "run.footer.success",
+            "run.footer.error",
+            "run.footer.selected",
+            "run.footer.selected-text",
+            "run.footer.pane",
+            "run.footer.border",
+            "run.entry.system",
+            "run.entry.user",
+            "run.entry.assistant",
+            "run.entry.reasoning",
+            "run.entry.tool",
+            "run.entry.tool.start",
+            "run.entry.error",
+            "run.splash.left",
+            "run.splash.right",
+            "run.block.highlight",
+            "run.block.warning",
+            "run.block.text",
+            "run.block.muted",
+            "run.block.diff.added",
+            "run.block.diff.removed",
+            "run.block.diff.added-bg",
+            "run.block.diff.removed-bg",
+            "run.block.diff.context-bg",
+            "run.block.diff.highlight-added",
+            "run.block.diff.highlight-removed",
+            "run.block.diff.line-number",
+            "run.block.diff.added-line-number-bg",
+            "run.block.diff.removed-line-number-bg"
+          ],
+          "description": "Dotted reference to a catalog element; resolves channel-wise (an fg reference takes the element's foreground, a bg reference its background; attributes never flow)"
+        }
+      ],
+      "description": "A constant color: hex, ANSI index, none/transparent, or a reference name (no dark/light variants)"
+    },
+    "attributes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "bold",
+          "dim",
+          "italic",
+          "underline",
+          "blink",
+          "inverse",
+          "hidden",
+          "strikethrough"
+        ]
+      },
+      "uniqueItems": true,
+      "description": "Text attributes applied to the element; replaces the element's default set wholesale"
+    },
+    "elementStyle": {
+      "type": "object",
+      "properties": {
+        "fg": {
+          "$ref": "#/definitions/colorValue"
+        },
+        "bg": {
+          "$ref": "#/definitions/colorValue"
+        },
+        "attributes": {
+          "$ref": "#/definitions/attributes"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Style entry for one element; omitted channels keep their catalog defaults"
     }
   }
 }

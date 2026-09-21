@@ -378,7 +378,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   const sdk = useSDK()
   const toast = useToast()
   const themeState = useTheme()
-  const { theme, mode, setMode, locked, lock, unlock } = themeState
+  const { mode, setMode, locked, lock, unlock } = themeState
   const sync = useSync()
   const project = useProject()
   const exit = useExit()
@@ -1091,7 +1091,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
       width={dimensions().width}
       height={dimensions().height}
       flexDirection="column"
-      backgroundColor={theme.background}
+      backgroundColor={themeState.element("app.background").bg}
       onMouseDown={(evt) => {
         if (!Flag.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT) return
         if (evt.button !== MouseButton.RIGHT) return

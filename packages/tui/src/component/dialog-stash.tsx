@@ -29,7 +29,7 @@ function getStashPreview(input: string, maxLength: number = 50): string {
 export function DialogStash(props: { onSelect: (entry: StashEntry) => void }) {
   const dialog = useDialog()
   const stash = usePromptStash()
-  const { theme } = useTheme()
+  const { element } = useTheme()
 
   const [toDelete, setToDelete] = createSignal<number>()
   const deleteHint = useCommandShortcut("stash.delete")
@@ -43,7 +43,7 @@ export function DialogStash(props: { onSelect: (entry: StashEntry) => void }) {
         const lineCount = (entry.input.match(/\n/g)?.length ?? 0) + 1
         return {
           title: isDeleting ? `Press ${deleteHint()} again to confirm` : getStashPreview(entry.input),
-          bg: isDeleting ? theme.error : undefined,
+          bg: isDeleting ? element("dialog.session.deleted").bg : undefined,
           value: index,
           description: getRelativeTime(entry.timestamp),
           footer: lineCount > 1 ? `~${lineCount} lines` : undefined,

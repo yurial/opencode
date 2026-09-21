@@ -2,6 +2,7 @@ import { createMemo, createSignal, Show } from "solid-js"
 import { useRouteData } from "../../context/route"
 import { useSync } from "../../context/sync"
 import { useTheme } from "../../context/theme"
+import { textAttributes } from "../../theme/catalog"
 import { SplitBorder } from "../../ui/border"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "../../util/locale"
@@ -54,7 +55,7 @@ export function SubagentFooter() {
     }
   })
 
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const keymap = useOpencodeKeymap()
   const parentShortcut = useCommandShortcut("session.parent")
   const previousShortcut = useCommandShortcut("session.child.previous")
@@ -71,23 +72,26 @@ export function SubagentFooter() {
         paddingRight={1}
         {...SplitBorder}
         border={["left"]}
-        borderColor={theme.border}
+        borderColor={element("subagent.footer.border").fg}
         flexShrink={0}
-        backgroundColor={theme.backgroundPanel}
+        backgroundColor={element("subagent.footer.panel").bg}
       >
         <box flexDirection="row" justifyContent="space-between" gap={1}>
           <box flexDirection="row" gap={1}>
-            <text fg={theme.text}>
-              <b>{subagentInfo().label}</b>
+            <text
+              fg={element("subagent.footer.strong").fg}
+              attributes={textAttributes(element("subagent.footer.strong").attributes)}
+            >
+              {subagentInfo().label}
             </text>
             <Show when={subagentInfo().total > 0}>
-              <text style={{ fg: theme.textMuted }}>
+              <text style={{ fg: element("subagent.footer.muted").fg }}>
                 ({subagentInfo().index} of {subagentInfo().total})
               </text>
             </Show>
             <Show when={usage()}>
               {(item) => (
-                <text fg={theme.textMuted} wrapMode="none">
+                <text fg={element("subagent.footer.muted").fg} wrapMode="none">
                   {[item().context, item().cost].filter(Boolean).join(" · ")}
                 </text>
               )}
@@ -98,30 +102,30 @@ export function SubagentFooter() {
               onMouseOver={() => setHover("parent")}
               onMouseOut={() => setHover(null)}
               onMouseUp={() => keymap.dispatchCommand("session.parent")}
-              backgroundColor={hover() === "parent" ? theme.backgroundElement : theme.backgroundPanel}
+              backgroundColor={hover() === "parent" ? element("subagent.footer.hover").bg : element("subagent.footer.panel").bg}
             >
-              <text fg={theme.text}>
-                Parent <span style={{ fg: theme.textMuted }}>{parentShortcut()}</span>
+              <text fg={hover() === "parent" ? element("subagent.footer.hover").fg : element("subagent.footer.text").fg}>
+                Parent <span style={{ fg: element("subagent.footer.muted").fg }}>{parentShortcut()}</span>
               </text>
             </box>
             <box
               onMouseOver={() => setHover("prev")}
               onMouseOut={() => setHover(null)}
               onMouseUp={() => keymap.dispatchCommand("session.child.previous")}
-              backgroundColor={hover() === "prev" ? theme.backgroundElement : theme.backgroundPanel}
+              backgroundColor={hover() === "prev" ? element("subagent.footer.hover").bg : element("subagent.footer.panel").bg}
             >
-              <text fg={theme.text}>
-                Prev <span style={{ fg: theme.textMuted }}>{previousShortcut()}</span>
+              <text fg={hover() === "prev" ? element("subagent.footer.hover").fg : element("subagent.footer.text").fg}>
+                Prev <span style={{ fg: element("subagent.footer.muted").fg }}>{previousShortcut()}</span>
               </text>
             </box>
             <box
               onMouseOver={() => setHover("next")}
               onMouseOut={() => setHover(null)}
               onMouseUp={() => keymap.dispatchCommand("session.child.next")}
-              backgroundColor={hover() === "next" ? theme.backgroundElement : theme.backgroundPanel}
+              backgroundColor={hover() === "next" ? element("subagent.footer.hover").bg : element("subagent.footer.panel").bg}
             >
-              <text fg={theme.text}>
-                Next <span style={{ fg: theme.textMuted }}>{nextShortcut()}</span>
+              <text fg={hover() === "next" ? element("subagent.footer.hover").fg : element("subagent.footer.text").fg}>
+                Next <span style={{ fg: element("subagent.footer.muted").fg }}>{nextShortcut()}</span>
               </text>
             </box>
           </box>

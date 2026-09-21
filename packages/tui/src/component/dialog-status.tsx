@@ -1,15 +1,16 @@
-import { TextAttributes } from "@opentui/core"
 import { fileURLToPath } from "bun"
 import { useTheme } from "../context/theme"
 import { useDialog } from "../ui/dialog"
 import { useSync } from "../context/sync"
 import { For, Match, Switch, Show, createMemo } from "solid-js"
+import { textAttributes } from "../theme/catalog"
+import type { RGBA } from "@opentui/core"
 
 export type DialogStatusProps = {}
 
 export function DialogStatus() {
   const sync = useSync()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const dialog = useDialog()
 
   const enabledFormatters = createMemo(() => sync.data.formatter.filter((f) => f.enabled))
@@ -43,16 +44,16 @@ export function DialogStatus() {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1} paddingBottom={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>
+        <text fg={element("dialog.title").fg} attributes={textAttributes(element("dialog.title").attributes)}>
           Status
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={element("dialog.muted").fg} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
-      <Show when={Object.keys(sync.data.mcp).length > 0} fallback={<text fg={theme.text}>No MCP Servers</text>}>
+      <Show when={Object.keys(sync.data.mcp).length > 0} fallback={<text fg={element("dialog.body").fg}>No MCP Servers</text>}>
         <box>
-          <text fg={theme.text}>{Object.keys(sync.data.mcp).length} MCP Servers</text>
+          <text fg={element("dialog.body").fg}>{Object.keys(sync.data.mcp).length} MCP Servers</text>
           <For each={Object.entries(sync.data.mcp)}>
             {([key, item]) => (
               <box flexDirection="row" gap={1}>
@@ -61,20 +62,20 @@ export function DialogStatus() {
                   style={{
                     fg: (
                       {
-                        connected: theme.success,
-                        failed: theme.error,
-                        disabled: theme.textMuted,
-                        needs_auth: theme.warning,
-                        needs_client_registration: theme.error,
-                      } as Record<string, typeof theme.success>
+                        connected: element("dialog.status.ok").fg,
+                        failed: element("dialog.status.error").fg,
+                        disabled: element("dialog.muted").fg,
+                        needs_auth: element("dialog.status.warn").fg,
+                        needs_client_registration: element("dialog.status.error").fg,
+                      } as Record<string, RGBA>
                     )[item.status],
                   }}
                 >
                   •
                 </text>
-                <text fg={theme.text} wrapMode="word">
+                <text fg={element("dialog.body").fg} wrapMode="word">
                   <b>{key}</b>{" "}
-                  <span style={{ fg: theme.textMuted }}>
+                  <span style={{ fg: element("dialog.muted").fg }}>
                     <Switch fallback={item.status}>
                       <Match when={item.status === "connected"}>Connected</Match>
                       <Match when={item.status === "failed" && item}>{(val) => val().error}</Match>
@@ -95,7 +96,7 @@ export function DialogStatus() {
       </Show>
       {sync.data.lsp.length > 0 && (
         <box>
-          <text fg={theme.text}>{sync.data.lsp.length} LSP Servers</text>
+          <text fg={element("dialog.body").fg}>{sync.data.lsp.length} LSP Servers</text>
           <For each={sync.data.lsp}>
             {(item) => (
               <box flexDirection="row" gap={1}>
@@ -103,36 +104,36 @@ export function DialogStatus() {
                   flexShrink={0}
                   style={{
                     fg: {
-                      connected: theme.success,
-                      error: theme.error,
+                      connected: element("dialog.status.ok").fg,
+                      error: element("dialog.status.error").fg,
                     }[item.status],
                   }}
                 >
                   •
                 </text>
-                <text fg={theme.text} wrapMode="word">
-                  <b>{item.id}</b> <span style={{ fg: theme.textMuted }}>{item.root}</span>
+                <text fg={element("dialog.body").fg} wrapMode="word">
+                  <b>{item.id}</b> <span style={{ fg: element("dialog.muted").fg }}>{item.root}</span>
                 </text>
               </box>
             )}
           </For>
         </box>
       )}
-      <Show when={enabledFormatters().length > 0} fallback={<text fg={theme.text}>No Formatters</text>}>
+      <Show when={enabledFormatters().length > 0} fallback={<text fg={element("dialog.body").fg}>No Formatters</text>}>
         <box>
-          <text fg={theme.text}>{enabledFormatters().length} Formatters</text>
+          <text fg={element("dialog.body").fg}>{enabledFormatters().length} Formatters</text>
           <For each={enabledFormatters()}>
             {(item) => (
               <box flexDirection="row" gap={1}>
                 <text
                   flexShrink={0}
                   style={{
-                    fg: theme.success,
+                    fg: element("dialog.status.ok").fg,
                   }}
                 >
                   •
                 </text>
-                <text wrapMode="word" fg={theme.text}>
+                <text wrapMode="word" fg={element("dialog.body").fg}>
                   <b>{item.name}</b>
                 </text>
               </box>
@@ -140,23 +141,23 @@ export function DialogStatus() {
           </For>
         </box>
       </Show>
-      <Show when={plugins().length > 0} fallback={<text fg={theme.text}>No Plugins</text>}>
+      <Show when={plugins().length > 0} fallback={<text fg={element("dialog.body").fg}>No Plugins</text>}>
         <box>
-          <text fg={theme.text}>{plugins().length} Plugins</text>
+          <text fg={element("dialog.body").fg}>{plugins().length} Plugins</text>
           <For each={plugins()}>
             {(item) => (
               <box flexDirection="row" gap={1}>
                 <text
                   flexShrink={0}
                   style={{
-                    fg: theme.success,
+                    fg: element("dialog.status.ok").fg,
                   }}
                 >
                   •
                 </text>
-                <text wrapMode="word" fg={theme.text}>
+                <text wrapMode="word" fg={element("dialog.body").fg}>
                   <b>{item.name}</b>
-                  {item.version && <span style={{ fg: theme.textMuted }}> @{item.version}</span>}
+                  {item.version && <span style={{ fg: element("dialog.muted").fg }}> @{item.version}</span>}
                 </text>
               </box>
             )}

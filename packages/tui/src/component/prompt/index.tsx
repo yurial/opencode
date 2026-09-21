@@ -169,7 +169,7 @@ export function Prompt(props: PromptProps) {
   const renderer = useRenderer()
   const exit = useExit()
   const dimensions = useTerminalDimensions()
-  const { theme, syntax } = useTheme()
+  const { theme, element, syntax } = useTheme()
   const kv = useKV()
   const animationsEnabled = createMemo(() => kv.get("animations_enabled", true))
   const list = createMemo(() => props.placeholders?.normal ?? [])
@@ -249,8 +249,8 @@ export function Prompt(props: PromptProps) {
 
   createEffect(() => {
     if (!input || input.isDestroyed) return
-    if (props.disabled) input.cursorColor = theme.backgroundElement
-    if (!props.disabled) input.cursorColor = theme.text
+    if (props.disabled) input.cursorColor = element("prompt.cursor.disabled").bg
+    if (!props.disabled) input.cursorColor = element("prompt.cursor").fg
     if (tuiConfig.cursor) input.cursorStyle = tuiConfig.cursor
   })
 
@@ -1286,10 +1286,10 @@ export function Prompt(props: PromptProps) {
   }
 
   const highlight = createMemo(() => {
-    if (leader()) return theme.border
-    if (store.mode === "shell") return theme.primary
+    if (leader()) return element("prompt.container.border").fg
+    if (store.mode === "shell") return element("prompt.shell.border").fg
     const agent = local.agent.current()
-    if (!agent) return theme.border
+    if (!agent) return element("prompt.container.border").fg
     return local.agent.color(agent.name)
   })
 
@@ -1306,7 +1306,7 @@ export function Prompt(props: PromptProps) {
     () => !!local.agent.current() && store.mode === "normal" && showVariant(),
     animationsEnabled,
   )
-  const borderHighlight = createMemo(() => tint(theme.border, highlight(), agentMetaAlpha()))
+  const borderHighlight = createMemo(() => tint(element("prompt.container.border").fg, highlight(), agentMetaAlpha()))
 
   const placeholderText = createMemo(() => {
     if (props.showPlaceholder === false) return undefined
@@ -1324,7 +1324,7 @@ export function Prompt(props: PromptProps) {
       status().type !== "idle"
         ? (local.agent.list().find((a) => a.name === lastUserMessage()?.agent) ?? local.agent.current())
         : local.agent.current()
-    const color = agent ? local.agent.color(agent.name) : theme.border
+    const color = agent ? local.agent.color(agent.name) : element("prompt.container.border").fg
     return {
       frames: createFrames({
         color,
@@ -1362,16 +1362,16 @@ export function Prompt(props: PromptProps) {
             paddingRight={2}
             paddingTop={1}
             flexShrink={0}
-            backgroundColor={theme.backgroundElement}
+            backgroundColor={element("prompt.container").bg}
             flexGrow={1}
             width="100%"
           >
             <textarea
               width="100%"
               placeholder={placeholderText()}
-              placeholderColor={theme.textMuted}
-              textColor={leader() ? theme.textMuted : theme.text}
-              focusedTextColor={leader() ? theme.textMuted : theme.text}
+              placeholderColor={element("prompt.placeholder").fg}
+              textColor={leader() ? theme.textMuted : element("prompt.text").fg}
+              focusedTextColor={leader() ? theme.textMuted : element("prompt.text").fg}
               minHeight={1}
               maxHeight={maxHeight()}
               onContentChange={() => {
@@ -1431,13 +1431,13 @@ export function Prompt(props: PromptProps) {
                 setTimeout(() => {
                   // setTimeout is a workaround and needs to be addressed properly
                   if (!input || input.isDestroyed) return
-                  input.cursorColor = theme.text
+                  input.cursorColor = element("prompt.cursor").fg
                   if (tuiConfig.cursor) input.cursorStyle = tuiConfig.cursor
                 }, 0)
               }}
               onMouseDown={(r: MouseEvent) => r.target?.focus()}
-              focusedBackgroundColor={theme.backgroundElement}
-              cursorColor={props.disabled ? theme.backgroundElement : theme.text}
+              focusedBackgroundColor={element("prompt.container").bg}
+              cursorColor={props.disabled ? element("prompt.cursor.disabled").bg : element("prompt.cursor").fg}
               cursorStyle={tuiConfig.cursor}
               syntaxStyle={syntax()}
             />
@@ -1450,22 +1450,27 @@ export function Prompt(props: PromptProps) {
                         {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
                       </text>
                       <Show when={store.mode === "normal" && local.permission.mode === "auto"}>
-                        <text fg={fadeColor(theme.textMuted, agentMetaAlpha())}>auto</text>
+                        <text fg={fadeColor(element("prompt.meta").fg, agentMetaAlpha())}>auto</text>
                       </Show>
                       <Show when={store.mode === "normal"}>
                         <box flexDirection="row" gap={1}>
-                          <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>·</text>
+                          <text fg={fadeColor(element("prompt.meta").fg, modelMetaAlpha())}>·</text>
                           <text
                             flexShrink={0}
                             fg={fadeColor(leader() ? theme.textMuted : theme.text, modelMetaAlpha())}
                           >
                             {local.model.parsed().model}
                           </text>
-                          <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>{currentProviderLabel()}</text>
+                          <text fg={fadeColor(element("prompt.meta").fg, modelMetaAlpha())}>{currentProviderLabel()}</text>
                           <Show when={showVariant()}>
-                            <text fg={fadeColor(theme.textMuted, variantMetaAlpha())}>·</text>
+                            <text fg={fadeColor(element("prompt.meta").fg, variantMetaAlpha())}>·</text>
                             <text>
-                              <span style={{ fg: fadeColor(theme.warning, variantMetaAlpha()), bold: true }}>
+                              <span
+                                style={{
+                                  fg: fadeColor(element("message.assistant.meta.variant").fg, variantMetaAlpha()),
+                                  bold: element("message.assistant.meta.variant").attributes.has("bold"),
+                                }}
+                              >
                                 {local.model.variant.current()}
                               </span>
                             </text>
@@ -1490,15 +1495,15 @@ export function Prompt(props: PromptProps) {
           borderColor={borderHighlight()}
           customBorderChars={{
             ...EmptyBorder,
-            vertical: theme.backgroundElement.a !== 0 ? "╹" : " ",
+            vertical: element("prompt.container").bg.a !== 0 ? "╹" : " ",
           }}
         >
           <box
             height={1}
             border={["bottom"]}
-            borderColor={theme.backgroundElement}
+            borderColor={element("prompt.container").bg}
             customBorderChars={
-              theme.backgroundElement.a !== 0
+              element("prompt.container").bg.a !== 0
                 ? {
                     ...EmptyBorder,
                     horizontal: "▀",
@@ -1577,16 +1582,16 @@ export function Prompt(props: PromptProps) {
                       return (
                         <Show when={retry()}>
                           <box onMouseUp={handleMessageClick}>
-                            <text fg={theme.error}>{retryText()}</text>
+                            <text fg={element("prompt.retry").fg}>{retryText()}</text>
                           </box>
                         </Show>
                       )
                     })()}
                   </box>
                 </box>
-                <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
+                <text fg={store.interrupt > 0 ? element("prompt.interrupt").fg : theme.text}>
                   esc{" "}
-                  <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
+                  <span style={{ fg: store.interrupt > 0 ? element("prompt.interrupt").fg : theme.textMuted }}>
                     {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
                   </span>
                 </text>
@@ -1595,7 +1600,7 @@ export function Prompt(props: PromptProps) {
             <Match when={workspace.notice()}>
               {(notice) => (
                 <box paddingLeft={3}>
-                  <text fg={theme.accent}>{notice()}</text>
+                  <text fg={element("prompt.notice").fg}>{notice()}</text>
                 </box>
               )}
             </Match>
@@ -1603,9 +1608,9 @@ export function Prompt(props: PromptProps) {
               {(label) => (
                 <box paddingLeft={3} flexDirection="row" gap={1}>
                   <Show when={workspace.creating()}>
-                    <Spinner color={theme.accent} />
+                    <Spinner color={element("prompt.notice").fg} />
                   </Show>
-                  <text fg={workspace.creating() ? theme.accent : theme.text}>
+                  <text fg={workspace.creating() ? element("prompt.notice").fg : element("prompt.text").fg}>
                     {(() => {
                       const item = label()
                       if (item.type === "new") {
@@ -1630,7 +1635,7 @@ export function Prompt(props: PromptProps) {
             <Match when={move.progress()}>
               {(progress) => (
                 <box paddingLeft={3}>
-                  <Spinner color={theme.accent}>
+                  <Spinner color={element("prompt.notice").fg}>
                     {progress()}
                     <span style={{ fg: theme.textMuted }}>{".".repeat(move.creatingDots())}</span>
                   </Spinner>
@@ -1639,14 +1644,14 @@ export function Prompt(props: PromptProps) {
             </Match>
             <Match when={move.pendingNew()}>
               <box paddingLeft={3}>
-                <text fg={theme.accent}>(new working copy)</text>
+                <text fg={element("prompt.notice").fg}>(new working copy)</text>
               </box>
             </Match>
             <Match when={true}>
               {props.hint ?? (
                 <Show when={props.sessionID} fallback={<text />}>
                   <box marginLeft={1}>
-                    <text fg={theme.textMuted}>{location()?.directory ?? paths.cwd}</text>
+                    <text fg={element("prompt.meta").fg}>{location()?.directory ?? paths.cwd}</text>
                   </box>
                 </Show>
               )}
@@ -1656,7 +1661,7 @@ export function Prompt(props: PromptProps) {
             <box gap={2} flexDirection="row">
               <Show when={editorContextLabelState() !== "none" ? editorFileLabelDisplay() : undefined}>
                 {(file) => (
-                  <text fg={editorContextLabelState() === "pending" ? theme.secondary : theme.textMuted}>{file()}</text>
+                  <text fg={editorContextLabelState() === "pending" ? element("prompt.editor.pending").fg : theme.textMuted}>{file()}</text>
                 )}
               </Show>
               <Switch>
@@ -1664,24 +1669,24 @@ export function Prompt(props: PromptProps) {
                   <Switch>
                     <Match when={usage()}>
                       {(item) => (
-                        <text fg={theme.textMuted} wrapMode="none">
+                        <text fg={element("prompt.meta").fg} wrapMode="none">
                           {[item().context, item().cost].filter(Boolean).join(" · ")}
                         </text>
                       )}
                     </Match>
                     <Match when={true}>
-                      <text fg={theme.text}>
-                        {agentShortcut()} <span style={{ fg: theme.textMuted }}>agents</span>
+                      <text fg={element("prompt.text").fg}>
+                        {agentShortcut()} <span style={{ fg: element("prompt.meta").fg }}>agents</span>
                       </text>
                     </Match>
                   </Switch>
-                  <text fg={theme.text}>
-                    {paletteShortcut()} <span style={{ fg: theme.textMuted }}>commands</span>
+                  <text fg={element("prompt.text").fg}>
+                    {paletteShortcut()} <span style={{ fg: element("prompt.meta").fg }}>commands</span>
                   </text>
                 </Match>
                 <Match when={store.mode === "shell"}>
-                  <text fg={theme.text}>
-                    esc <span style={{ fg: theme.textMuted }}>exit shell mode</span>
+                  <text fg={element("prompt.text").fg}>
+                    esc <span style={{ fg: element("prompt.meta").fg }}>exit shell mode</span>
                   </text>
                 </Match>
               </Switch>

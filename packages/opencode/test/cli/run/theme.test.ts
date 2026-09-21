@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { RGBA, type CliRenderer, type TerminalColors } from "@opentui/core"
-import { RUN_THEME_FALLBACK, generateSystem, resolveRunTheme, resolveTheme } from "@/cli/cmd/run/theme"
+import { RUN_THEME_FALLBACK, generateSystem, loadPrepared, resolveRunTheme } from "@/cli/cmd/run/theme"
 
 const palette = ["#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"] as const
 
@@ -92,7 +92,7 @@ test("keeps footer surfaces exact while scrollback stays palette matched", async
     defaultForeground: "#e2e8f0",
   })
   const theme = await resolveRunTheme(renderer({ themeMode: "dark", colors }))
-  const exact = resolveTheme(generateSystem(colors, "dark"), "dark")
+  const exact = (await loadPrepared(generateSystem(colors, "dark"), "dark")).theme
 
   try {
     expect(expectRgba(theme.footer.selected).toInts()).toEqual(expectRgba(exact.backgroundElement).toInts())
@@ -144,33 +144,37 @@ test("keeps renderer mode when refreshed default background is unavailable", asy
   }
 })
 
-test("keeps dark surfaces neutral on saturated backgrounds", () => {
-  const theme = resolveTheme(
-    generateSystem(
-      terminalColors({
-        defaultBackground: "#0000ff",
-        defaultForeground: "#ffffff",
-      }),
+test("keeps dark surfaces neutral on saturated backgrounds", async () => {
+  const theme = (
+    await loadPrepared(
+      generateSystem(
+        terminalColors({
+          defaultBackground: "#0000ff",
+          defaultForeground: "#ffffff",
+        }),
+        "dark",
+      ),
       "dark",
-    ),
-    "dark",
-  )
+    )
+  ).theme
 
   expect(spread(theme.backgroundPanel)).toBeLessThan(10)
   expect(spread(theme.backgroundElement)).toBeLessThan(10)
 })
 
-test("keeps light surfaces close to neutral on warm backgrounds", () => {
-  const theme = resolveTheme(
-    generateSystem(
-      terminalColors({
-        defaultBackground: "#fbf1c7",
-        defaultForeground: "#3c3836",
-      }),
+test("keeps light surfaces close to neutral on warm backgrounds", async () => {
+  const theme = (
+    await loadPrepared(
+      generateSystem(
+        terminalColors({
+          defaultBackground: "#fbf1c7",
+          defaultForeground: "#3c3836",
+        }),
+        "light",
+      ),
       "light",
-    ),
-    "light",
-  )
+    )
+  ).theme
 
   expect(spread(theme.backgroundPanel)).toBeLessThan(60)
   expect(spread(theme.backgroundElement)).toBeLessThan(60)

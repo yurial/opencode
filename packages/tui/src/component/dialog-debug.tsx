@@ -1,4 +1,3 @@
-import { TextAttributes } from "@opentui/core"
 import { createMemo, createSignal, For } from "solid-js"
 import { InstallationChannel, InstallationVersion } from "@opencode-ai/core/installation/version"
 import { useTheme } from "../context/theme"
@@ -9,9 +8,10 @@ import { useClipboard } from "../context/clipboard"
 import { useToast } from "../ui/toast"
 import { useBindings } from "../keymap"
 import { describeOS, describeTerminal } from "../util/system"
+import { textAttributes } from "../theme/catalog"
 
 export function DialogDebug() {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const dialog = useDialog()
   const route = useRoute()
   const local = useLocal()
@@ -53,10 +53,10 @@ export function DialogDebug() {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1} paddingBottom={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.text} attributes={TextAttributes.BOLD}>
+        <text fg={element("dialog.title").fg} attributes={textAttributes(element("dialog.title").attributes)}>
           Debug
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={element("dialog.muted").fg} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
@@ -66,10 +66,10 @@ export function DialogDebug() {
         <For each={entries()}>
           {(entry) => (
             <box flexDirection="row" gap={1}>
-              <text flexShrink={0} fg={theme.textMuted}>
+              <text flexShrink={0} fg={element("dialog.muted").fg}>
                 {entry.label.padEnd(10)}
               </text>
-              <text fg={theme.text} wrapMode="word">
+              <text fg={element("dialog.body").fg} wrapMode="word">
                 {entry.value}
               </text>
             </box>
@@ -77,12 +77,12 @@ export function DialogDebug() {
         </For>
       </box>
       <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.textMuted}>Share this when reporting an issue.</text>
+        <text fg={element("dialog.muted").fg}>Share this when reporting an issue.</text>
         <text onMouseUp={copy}>
-          <span style={{ fg: copied() ? theme.success : theme.text }}>
+          <span style={{ fg: copied() ? element("dialog.debug.copied").fg : element("dialog.body").fg }}>
             <b>{copied() ? "✓ copied" : "copy"}</b>{" "}
           </span>
-          <span style={{ fg: theme.textMuted }}>enter</span>
+          <span style={{ fg: element("dialog.muted").fg }}>enter</span>
         </text>
       </box>
     </box>

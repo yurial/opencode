@@ -111,21 +111,87 @@ vim .opencode/themes/my-theme.json
 
 ---
 
-### JSON format
+### Theme format
 
-Themes use a flexible JSON format with support for:
+A theme file is a JSON object with three members:
 
-- **Hex colors**: `"#ffffff"`
-- **ANSI colors**: `3` (0-255)
-- **Color references**: `"primary"` or custom definitions
-- **Dark/light variants**: `{"dark": "#000", "light": "#fff"}`
-- **No color**: `"none"` - Uses the terminal's default color or transparent
+- **`$schema`** (optional) - Points at `https://opencode.ai/theme.json` for editor autocompletion. It is informational and never affects behavior.
+- **`defs`** (optional) - Named color constants you can reference elsewhere in the file.
+- **`theme`** (required) - The actual theme: a map of **element names** to style entries.
+
+Elements are addressed by dotted names, one per rendered UI surface. Each entry declares an optional foreground (`fg`), background (`bg`), and set of text `attributes`:
+
+```json title="my-theme.json"
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "theme": {
+    "dialog.title": {
+      "fg": "#ffffff",
+      "attributes": ["bold"]
+    },
+    "message.user.body": {
+      "bg": "#1a1a2e"
+    },
+    "prompt.extmark.paste": {
+      "fg": "message.user.body",
+      "bg": "warning",
+      "attributes": ["bold"]
+    },
+    "thinkingOpacity": 0.6
+  }
+}
+```
+
+An entry with only some channels set is a **partial override**: the unset channels keep the catalog defaults for that element. A present `attributes` array **replaces** the element's default attribute set wholesale - it does not merge. To remove a default attribute, list only the ones you want; to clear all attributes, use an empty array.
+
+#### Attributes
+
+The `attributes` array accepts exactly these values:
+
+`bold`, `dim`, `italic`, `underline`, `blink`, `inverse`, `hidden`, `strikethrough`
+
+Each value may appear at most once per entry.
+
+#### thinkingOpacity
+
+`thinkingOpacity` is a number between `0` and `1` (default `0.6`) that multiplies the foreground of every reasoning block, including its header, and the alpha of the subtle syntax colors. It is a scalar of `theme`, never part of an element entry.
 
 ---
 
-### Color definitions
+### Color values
 
-The `defs` section is optional and it allows you to define reusable colors that can be referenced in the theme.
+Every `fg` and `bg` value (and every `defs` constant) accepts:
+
+- **Hex colors**: `"#ffffff"`, with 3, 4, 6, or 8 digits - `"#f0f"`, `"#8015"`, `"#2eff6a"`, `"#00000096"` (the last pair of digits is the alpha channel)
+- **ANSI colors**: `3` (0-255) - resolved through a fixed color table, so your terminal's palette is never consulted
+- **No color**: `"none"` uses the terminal's default color, `"transparent"` is fully transparent
+- **References**: a name that resolves to another color (see below)
+- **Dark/light variants**: `{"dark": "#000000", "light": "#ffffff"}` - both arms are required, and the arm matching the active mode is used
+
+#### References
+
+A **dotless** reference name (letters, digits, and underscores, starting with a letter) resolves against the file's `defs` first, then the built-in palette. A **dotted** reference must be a catalog element name and resolves **channel-wise**: an `fg` reference takes the referenced element's resolved foreground, a `bg` reference takes its resolved background. Attributes never flow through a reference.
+
+```json
+{
+  "defs": {
+    "ink": "#101010"
+  },
+  "theme": {
+    "dialog.body": { "fg": "ink" },
+    "dialog.title": { "fg": "dialog.body" },
+    "prompt.text": { "bg": "dialog.title" }
+  }
+}
+```
+
+In a v2 theme the palette contains the color names of the default built-in theme - names like `primary`, `text`, `backgroundPanel`, `diffAdded`, or `syntaxKeyword` (see the [legacy key table](#legacy-format-v1-deprecated) for the full list). This is why a partial v2 theme works without redefining base colors: any name you do not mention falls back to the default theme.
+
+---
+
+### Defs
+
+The `defs` section is optional and it allows you to define reusable colors that can be referenced in the theme. A def holds a hex color, an ANSI index, `"none"`/`"transparent"`, or a reference to another def, a palette name, or an element.
 
 ---
 
@@ -133,8 +199,8 @@ The `defs` section is optional and it allows you to define reusable colors that 
 
 The special value `"none"` can be used for any color to inherit the terminal's default color. This is particularly useful for creating themes that blend seamlessly with your terminal's color scheme:
 
-- `"text": "none"` - Uses terminal's default foreground color
-- `"background": "none"` - Uses terminal's default background color
+- `"dialog.body": { "fg": "none" }` - Uses terminal's default foreground color
+- `"app.background": { "bg": "none" }` - Uses terminal's default background color
 
 ---
 
@@ -151,7 +217,6 @@ Here's an example of a custom theme:
     "nord2": "#434C5E",
     "nord3": "#4C566A",
     "nord4": "#D8DEE9",
-    "nord5": "#E5E9F0",
     "nord6": "#ECEFF4",
     "nord7": "#8FBCBB",
     "nord8": "#88C0D0",
@@ -164,206 +229,594 @@ Here's an example of a custom theme:
     "nord15": "#B48EAD"
   },
   "theme": {
-    "primary": {
-      "dark": "nord8",
-      "light": "nord10"
+    "thinkingOpacity": 0.6,
+    "app.background": {
+      "bg": { "dark": "nord0", "light": "nord6" }
     },
-    "secondary": {
-      "dark": "nord9",
-      "light": "nord9"
+    "dialog.title": {
+      "fg": { "dark": "nord8", "light": "nord10" },
+      "attributes": ["bold"]
     },
-    "accent": {
-      "dark": "nord7",
-      "light": "nord7"
+    "dialog.action": {
+      "fg": { "dark": "nord0", "light": "nord6" },
+      "bg": { "dark": "nord8", "light": "nord10" }
     },
-    "error": {
-      "dark": "nord11",
-      "light": "nord11"
+    "dialog.body": {
+      "fg": { "dark": "nord4", "light": "nord0" }
     },
-    "warning": {
-      "dark": "nord12",
-      "light": "nord12"
+    "prompt.cursor": {
+      "fg": { "dark": "nord8", "light": "nord10" }
     },
-    "success": {
-      "dark": "nord14",
-      "light": "nord14"
+    "prompt.placeholder": {
+      "fg": { "dark": "nord3", "light": "nord1" }
     },
-    "info": {
-      "dark": "nord8",
-      "light": "nord10"
+    "message.assistant.body": {
+      "fg": "dialog.body"
     },
-    "text": {
-      "dark": "nord4",
-      "light": "nord0"
+    "message.reasoning.body": {
+      "fg": { "dark": "nord3", "light": "nord1" }
     },
-    "textMuted": {
-      "dark": "nord3",
-      "light": "nord1"
+    "sidebar.strong": {
+      "attributes": ["bold", "underline"]
     },
-    "background": {
-      "dark": "nord0",
-      "light": "nord6"
+    "syntax.todo": {
+      "fg": 3,
+      "attributes": ["italic"]
     },
-    "backgroundPanel": {
-      "dark": "nord1",
-      "light": "nord5"
+    "diff.line.added": {
+      "bg": { "dark": "#3B4252", "light": "#e6f2e6" }
     },
-    "backgroundElement": {
-      "dark": "nord1",
-      "light": "nord4"
-    },
-    "border": {
-      "dark": "nord2",
-      "light": "nord3"
-    },
-    "borderActive": {
-      "dark": "nord3",
-      "light": "nord2"
-    },
-    "borderSubtle": {
-      "dark": "nord2",
-      "light": "nord3"
-    },
-    "diffAdded": {
-      "dark": "nord14",
-      "light": "nord14"
-    },
-    "diffRemoved": {
-      "dark": "nord11",
-      "light": "nord11"
-    },
-    "diffContext": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "diffHunkHeader": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "diffHighlightAdded": {
-      "dark": "nord14",
-      "light": "nord14"
-    },
-    "diffHighlightRemoved": {
-      "dark": "nord11",
-      "light": "nord11"
-    },
-    "diffAddedBg": {
-      "dark": "#3B4252",
-      "light": "#E5E9F0"
-    },
-    "diffRemovedBg": {
-      "dark": "#3B4252",
-      "light": "#E5E9F0"
-    },
-    "diffContextBg": {
-      "dark": "nord1",
-      "light": "nord5"
-    },
-    "diffLineNumber": {
-      "dark": "nord2",
-      "light": "nord4"
-    },
-    "diffAddedLineNumberBg": {
-      "dark": "#3B4252",
-      "light": "#E5E9F0"
-    },
-    "diffRemovedLineNumberBg": {
-      "dark": "#3B4252",
-      "light": "#E5E9F0"
-    },
-    "markdownText": {
-      "dark": "nord4",
-      "light": "nord0"
-    },
-    "markdownHeading": {
-      "dark": "nord8",
-      "light": "nord10"
-    },
-    "markdownLink": {
-      "dark": "nord9",
-      "light": "nord9"
-    },
-    "markdownLinkText": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "markdownCode": {
-      "dark": "nord14",
-      "light": "nord14"
-    },
-    "markdownBlockQuote": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "markdownEmph": {
-      "dark": "nord12",
-      "light": "nord12"
-    },
-    "markdownStrong": {
-      "dark": "nord13",
-      "light": "nord13"
-    },
-    "markdownHorizontalRule": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "markdownListItem": {
-      "dark": "nord8",
-      "light": "nord10"
-    },
-    "markdownListEnumeration": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "markdownImage": {
-      "dark": "nord9",
-      "light": "nord9"
-    },
-    "markdownImageText": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "markdownCodeBlock": {
-      "dark": "nord4",
-      "light": "nord0"
-    },
-    "syntaxComment": {
-      "dark": "nord3",
-      "light": "nord3"
-    },
-    "syntaxKeyword": {
-      "dark": "nord9",
-      "light": "nord9"
-    },
-    "syntaxFunction": {
-      "dark": "nord8",
-      "light": "nord8"
-    },
-    "syntaxVariable": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "syntaxString": {
-      "dark": "nord14",
-      "light": "nord14"
-    },
-    "syntaxNumber": {
-      "dark": "nord15",
-      "light": "nord15"
-    },
-    "syntaxType": {
-      "dark": "nord7",
-      "light": "nord7"
-    },
-    "syntaxOperator": {
-      "dark": "nord9",
-      "light": "nord9"
-    },
-    "syntaxPunctuation": {
-      "dark": "nord4",
-      "light": "nord0"
+    "diff.line.removed": {
+      "bg": { "dark": "#3B4252", "light": "#f2e6e6" }
     }
   }
 }
 ```
+
+Elements you do not mention keep their defaults from the catalog below, resolved against the default theme's palette.
+
+---
+
+### Errors
+
+A theme file that violates the format is rejected at load and the reason is surfaced to you. The file is excluded from the theme registry and the active theme falls back to the default built-in theme - a rejected file never renders partially. The possible reasons:
+
+| Reason                 | Meaning                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| `PARSE_ERROR`          | The file is not valid JSON                                                              |
+| `NOT_A_THEME`          | The file has no `theme` object                                                          |
+| `MIXED_FORMATS`        | v2 element entries and legacy v1 color keys are mixed in one `theme` object - use one format per file |
+| `UNKNOWN_ELEMENT`      | An element name is not in the catalog (the catalog is closed)                            |
+| `UNKNOWN_ATTRIBUTE`    | An `attributes` array contains a value outside the eight known attributes                |
+| `INVALID_COLOR`        | Malformed hex, an ANSI index outside 0-255, or a non-color value                         |
+| `UNRESOLVED_REFERENCE` | A reference name matches nothing in `defs`, the palette, or the catalog                  |
+| `CYCLIC_REFERENCE`     | A chain of references revisits a name                                                    |
+| `INVALID_ENTRY`        | An element entry has a member outside `fg`/`bg`/`attributes`, or `attributes` is not an array |
+
+Note that the published [JSON schema](https://opencode.ai/theme.json) still validates a file that mixes both formats, so editors keep offering completions for legacy files - opencode itself is stricter and rejects the mix with `MIXED_FORMATS`.
+
+---
+
+### Legacy format (v1, deprecated)
+
+Themes used to be a flat map of camelCase color keys. These files still load: they are **auto-migrated** to the element format at load, and the migration is lossless - every surface renders exactly the colors it rendered before. Mixing legacy keys with element entries in one file is rejected (`MIXED_FORMATS`), so new themes should use the element format exclusively.
+
+```json title="legacy-theme.json"
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "theme": {
+    "primary": { "dark": "#88C0D0", "light": "#5E81AC" },
+    "background": { "dark": "#2E3440", "light": "#ECEFF4" }
+  }
+}
+```
+
+A v1 file that sets only some keys is fine too: missing palette names fall back to the default built-in theme. Six keys that never reached a rendered surface (`diffHunkHeader`, `markdownHorizontalRule`, `markdownListEnumeration`, `markdownImage`, `markdownImageText`, `markdownCodeBlock`) are ignored at migration.
+
+| Key                          | Purpose                                                        |
+| ---------------------------- | -------------------------------------------------------------- |
+| `primary`                    | Primary accent color                                           |
+| `secondary`                  | Secondary accent color                                         |
+| `accent`                     | Accent color                                                   |
+| `error`                      | Error color                                                    |
+| `warning`                    | Warning color                                                  |
+| `success`                    | Success color                                                  |
+| `info`                       | Info color                                                     |
+| `text`                       | Default foreground                                             |
+| `textMuted`                  | Muted foreground                                               |
+| `selectedListItemText`       | Foreground on selected surfaces                                |
+| `background`                 | Main background                                                |
+| `backgroundPanel`            | Panel background                                               |
+| `backgroundElement`          | Element background (hover surfaces, chips)                     |
+| `backgroundMenu`             | Menu background (autocomplete, permission options)             |
+| `border`                     | Default border                                                 |
+| `borderActive`               | Active border                                                  |
+| `borderSubtle`               | Subtle border                                                  |
+| `diffAdded`                  | Added-line banner/sign color                                   |
+| `diffRemoved`                | Removed-line banner/sign color                                 |
+| `diffContext`                | Diff context foreground                                        |
+| `diffHunkHeader`             | Dropped at migration (never rendered)                          |
+| `diffHighlightAdded`         | Added-line sign highlight                                      |
+| `diffHighlightRemoved`       | Removed-line sign highlight                                    |
+| `diffAddedBg`                | Added-line background                                          |
+| `diffRemovedBg`              | Removed-line background                                        |
+| `diffContextBg`              | Context-line background                                        |
+| `diffLineNumber`             | Line-number foreground                                         |
+| `diffAddedLineNumberBg`      | Added-line number background                                   |
+| `diffRemovedLineNumberBg`    | Removed-line number background                                 |
+| `markdownText`               | Markdown body text                                             |
+| `markdownHeading`            | Markdown headings                                              |
+| `markdownLink`               | Markdown link URL                                              |
+| `markdownLinkText`           | Markdown link label                                            |
+| `markdownCode`               | Inline code                                                    |
+| `markdownBlockQuote`         | Block quotes                                                   |
+| `markdownEmph`               | Emphasized text                                                |
+| `markdownStrong`             | Strong text                                                    |
+| `markdownHorizontalRule`     | Dropped at migration (never rendered)                          |
+| `markdownListItem`           | List items                                                     |
+| `markdownListEnumeration`    | Dropped at migration (never rendered)                          |
+| `markdownImage`              | Dropped at migration (never rendered)                          |
+| `markdownImageText`          | Dropped at migration (never rendered)                          |
+| `markdownCodeBlock`          | Dropped at migration (never rendered)                          |
+| `syntaxComment`              | Comments                                                       |
+| `syntaxKeyword`              | Keywords                                                       |
+| `syntaxFunction`             | Functions                                                      |
+| `syntaxVariable`             | Variables                                                      |
+| `syntaxString`               | Strings                                                        |
+| `syntaxNumber`               | Numbers                                                        |
+| `syntaxType`                 | Types                                                          |
+| `syntaxOperator`             | Operators                                                      |
+| `syntaxPunctuation`          | Punctuation                                                    |
+
+---
+
+### Element catalog
+
+The catalog below lists every addressable element - it is a closed set, and a theme naming an element outside it is rejected with `UNKNOWN_ELEMENT`. Columns are per-channel defaults:
+
+- `—` means the transparent color for `fg`/`bg` and the empty attribute set for attributes
+- A backticked name is a [palette reference](#references) resolved against the default theme's palette
+- `selected-foreground` is a computed contrast rule evaluated against the element's own resolved background
+- `tint(...)` marks a computed blend
+- Border elements paint single-color strokes on the `fg` channel
+
+### app
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `app.background` | — | `background` | — |
+
+---
+
+### dialog — shared dialog chrome and generic dialog surfaces
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `dialog.panel` | — | `backgroundPanel` | — |
+| `dialog.underlay` | — | `#00000096` | — |
+| `dialog.title` | `text` | — | `bold` |
+| `dialog.body` | `text` | — | — |
+| `dialog.muted` | `textMuted` | — | — |
+| `dialog.action` | `selected-foreground` | `primary` | — |
+| `dialog.link` | `primary` | — | — |
+| `dialog.notice` | `accent` | — | — |
+| `dialog.error` | `error` | `backgroundPanel` | — |
+| `dialog.retry` | `selected-foreground` | `backgroundPanel` | — |
+| `dialog.route.warning` | `warning` | — | — |
+| `dialog.route.home` | `text` | `backgroundElement` | — |
+| `dialog.session.gutter` | `accent` | — | — |
+| `dialog.session.deleted` | — | `error` | — |
+| `dialog.changes.list` | — | `backgroundElement` | — |
+| `dialog.changes.added` | `diffAdded` | — | — |
+| `dialog.changes.removed` | `diffRemoved` | — | — |
+| `dialog.console.email` | `accent` | — | — |
+| `dialog.plugins.active` | `success` | — | — |
+| `dialog.plugins.inactive` | `error` | — | — |
+| `dialog.mcp.enabled` | `success` | — | — |
+| `dialog.provider.connected` | `success` | — | — |
+| `dialog.status.ok` | `success` | — | — |
+| `dialog.status.warn` | `warning` | — | — |
+| `dialog.status.error` | `error` | — | — |
+| `dialog.debug.copied` | `success` | — | — |
+| `dialog.export.option` | `text` | — | — |
+| `dialog.export.option.active` | `primary` | `backgroundElement` | — |
+| `dialog.prompt.cursor.busy` | `backgroundElement` | — | — |
+
+---
+
+### dialog.select — list/filter dialogs (DialogSelect and equivalents)
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `dialog.select.filter` | `textMuted` | `backgroundPanel` | — |
+| `dialog.select.filter.cursor` | `primary` | — | — |
+| `dialog.select.row` | `text` | — | — |
+| `dialog.select.row.selected` | `selected-foreground` | `primary` | `bold` |
+| `dialog.select.row.selected.unfocused` | `textMuted` | `backgroundElement` | — |
+| `dialog.select.category` | `accent` | — | `bold` |
+| `dialog.select.footer` | `text` | — | — |
+| `dialog.select.footer.label` | `textMuted` | — | — |
+| `dialog.select.footer.active` | `selected-foreground` | `primary` | `bold` |
+| `dialog.select.footer.disabled` | `textMuted` | — | — |
+| `dialog.select.marker` | `primary` | — | — |
+
+---
+
+### autocomplete — prompt autocomplete menu
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `autocomplete.menu` | — | `backgroundMenu` | — |
+| `autocomplete.menu.border` | `border` | — | — |
+| `autocomplete.row` | `text` | — | — |
+| `autocomplete.row.selected` | `selected-foreground` | `primary` | — |
+| `autocomplete.muted` | `textMuted` | — | — |
+
+---
+
+### prompt — editor, placeholders, chips, extmarks
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `prompt.container` | — | `backgroundElement` | — |
+| `prompt.container.border` | `border` | — | — |
+| `prompt.shell.border` | `primary` | — | — |
+| `prompt.text` | `text` | — | — |
+| `prompt.placeholder` | `textMuted` | — | — |
+| `prompt.cursor` | `text` | — | — |
+| `prompt.cursor.disabled` | — | `backgroundElement` | — |
+| `prompt.notice` | `accent` | — | — |
+| `prompt.chip` | `text` | `backgroundElement` | — |
+| `prompt.meta` | `textMuted` | — | — |
+| `prompt.retry` | `error` | — | — |
+| `prompt.interrupt` | `primary` | — | — |
+| `prompt.editor.pending` | `secondary` | — | — |
+| `prompt.extmark.file` | `warning` | — | `bold` |
+| `prompt.extmark.agent` | `secondary` | — | `bold` |
+| `prompt.extmark.paste` | `selected-foreground` | `warning` | `bold` |
+
+---
+
+### message — transcript messages per role
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `message.user.body` | `text` | `backgroundPanel` | — |
+| `message.user.body.hover` | `text` | `backgroundElement` | — |
+| `message.user.badge` | `selected-foreground` | `secondary` | — |
+| `message.user.file` | `textMuted` | `backgroundElement` | — |
+| `message.assistant.body` | `text` | — | — |
+| `message.assistant.meta` | `textMuted` | — | — |
+| `message.assistant.meta.mode` | `text` | — | — |
+| `message.assistant.meta.variant` | `warning` | — | `bold` |
+| `message.system.body` | `textMuted` | — | — |
+| `message.reasoning.header` | `warning` | — | — |
+| `message.reasoning.body` | `textMuted` | — | — |
+| `message.tool.card` | — | `backgroundPanel` | — |
+| `message.tool.card.hover` | — | `backgroundMenu` | — |
+| `message.tool.card.border` | `background` | — | — |
+| `message.tool.gutter` | `textMuted` | — | — |
+| `message.tool.header` | `textMuted` | — | — |
+| `message.tool.body` | `text` | — | — |
+| `message.tool.body.pending` | `textMuted` | — | — |
+| `message.tool.status.pending` | `warning` | — | — |
+| `message.tool.status.error` | `error` | — | — |
+| `message.tool.status.done` | `textMuted` | — | — |
+| `message.tool.args.denied` | `text` | — | `strikethrough` |
+| `message.error.panel` | — | `backgroundPanel` | — |
+| `message.error.border` | `error` | — | — |
+| `message.error.body` | `textMuted` | — | — |
+| `message.revert` | `textMuted` | `backgroundPanel` | — |
+| `message.revert.hover` | `textMuted` | `backgroundElement` | — |
+| `message.queued` | `textMuted` | — | `bold` |
+| `message.timestamp` | `textMuted` | — | — |
+| `message.compaction` | `borderActive` | — | — |
+
+---
+
+### footer — session footer strip
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `footer.panel` | — | `backgroundPanel` | — |
+| `footer.text` | `text` | — | — |
+| `footer.muted` | `textMuted` | — | — |
+| `footer.permission` | `warning` | — | — |
+| `footer.status.ok` | `success` | — | — |
+| `footer.status.warn` | `warning` | — | — |
+| `footer.status.error` | `error` | — | — |
+
+---
+
+### sidebar — sidebar panel and its feature sections
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `sidebar.panel` | — | `backgroundPanel` | — |
+| `sidebar.dim` | — | `#00000046` | — |
+| `sidebar.text` | `text` | — | — |
+| `sidebar.muted` | `textMuted` | — | — |
+| `sidebar.strong` | `text` | — | `bold` |
+| `sidebar.emphasized` | `text` | — | `italic` |
+| `sidebar.item.open` | `success` | — | — |
+| `sidebar.status.ok` | `success` | — | — |
+| `sidebar.status.warn` | `warning` | — | — |
+| `sidebar.status.error` | `error` | — | — |
+| `sidebar.todo.pending` | `warning` | — | — |
+| `sidebar.getting-started` | — | `backgroundElement` | — |
+| `sidebar.files.added` | `diffAdded` | — | — |
+| `sidebar.files.removed` | `diffRemoved` | — | — |
+
+---
+
+### scrollbar — shared scrollbars
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `scrollbar.track` | — | `backgroundElement` | — |
+| `scrollbar.track.overlay` | — | `background` | — |
+| `scrollbar.thumb` | `border` | — | — |
+| `scrollbar.thumb.active` | `borderActive` | — | — |
+
+---
+
+### diff — diff viewer, permission diff bodies, diff banners
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `diff.text` | `text` | — | — |
+| `diff.border` | `border` | — | — |
+| `diff.line.added` | `text` | `diffAddedBg` | — |
+| `diff.line.removed` | `text` | `diffRemovedBg` | — |
+| `diff.line.context` | `text` | `diffContextBg` | — |
+| `diff.sign.added` | `diffHighlightAdded` | — | — |
+| `diff.sign.removed` | `diffHighlightRemoved` | — | — |
+| `diff.gutter` | `diffLineNumber` | `diffContextBg` | — |
+| `diff.gutter.added` | `diffLineNumber` | `diffAddedLineNumberBg` | — |
+| `diff.gutter.removed` | `diffLineNumber` | `diffRemovedLineNumberBg` | — |
+| `diff.banner.added` | `diffAdded` | — | — |
+| `diff.banner.removed` | `diffRemoved` | — | — |
+| `diff.filetree.row` | `textMuted` | — | — |
+| `diff.filetree.row.selected` | `background` | `primary` | — |
+| `diff.filetree.row.selected.name` | `primary` | — | — |
+
+---
+
+### markdown — markdown rendering (scope-driven)
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `markdown.text` | `markdownText` | — | — |
+| `markdown.bg` | — | `background` | — |
+| `markdown.heading` | `markdownHeading` | — | `bold` |
+| `markdown.heading.h1` | `markdownHeading` | — | `bold`, `underline` |
+| `markdown.strong` | `markdownStrong` | — | `bold` |
+| `markdown.emph` | `markdownEmph` | — | `italic` |
+| `markdown.quote` | `markdownBlockQuote` | — | `italic` |
+| `markdown.list` | `markdownListItem` | — | — |
+| `markdown.code.inline` | `markdownCode` | `background` | — |
+| `markdown.code.block` | `markdownCode` | — | — |
+| `markdown.link` | `markdownLink` | — | `underline` |
+| `markdown.link.label` | `markdownLinkText` | — | `underline` |
+| `markdown.label` | `markdownLinkText` | — | — |
+| `markdown.underline` | `text` | — | `underline` |
+
+---
+
+### syntax — code highlighting (scope-driven)
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `syntax.default` | `text` | — | — |
+| `syntax.comment` | `syntaxComment` | — | `italic` |
+| `syntax.keyword` | `syntaxKeyword` | — | `italic` |
+| `syntax.keyword.import` | `syntaxKeyword` | — | — |
+| `syntax.escape` | `syntaxKeyword` | — | — |
+| `syntax.tag.attribute` | `syntaxKeyword` | — | — |
+| `syntax.string` | `syntaxString` | — | — |
+| `syntax.number` | `syntaxNumber` | — | — |
+| `syntax.type` | `syntaxType` | — | — |
+| `syntax.type.definition` | `syntaxType` | — | `bold` |
+| `syntax.type.keyword` | `syntaxType` | — | `bold`, `italic` |
+| `syntax.function` | `syntaxFunction` | — | — |
+| `syntax.variable` | `syntaxVariable` | — | — |
+| `syntax.operator` | `syntaxOperator` | — | — |
+| `syntax.punctuation` | `syntaxPunctuation` | — | — |
+| `syntax.error` | `error` | — | — |
+| `syntax.error.strong` | `error` | — | `bold` |
+| `syntax.comment.error` | `error` | — | `italic`, `bold` |
+| `syntax.warning` | `warning` | — | — |
+| `syntax.warning.strong` | `warning` | — | `bold` |
+| `syntax.comment.warning` | `warning` | — | `italic`, `bold` |
+| `syntax.todo` | `info` | — | — |
+| `syntax.comment.todo` | `info` | — | `italic`, `bold` |
+| `syntax.checked` | `success` | — | — |
+| `syntax.conceal` | `textMuted` | — | — |
+| `syntax.prompt` | `accent` | — | — |
+| `syntax.diff.plus` | `diffAdded` | `diffAddedBg` | — |
+| `syntax.diff.minus` | `diffRemoved` | `diffRemovedBg` | — |
+| `syntax.diff.delta` | `diffContext` | `diffContextBg` | — |
+
+---
+
+### toast
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `toast.panel` | — | `backgroundPanel` | — |
+| `toast.title` | `text` | — | `bold` |
+| `toast.body` | `text` | — | — |
+| `toast.error.border` | `error` | — | — |
+| `toast.info.border` | `info` | — | — |
+| `toast.success.border` | `success` | — | — |
+| `toast.warning.border` | `warning` | — | — |
+
+---
+
+### permission — permission prompt
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `permission.panel` | — | `backgroundPanel` | — |
+| `permission.border` | `warning` | — | — |
+| `permission.border.reject` | `error` | — | — |
+| `permission.marker` | `warning` | — | — |
+| `permission.marker.reject` | `error` | — | — |
+| `permission.option` | `textMuted` | `backgroundMenu` | — |
+| `permission.option.selected` | `selected-foreground` | `warning` | — |
+| `permission.caption` | `textMuted` | — | — |
+| `permission.bar` | — | `backgroundElement` | — |
+| `permission.body` | `text` | — | — |
+| `permission.text` | `text` | — | — |
+| `permission.text.cursor` | `primary` | — | — |
+
+---
+
+### question — question dialog
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `question.panel` | — | `backgroundPanel` | — |
+| `question.border` | `accent` | — | — |
+| `question.tab` | `text` | `backgroundPanel` | — |
+| `question.tab.active` | `selected-foreground` | `accent` | — |
+| `question.tab.hover` | `text` | `backgroundElement` | — |
+| `question.option` | `text` | `backgroundPanel` | — |
+| `question.option.hover` | `secondary` | `backgroundElement` | — |
+| `question.option.hover.number` | `tint(textMuted, secondary, question-hover-number-tint)` | `backgroundElement` | — |
+| `question.option.selected` | `selected-foreground` | `secondary` | — |
+| `question.option.picked` | `success` | — | — |
+| `question.muted` | `textMuted` | — | — |
+| `question.unanswered` | `error` | — | — |
+| `question.body` | `text` | — | — |
+| `question.review` | `text` | — | — |
+| `question.text` | `text` | — | — |
+| `question.text.cursor` | `primary` | — | — |
+| `question.hint` | `text` | — | — |
+
+---
+
+### subagent — subagent footer bar
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `subagent.footer.panel` | — | `backgroundPanel` | — |
+| `subagent.footer.border` | `border` | — | — |
+| `subagent.footer.text` | `text` | — | — |
+| `subagent.footer.strong` | `text` | — | `bold` |
+| `subagent.footer.muted` | `textMuted` | — | — |
+| `subagent.footer.hover` | `text` | `backgroundElement` | — |
+
+---
+
+### which-key — which-key overlay
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `which-key.panel` | — | `backgroundMenu` | — |
+| `which-key.text` | `text` | — | — |
+| `which-key.muted` | `textMuted` | — | — |
+| `which-key.key` | `warning` | — | — |
+| `which-key.subtle` | `borderSubtle` | — | — |
+| `which-key.tab` | `selectedListItemText` | — | — |
+| `which-key.accent` | `primary` | — | — |
+
+---
+
+### startup — startup loading box
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `startup.panel` | — | `backgroundPanel` | — |
+| `startup.loading` | `textMuted` | — | — |
+
+---
+
+### logo — startup logo
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `logo.left` | `textMuted` | — | — |
+| `logo.right` | `text` | — | `bold` |
+| `logo.shadow` | — | `tint(background, element fg, logo-shadow-alpha)` | — |
+
+---
+
+### bg-pulse — background pulse animation
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `bg-pulse.panel` | — | `backgroundPanel` | — |
+| `bg-pulse.accent` | `primary` | — | — |
+| `bg-pulse.base` | — | `tint(background, text, bg-pulse-base-alpha)` | — |
+
+---
+
+### tips — home tips
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `tips.marker` | `warning` | — | — |
+
+---
+
+### run — run CLI (scrollback, footer, splash)
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `run.background` | — | `background` | — |
+| `run.footer.text` | `text` | — | — |
+| `run.footer.muted` | `textMuted` | — | — |
+| `run.footer.highlight` | `primary` | — | — |
+| `run.footer.warn` | `warning` | — | — |
+| `run.footer.success` | `success` | — | — |
+| `run.footer.error` | `error` | — | — |
+| `run.footer.selected` | — | `backgroundElement` | — |
+| `run.footer.selected-text` | `selectedListItemText` | — | — |
+| `run.footer.pane` | — | `backgroundMenu` | — |
+| `run.footer.border` | `border` | — | — |
+| `run.entry.system` | `textMuted` | — | — |
+| `run.entry.user` | `primary` | — | — |
+| `run.entry.assistant` | `text` | — | — |
+| `run.entry.reasoning` | `textMuted` | — | — |
+| `run.entry.tool` | `text` | — | — |
+| `run.entry.tool.start` | `textMuted` | — | — |
+| `run.entry.error` | `error` | — | — |
+| `run.splash.left` | `textMuted` | — | — |
+| `run.splash.right` | `text` | — | — |
+| `run.block.highlight` | `primary` | — | — |
+| `run.block.warning` | `warning` | — | — |
+| `run.block.text` | `text` | — | — |
+| `run.block.muted` | `textMuted` | — | — |
+| `run.block.diff.added` | `diffAdded` | — | — |
+| `run.block.diff.removed` | `diffRemoved` | — | — |
+| `run.block.diff.added-bg` | — | `diffAddedBg` | — |
+| `run.block.diff.removed-bg` | — | `diffRemovedBg` | — |
+| `run.block.diff.context-bg` | — | `diffContextBg` | — |
+| `run.block.diff.highlight-added` | `diffHighlightAdded` | — | — |
+| `run.block.diff.highlight-removed` | `diffHighlightRemoved` | — | — |
+| `run.block.diff.line-number` | `diffLineNumber` | — | — |
+| `run.block.diff.added-line-number-bg` | — | `diffAddedLineNumberBg` | — |
+| `run.block.diff.removed-line-number-bg` | — | `diffRemovedLineNumberBg` | — |
+
+Run-zone derivatives stay computed and carry no elements: the footer
+`status`, `statusAccent`, `shade`, `surface`, and `line` fields are
+tui-theme/tint or tui-theme/fade derivations of `run.footer.pane`,
+splash `leftShadow`/`rightShadow` fields are tui-theme/tint derivations of
+the splash colors with `splash-shadow-alpha`. The run block diff fields
+(`diffAdded`, `diffRemoved`, `diffAddedBg`, `diffRemovedBg`, `diffContextBg`,
+`diffHighlightAdded`, `diffHighlightRemoved`, `diffLineNumber`,
+`diffAddedLineNumberBg`, `diffRemovedLineNumberBg`) resolve from the
+`run.block.diff.*` elements above, whose defaults equal the palette diff names
+they replace. Because these surfaces are now element-addressable, a theme can
+restyle the run diff per channel - for example, clearing the added-line
+background entirely with:
+
+```json
+{
+  "theme": {
+    "run.block.diff.added-bg": { "bg": "transparent" }
+  }
+}
+```
+

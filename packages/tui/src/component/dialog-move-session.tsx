@@ -16,6 +16,7 @@ import { useCommandShortcut } from "../keymap"
 import { useProject } from "../context/project"
 import { Spinner } from "./spinner"
 import { DialogWorkspaceFileChanges } from "./dialog-workspace-file-changes"
+import { textAttributes } from "../theme/catalog"
 import type { ProjectDirectories } from "@opencode-ai/sdk/v2"
 import { useRoute } from "../context/route"
 
@@ -35,7 +36,7 @@ export function DialogMoveSession(props: DialogMoveSessionProps) {
   const dialog = useDialog()
   const sdk = useSDK()
   const dimensions = useTerminalDimensions()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const sync = useSync()
   const projectContext = useProject()
   const route = useRoute()
@@ -161,16 +162,16 @@ export function DialogMoveSession(props: DialogMoveSessionProps) {
       return {
         title,
         titleView: isRemoving ? (
-          <span style={{ fg: theme.error }}>Deleting {item.location}</span>
+          <span style={{ fg: element("dialog.error").fg }}>Deleting {item.location}</span>
         ) : deleting ? (
-          <span style={{ fg: theme.text }}>Press {deleteHint()} again to confirm</span>
+          <span style={{ fg: element("dialog.body").fg }}>Press {deleteHint()} again to confirm</span>
         ) : suffix ? (
           <>
             {visible.slice(0, split)}
-            <span style={{ fg: theme.textMuted }}>{visible.slice(split)}</span>
+            <span style={{ fg: element("dialog.muted").fg }}>{visible.slice(split)}</span>
           </>
         ) : undefined,
-        bg: deleting ? theme.error : undefined,
+        bg: deleting ? element("dialog.session.deleted").bg : undefined,
         value: {
           type: "directory",
           directory: item.location,
@@ -289,7 +290,7 @@ export function DialogMoveSession(props: DialogMoveSessionProps) {
         title="Move session"
         titleView={
           <box flexDirection="row" gap={1}>
-            <text fg={theme.text} attributes={TextAttributes.BOLD}>
+            <text fg={element("dialog.title").fg} attributes={textAttributes(element("dialog.title").attributes)}>
               Move session
             </text>
             <Show when={working() || directories.loading || loadedProject.loading}>
@@ -302,10 +303,10 @@ export function DialogMoveSession(props: DialogMoveSessionProps) {
         emptyView={
           showError() ? (
             <box paddingLeft={4} paddingRight={4}>
-              <text fg={theme.error} attributes={TextAttributes.BOLD}>
+              <text fg={element("dialog.error").fg} attributes={TextAttributes.BOLD}>
                 Could not load project directories
               </text>
-              <text fg={theme.textMuted}>{errorMessage(loadError())}</text>
+              <text fg={element("dialog.muted").fg}>{errorMessage(loadError())}</text>
             </box>
           ) : undefined
         }

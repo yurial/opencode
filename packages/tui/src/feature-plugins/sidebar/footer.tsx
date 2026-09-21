@@ -3,12 +3,12 @@ import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, Show } from "solid-js"
 import { abbreviateHome } from "../../runtime"
 import { useTuiPaths } from "../../context/runtime"
+import { textAttributes } from "../../theme/catalog"
 
 const id = "internal:sidebar-footer"
 
 function View(props: { api: TuiPluginApi; sessionID: string }) {
   const paths = useTuiPaths()
-  const theme = () => props.api.theme.current
   const has = createMemo(() =>
     props.api.state.provider.some(
       (item) => item.id !== "opencode" || Object.values(item.models).some((model) => model.cost?.input !== 0),
@@ -33,7 +33,7 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
     <box gap={1}>
       <Show when={show()}>
         <box
-          backgroundColor={theme().backgroundElement}
+          backgroundColor={props.api.theme.element("sidebar.getting-started").bg}
           paddingTop={1}
           paddingBottom={1}
           paddingLeft={2}
@@ -41,36 +41,44 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
           flexDirection="row"
           gap={1}
         >
-          <text flexShrink={0} fg={theme().text}>
+          <text flexShrink={0} fg={props.api.theme.element("sidebar.text").fg}>
             ⬖
           </text>
           <box flexGrow={1} gap={1}>
             <box flexDirection="row" justifyContent="space-between">
-              <text fg={theme().text}>
-                <b>Getting started</b>
+              <text
+                fg={props.api.theme.element("sidebar.strong").fg}
+                attributes={textAttributes(props.api.theme.element("sidebar.strong").attributes)}
+              >
+                Getting started
               </text>
-              <text fg={theme().textMuted} onMouseDown={() => props.api.kv.set("dismissed_getting_started", true)}>
+              <text
+                fg={props.api.theme.element("sidebar.muted").fg}
+                onMouseDown={() => props.api.kv.set("dismissed_getting_started", true)}
+              >
                 ✕
               </text>
             </box>
-            <text fg={theme().textMuted}>OpenCode includes free models so you can start immediately.</text>
-            <text fg={theme().textMuted}>
+            <text fg={props.api.theme.element("sidebar.muted").fg}>
+              OpenCode includes free models so you can start immediately.
+            </text>
+            <text fg={props.api.theme.element("sidebar.muted").fg}>
               Connect from 75+ providers to use other models, including Claude, GPT, Gemini etc
             </text>
             <box flexDirection="row" gap={1} justifyContent="space-between">
-              <text fg={theme().text}>Connect provider</text>
-              <text fg={theme().textMuted}>/connect</text>
+              <text fg={props.api.theme.element("sidebar.text").fg}>Connect provider</text>
+              <text fg={props.api.theme.element("sidebar.muted").fg}>/connect</text>
             </box>
           </box>
         </box>
       </Show>
       <text>
-        <span style={{ fg: theme().textMuted }}>{path().parent}/</span>
-        <span style={{ fg: theme().text }}>{path().name}</span>
+        <span style={{ fg: props.api.theme.element("sidebar.muted").fg }}>{path().parent}/</span>
+        <span style={{ fg: props.api.theme.element("sidebar.text").fg }}>{path().name}</span>
       </text>
-      <text fg={theme().textMuted}>
-        <span style={{ fg: theme().success }}>•</span> <b>Open</b>
-        <span style={{ fg: theme().text }}>
+      <text fg={props.api.theme.element("sidebar.muted").fg}>
+        <span style={{ fg: props.api.theme.element("sidebar.status.ok").fg }}>•</span> <b>Open</b>
+        <span style={{ fg: props.api.theme.element("sidebar.text").fg }}>
           <b>Code</b>
         </span>{" "}
         <span>{props.api.app.version}</span>

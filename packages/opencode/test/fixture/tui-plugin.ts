@@ -330,6 +330,12 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
       get current() {
         return opts.theme?.current ?? themeCurrent()
       },
+      // Resolved-element accessor (R45): the fixture carries no reactive
+      // theme behind it, so reading without an override is a programming
+      // error like an out-of-catalog name (R43).
+      element(name) {
+        throw new Error(`fixture theme.element is not available for "${name}"`)
+      },
       get selected() {
         return selected
       },

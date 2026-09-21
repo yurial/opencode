@@ -1,12 +1,12 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, For, Match, Show, Switch, createSignal } from "solid-js"
+import { textAttributes } from "../../theme/catalog"
 
 const id = "internal:sidebar-mcp"
 
 function View(props: { api: TuiPluginApi }) {
   const [open, setOpen] = createSignal(true)
-  const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.mcp())
   const on = createMemo(() => list().filter((item) => item.status === "connected").length)
   const bad = createMemo(
@@ -18,12 +18,12 @@ function View(props: { api: TuiPluginApi }) {
   )
 
   const dot = (status: string) => {
-    if (status === "connected") return theme().success
-    if (status === "failed") return theme().error
-    if (status === "disabled") return theme().textMuted
-    if (status === "needs_auth") return theme().warning
-    if (status === "needs_client_registration") return theme().error
-    return theme().textMuted
+    if (status === "connected") return props.api.theme.element("sidebar.status.ok").fg
+    if (status === "failed") return props.api.theme.element("sidebar.status.error").fg
+    if (status === "disabled") return props.api.theme.element("sidebar.muted").fg
+    if (status === "needs_auth") return props.api.theme.element("sidebar.status.warn").fg
+    if (status === "needs_client_registration") return props.api.theme.element("sidebar.status.error").fg
+    return props.api.theme.element("sidebar.muted").fg
   }
 
   return (
@@ -31,12 +31,15 @@ function View(props: { api: TuiPluginApi }) {
       <box>
         <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
           <Show when={list().length > 2}>
-            <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
+            <text fg={props.api.theme.element("sidebar.text").fg}>{open() ? "▼" : "▶"}</text>
           </Show>
-          <text fg={theme().text}>
-            <b>MCP</b>
+          <text
+            fg={props.api.theme.element("sidebar.strong").fg}
+            attributes={textAttributes(props.api.theme.element("sidebar.strong").attributes)}
+          >
+            MCP
             <Show when={!open()}>
-              <span style={{ fg: theme().textMuted }}>
+              <span style={{ fg: props.api.theme.element("sidebar.muted").fg }}>
                 {" "}
                 ({on()} active{bad() > 0 ? `, ${bad()} error${bad() > 1 ? "s" : ""}` : ""})
               </span>
@@ -55,9 +58,9 @@ function View(props: { api: TuiPluginApi }) {
                 >
                   •
                 </text>
-                <text fg={theme().text} wrapMode="word">
+                <text fg={props.api.theme.element("sidebar.text").fg} wrapMode="word">
                   {item.name}{" "}
-                  <span style={{ fg: theme().textMuted }}>
+                  <span style={{ fg: props.api.theme.element("sidebar.muted").fg }}>
                     <Switch fallback={item.status}>
                       <Match when={item.status === "connected"}>Connected</Match>
                       <Match when={item.status === "failed"}>

@@ -236,7 +236,7 @@ Top-level API groups exposed to `tui(api, options, meta)`:
 - `api.tuiConfig`
 - `api.kv.get`, `set`, `ready`
 - `api.state`
-- `api.theme.current`, `selected`, `has`, `set`, `install`, `mode`, `ready`
+- `api.theme.current`, `selected`, `has`, `set`, `install`, `mode`, `ready`, `element`
 - `api.client`
 - `api.event.on(type, handler)`
 - `api.renderer`
@@ -402,6 +402,7 @@ Mode pushes are automatically tracked by the plugin runtime. If a plugin is disa
 - `api.theme.mode()` returns `"dark" | "light"`.
 - `api.theme.install(jsonPath)` installs a theme JSON file.
 - `api.theme.ready` reports theme readiness.
+- `api.theme.element(name)` returns the resolved per-element style (`fg`/`bg`/`attributes`); the element catalog, accessor contract, and error behavior are owned by `tui-theme`.
 
 Theme install behavior:
 
@@ -543,3 +544,8 @@ The plugin manager is exposed as a command with title `Plugins` and value `plugi
 - Local vim plugin: `.opencode/plugins/tui-vim.tsx`
 - Local smoke config: `.opencode/tui.json`
 - Local smoke theme: `.opencode/plugins/smoke-theme.json`
+
+## Used by
+
+- `tui-theme` — the plugin theme API surface (`api.theme.element`) extended
+  and contracted by the theme spec.

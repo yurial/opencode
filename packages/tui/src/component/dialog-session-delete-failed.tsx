@@ -4,6 +4,7 @@ import { useDialog } from "../ui/dialog"
 import { createStore } from "solid-js/store"
 import { For } from "solid-js"
 import { useBindings } from "../keymap"
+import { textAttributes } from "../theme/catalog"
 
 export function DialogSessionDeleteFailed(props: {
   session: string
@@ -13,7 +14,7 @@ export function DialogSessionDeleteFailed(props: {
   onDone?: () => void
 }) {
   const dialog = useDialog()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const [store, setStore] = createStore({
     active: "delete" as "delete" | "restore",
   })
@@ -53,17 +54,17 @@ export function DialogSessionDeleteFailed(props: {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
+        <text attributes={textAttributes(element("dialog.title").attributes)} fg={element("dialog.title").fg}>
           Failed to Delete Session
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={element("dialog.muted").fg} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
-      <text fg={theme.textMuted} wrapMode="word">
+      <text fg={element("dialog.muted").fg} wrapMode="word">
         {`The session "${props.session}" could not be deleted because the workspace "${props.workspace}" is not available.`}
       </text>
-      <text fg={theme.textMuted} wrapMode="word">
+      <text fg={element("dialog.muted").fg} wrapMode="word">
         Choose how you want to recover this broken workspace session.
       </text>
       <box flexDirection="column" paddingBottom={1} gap={1}>
@@ -75,19 +76,24 @@ export function DialogSessionDeleteFailed(props: {
               paddingRight={1}
               paddingTop={1}
               paddingBottom={1}
-              backgroundColor={item.id === store.active ? theme.primary : undefined}
+              backgroundColor={item.id === store.active ? element("dialog.action").bg : undefined}
               onMouseUp={() => {
                 setStore("active", item.id)
                 void confirm()
               }}
             >
               <text
+                // The catalog default of `dialog.action` carries no bold, so
+                // the hardcoded emphasis stays to keep today's rendering.
                 attributes={TextAttributes.BOLD}
-                fg={item.id === store.active ? theme.selectedListItemText : theme.text}
+                fg={item.id === store.active ? element("dialog.action").fg : element("dialog.body").fg}
               >
                 {item.title}
               </text>
-              <text fg={item.id === store.active ? theme.selectedListItemText : theme.textMuted} wrapMode="word">
+              <text
+                fg={item.id === store.active ? element("dialog.action").fg : element("dialog.muted").fg}
+                wrapMode="word"
+              >
                 {item.description}
               </text>
             </box>

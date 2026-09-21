@@ -580,7 +580,7 @@ ends is not guaranteed by either package.
 
 - `tui-package` — ownership boundary, migration invariants, host/package
   split.
-- `tui-theme` — theme resolution and key mapping (referenced, not restated).
+- `tui-theme` — theme resolution and element mapping (referenced, not restated).
 - `tui-session-display` — thinking mode, reasoning timer, meta parts.
 - `tui-plugins` — plugin config/loading/slots/API and the `modal` mode.
 - `opencode-v2-tui-shim` — planned removal of the legacy `api.command`

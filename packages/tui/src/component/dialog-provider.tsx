@@ -7,7 +7,7 @@ import { useSDK } from "../context/sdk"
 import { DialogPrompt } from "../ui/dialog-prompt"
 import { Link } from "../ui/link"
 import { useTheme } from "../context/theme"
-import { TextAttributes } from "@opentui/core"
+import { textAttributes } from "../theme/catalog"
 import type { ProviderAuthAuthorization, ProviderAuthMethod } from "@opencode-ai/sdk/v2"
 import { DialogModel } from "./dialog-model"
 import { useToast } from "../ui/toast"
@@ -88,14 +88,14 @@ export function createDialogProviderOptions() {
   const dialog = useDialog()
   const sdk = useSDK()
   const toast = useToast()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const onboarded = useConnected()
 
   async function promptCustomProviderID(): Promise<string | undefined> {
     const value = await DialogPrompt.show(dialog, "Other", {
       placeholder: "Provider id",
       description: () => (
-        <text fg={theme.textMuted}>
+        <text fg={element("dialog.muted").fg}>
           This only stores a credential. Configure the provider in opencode.json to use it.
         </text>
       ),
@@ -141,7 +141,7 @@ export function createDialogProviderOptions() {
           description: provider.description,
           footer: consoleManaged ? sync.data.console_state.activeOrgName : undefined,
           category: provider.category,
-          gutter: connected && onboarded() ? () => <text fg={theme.success}>✓</text> : undefined,
+          gutter: connected && onboarded() ? () => <text fg={element("dialog.provider.connected").fg}>✓</text> : undefined,
           async onSelect() {
             if (consoleManaged) return
 
@@ -237,7 +237,7 @@ interface AutoMethodProps {
   authorization: ProviderAuthAuthorization
 }
 function AutoMethod(props: AutoMethodProps) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const sdk = useSDK()
   const dialog = useDialog()
   const sync = useSync()
@@ -286,20 +286,20 @@ function AutoMethod(props: AutoMethodProps) {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1} paddingBottom={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
+        <text attributes={textAttributes(element("dialog.title").attributes)} fg={element("dialog.title").fg}>
           {props.title}
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={element("dialog.muted").fg} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
       <box gap={1}>
-        <Link href={props.authorization.url} fg={theme.primary} />
-        <text fg={theme.textMuted}>{props.authorization.instructions}</text>
+        <Link href={props.authorization.url} fg={element("dialog.link").fg} />
+        <text fg={element("dialog.muted").fg}>{props.authorization.instructions}</text>
       </box>
-      <text fg={theme.textMuted}>Waiting for authorization…</text>
-      <text fg={theme.text}>
-        c <span style={{ fg: theme.textMuted }}>copy</span>
+      <text fg={element("dialog.muted").fg}>Waiting for authorization…</text>
+      <text fg={element("dialog.body").fg}>
+        c <span style={{ fg: element("dialog.muted").fg }}>copy</span>
       </text>
     </box>
   )
@@ -312,7 +312,7 @@ interface CodeMethodProps {
   authorization: ProviderAuthAuthorization
 }
 function CodeMethod(props: CodeMethodProps) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const sdk = useSDK()
   const sync = useSync()
   const dialog = useDialog()
@@ -338,10 +338,10 @@ function CodeMethod(props: CodeMethodProps) {
       }}
       description={() => (
         <box gap={1}>
-          <text fg={theme.textMuted}>{props.authorization.instructions}</text>
-          <Link href={props.authorization.url} fg={theme.primary} />
+          <text fg={element("dialog.muted").fg}>{props.authorization.instructions}</text>
+          <Link href={props.authorization.url} fg={element("dialog.link").fg} />
           <Show when={error()}>
-            <text fg={theme.error}>Invalid code</text>
+            <text fg={element("dialog.error").fg}>Invalid code</text>
           </Show>
         </box>
       )}
@@ -360,7 +360,7 @@ function ApiMethod(props: ApiMethodProps) {
   const sdk = useSDK()
   const sync = useSync()
   const toast = useToast()
-  const { theme } = useTheme()
+  const { element } = useTheme()
 
   return (
     <DialogPrompt
@@ -370,23 +370,24 @@ function ApiMethod(props: ApiMethodProps) {
         ({
           opencode: (
             <box gap={1}>
-              <text fg={theme.textMuted}>
+              <text fg={element("dialog.muted").fg}>
                 OpenCode Zen gives you access to all the best coding models at the cheapest prices with a single API
                 key.
               </text>
-              <text fg={theme.text}>
-                Go to <span style={{ fg: theme.primary }}>https://opencode.ai/zen</span> to get a key
+              <text fg={element("dialog.body").fg}>
+                Go to <span style={{ fg: element("dialog.link").fg }}>https://opencode.ai/zen</span> to get a key
               </text>
             </box>
           ),
           "opencode-go": (
             <box gap={1}>
-              <text fg={theme.textMuted}>
+              <text fg={element("dialog.muted").fg}>
                 OpenCode Go is a $10 per month subscription that provides reliable access to popular open coding models
                 with generous usage limits.
               </text>
-              <text fg={theme.text}>
-                Go to <span style={{ fg: theme.primary }}>https://opencode.ai/go</span> and enable OpenCode Go
+              <text fg={element("dialog.body").fg}>
+                Go to <span style={{ fg: element("dialog.link").fg }}>https://opencode.ai/go</span> and enable OpenCode
+                Go
               </text>
             </box>
           ),

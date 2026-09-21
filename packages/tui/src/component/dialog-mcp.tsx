@@ -8,14 +8,16 @@ import { TextAttributes } from "@opentui/core"
 import { useSDK } from "../context/sdk"
 
 function Status(props: { enabled: boolean; loading: boolean }) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   if (props.loading) {
-    return <span style={{ fg: theme.textMuted }}>⋯ Loading</span>
+    return <span style={{ fg: element("dialog.muted").fg }}>⋯ Loading</span>
   }
   if (props.enabled) {
-    return <span style={{ fg: theme.success, attributes: TextAttributes.BOLD }}>✓ Enabled</span>
+    // The catalog default of `dialog.mcp.enabled` carries no bold, so the
+    // hardcoded emphasis stays to keep today's rendering.
+    return <span style={{ fg: element("dialog.mcp.enabled").fg, attributes: TextAttributes.BOLD }}>✓ Enabled</span>
   }
-  return <span style={{ fg: theme.textMuted }}>○ Disabled</span>
+  return <span style={{ fg: element("dialog.muted").fg }}>○ Disabled</span>
 }
 
 export function DialogMcp() {

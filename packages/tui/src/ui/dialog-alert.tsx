@@ -1,4 +1,4 @@
-import { TextAttributes } from "@opentui/core"
+import { textAttributes } from "../theme/catalog"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
 import { useBindings } from "../keymap"
@@ -11,7 +11,7 @@ export type DialogAlertProps = {
 
 export function DialogAlert(props: DialogAlertProps) {
   const dialog = useDialog()
-  const { theme } = useTheme()
+  const { element } = useTheme()
 
   useBindings(() => ({
     bindings: [
@@ -29,27 +29,27 @@ export function DialogAlert(props: DialogAlertProps) {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
+        <text attributes={textAttributes(element("dialog.title").attributes)} fg={element("dialog.title").fg}>
           {props.title}
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={element("dialog.muted").fg} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
       <box paddingBottom={1}>
-        <text fg={theme.textMuted}>{props.message}</text>
+        <text fg={element("dialog.muted").fg}>{props.message}</text>
       </box>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
         <box
           paddingLeft={3}
           paddingRight={3}
-          backgroundColor={theme.primary}
+          backgroundColor={element("dialog.action").bg}
           onMouseUp={() => {
             props.onConfirm?.()
             dialog.clear()
           }}
         >
-          <text fg={theme.selectedListItemText}>ok</text>
+          <text fg={element("dialog.action").fg}>ok</text>
         </box>
       </box>
     </box>

@@ -3,7 +3,7 @@ import { dirname } from "node:path"
 import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Portal, useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import type { TextareaRenderable } from "@opentui/core"
-import { useTheme, selectedForeground } from "../../context/theme"
+import { useTheme } from "../../context/theme"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../../context/sdk"
 import { SplitBorder } from "../../ui/border"
@@ -20,9 +20,7 @@ import { usePathFormatter } from "../../context/path-format"
 type PermissionStage = "permission" | "always" | "reject"
 
 function EditBody(props: { request: PermissionRequest }) {
-  const themeState = useTheme()
-  const theme = themeState.theme
-  const syntax = themeState.syntax
+  const { element, syntax } = useTheme()
   const config = useTuiConfig()
   const dimensions = useTerminalDimensions()
 
@@ -52,8 +50,8 @@ function EditBody(props: { request: PermissionRequest }) {
           scrollAcceleration={scrollAcceleration()}
           verticalScrollbarOptions={{
             trackOptions: {
-              backgroundColor: theme.background,
-              foregroundColor: theme.borderActive,
+              backgroundColor: element("scrollbar.track.overlay").bg,
+              foregroundColor: element("scrollbar.thumb.active").fg,
             },
           }}
         >
@@ -65,22 +63,22 @@ function EditBody(props: { request: PermissionRequest }) {
             showLineNumbers={true}
             width="100%"
             wrapMode="word"
-            fg={theme.text}
-            addedBg={theme.diffAddedBg}
-            removedBg={theme.diffRemovedBg}
-            contextBg={theme.diffContextBg}
-            addedSignColor={theme.diffHighlightAdded}
-            removedSignColor={theme.diffHighlightRemoved}
-            lineNumberFg={theme.diffLineNumber}
-            lineNumberBg={theme.diffContextBg}
-            addedLineNumberBg={theme.diffAddedLineNumberBg}
-            removedLineNumberBg={theme.diffRemovedLineNumberBg}
+            fg={element("diff.text").fg}
+            addedBg={element("diff.line.added").bg}
+            removedBg={element("diff.line.removed").bg}
+            contextBg={element("diff.line.context").bg}
+            addedSignColor={element("diff.sign.added").fg}
+            removedSignColor={element("diff.sign.removed").fg}
+            lineNumberFg={element("diff.gutter").fg}
+            lineNumberBg={element("diff.gutter").bg}
+            addedLineNumberBg={element("diff.gutter.added").bg}
+            removedLineNumberBg={element("diff.gutter.removed").bg}
           />
         </scrollbox>
       </Show>
       <Show when={!diff()}>
         <box paddingLeft={1}>
-          <text fg={theme.textMuted}>No diff provided</text>
+          <text fg={element("permission.caption").fg}>No diff provided</text>
         </box>
       </Show>
     </box>
@@ -88,20 +86,20 @@ function EditBody(props: { request: PermissionRequest }) {
 }
 
 function TextBody(props: { title: string; description?: string; icon?: string }) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   return (
     <>
       <box flexDirection="row" gap={1} paddingLeft={1}>
         <Show when={props.icon}>
-          <text fg={theme.textMuted} flexShrink={0}>
+          <text fg={element("permission.caption").fg} flexShrink={0}>
             {props.icon}
           </text>
         </Show>
-        <text fg={theme.textMuted}>{props.title}</text>
+        <text fg={element("permission.caption").fg}>{props.title}</text>
       </box>
       <Show when={props.description}>
         <box paddingLeft={1}>
-          <text fg={theme.text}>{props.description}</text>
+          <text fg={element("permission.body").fg}>{props.description}</text>
         </box>
       </Show>
     </>
@@ -131,7 +129,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
     return {}
   })
 
-  const { theme } = useTheme()
+  const { theme, element } = useTheme()
 
   return (
     <Switch>
@@ -145,11 +143,13 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
               </Match>
               <Match when={true}>
                 <box paddingLeft={1} gap={1}>
-                  <text fg={theme.textMuted}>This will allow the following patterns until OpenCode is restarted</text>
+                  <text fg={element("permission.caption").fg}>
+                    This will allow the following patterns until OpenCode is restarted
+                  </text>
                   <box>
                     <For each={props.request.always}>
                       {(pattern) => (
-                        <text fg={theme.text}>
+                        <text fg={element("permission.body").fg}>
                           {"- "}
                           {pattern}
                         </text>
@@ -215,7 +215,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={filePath}>
                     <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"Path: " + pathFormatter.format(filePath)}</text>
+                      <text fg={element("permission.caption").fg}>{"Path: " + pathFormatter.format(filePath)}</text>
                     </box>
                   </Show>
                 ),
@@ -230,7 +230,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={pattern}>
                     <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"Pattern: " + pattern}</text>
+                      <text fg={element("permission.caption").fg}>{"Pattern: " + pattern}</text>
                     </box>
                   </Show>
                 ),
@@ -245,7 +245,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={pattern}>
                     <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"Pattern: " + pattern}</text>
+                      <text fg={element("permission.caption").fg}>{"Pattern: " + pattern}</text>
                     </box>
                   </Show>
                 ),
@@ -261,7 +261,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={dir}>
                     <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"Path: " + pathFormatter.format(dir)}</text>
+                      <text fg={element("permission.caption").fg}>{"Path: " + pathFormatter.format(dir)}</text>
                     </box>
                   </Show>
                 ),
@@ -276,7 +276,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={command}>
                     <box paddingLeft={1}>
-                      <text fg={theme.text}>{"$ " + command}</text>
+                      <text fg={element("permission.body").fg}>{"$ " + command}</text>
                     </box>
                   </Show>
                 ),
@@ -292,7 +292,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={desc}>
                     <box paddingLeft={1}>
-                      <text fg={theme.text}>{"◉ " + desc}</text>
+                      <text fg={element("permission.body").fg}>{"◉ " + desc}</text>
                     </box>
                   </Show>
                 ),
@@ -307,7 +307,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={url}>
                     <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"URL: " + url}</text>
+                      <text fg={element("permission.caption").fg}>{"URL: " + url}</text>
                     </box>
                   </Show>
                 ),
@@ -322,7 +322,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={query}>
                     <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"Query: " + query}</text>
+                      <text fg={element("permission.caption").fg}>{"Query: " + query}</text>
                     </box>
                   </Show>
                 ),
@@ -347,9 +347,9 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 body: (
                   <Show when={patterns.length > 0}>
                     <box paddingLeft={1} gap={1}>
-                      <text fg={theme.textMuted}>Patterns</text>
+                      <text fg={element("permission.caption").fg}>Patterns</text>
                       <box>
-                        <For each={patterns}>{(p) => <text fg={theme.text}>{"- " + p}</text>}</For>
+                        <For each={patterns}>{(p) => <text fg={element("permission.body").fg}>{"- " + p}</text>}</For>
                       </box>
                     </box>
                   </Show>
@@ -363,7 +363,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 title: "Continue after repeated failures",
                 body: (
                   <box paddingLeft={1}>
-                    <text fg={theme.textMuted}>This keeps the session running despite repeated failures.</text>
+                    <text fg={element("permission.caption").fg}>This keeps the session running despite repeated failures.</text>
                   </box>
                 ),
               }
@@ -374,7 +374,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
               title: `Call tool ${permission}`,
               body: (
                 <box paddingLeft={1}>
-                  <text fg={theme.textMuted}>{"Tool: " + permission}</text>
+                  <text fg={element("permission.caption").fg}>{"Tool: " + permission}</text>
                 </box>
               ),
             }
@@ -385,14 +385,14 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
           const header = () => (
             <box flexDirection="column" gap={0}>
               <box flexDirection="row" gap={1} flexShrink={0}>
-                <text fg={theme.warning}>{"△"}</text>
-                <text fg={theme.text}>Permission required</text>
+                <text fg={element("permission.marker").fg}>{"△"}</text>
+                <text fg={element("permission.body").fg}>Permission required</text>
               </box>
               <box flexDirection="row" gap={1} paddingLeft={2} flexShrink={0}>
-                <text fg={theme.textMuted} flexShrink={0}>
+                <text fg={element("permission.caption").fg} flexShrink={0}>
                   {current.icon}
                 </text>
-                <text fg={theme.text}>{current.title}</text>
+                <text fg={element("permission.body").fg}>{current.title}</text>
               </box>
             </box>
           )
@@ -442,7 +442,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
 
 function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: () => void }) {
   let input: TextareaRenderable
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const tuiConfig = useTuiConfig()
   const dimensions = useTerminalDimensions()
   const narrow = createMemo(() => dimensions().width < 80)
@@ -472,18 +472,18 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
 
   return (
     <box
-      backgroundColor={theme.backgroundPanel}
+      backgroundColor={element("permission.panel").bg}
       border={["left"]}
-      borderColor={theme.error}
+      borderColor={element("permission.border.reject").fg}
       customBorderChars={SplitBorder.customBorderChars}
     >
       <box gap={1} paddingLeft={1} paddingRight={3} paddingTop={1} paddingBottom={1}>
         <box flexDirection="row" gap={1} paddingLeft={1}>
-          <text fg={theme.error}>{"△"}</text>
-          <text fg={theme.text}>Reject permission</text>
+          <text fg={element("permission.marker.reject").fg}>{"△"}</text>
+          <text fg={element("permission.body").fg}>Reject permission</text>
         </box>
         <box paddingLeft={1}>
-          <text fg={theme.textMuted}>Tell OpenCode what to do differently</text>
+          <text fg={element("permission.caption").fg}>Tell OpenCode what to do differently</text>
         </box>
       </box>
       <box
@@ -493,7 +493,7 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
         paddingLeft={2}
         paddingRight={3}
         paddingBottom={1}
-        backgroundColor={theme.backgroundElement}
+        backgroundColor={element("permission.bar").bg}
         justifyContent={narrow() ? "flex-start" : "space-between"}
         alignItems={narrow() ? "flex-start" : "center"}
         gap={1}
@@ -504,17 +504,17 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
             val.traits = { status: "REJECT" }
           }}
           focused
-          textColor={theme.text}
-          focusedTextColor={theme.text}
-          cursorColor={theme.primary}
+          textColor={element("permission.text").fg}
+          focusedTextColor={element("permission.text").fg}
+          cursorColor={element("permission.text.cursor").fg}
           cursorStyle={tuiConfig.cursor}
         />
         <box flexDirection="row" gap={2} flexShrink={0}>
-          <text fg={theme.text}>
-            enter <span style={{ fg: theme.textMuted }}>confirm</span>
+          <text fg={element("permission.body").fg}>
+            enter <span style={{ fg: element("permission.caption").fg }}>confirm</span>
           </text>
-          <text fg={theme.text}>
-            esc <span style={{ fg: theme.textMuted }}>cancel</span>
+          <text fg={element("permission.body").fg}>
+            esc <span style={{ fg: element("permission.caption").fg }}>cancel</span>
           </text>
         </box>
       </box>
@@ -531,7 +531,7 @@ function Prompt<const T extends Record<string, string>>(props: {
   fullscreen?: boolean
   onSelect: (option: keyof T) => void
 }) {
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const tuiConfig = useTuiConfig()
   const dimensions = useTerminalDimensions()
   const keys = Object.keys(props.options) as (keyof T)[]
@@ -631,9 +631,9 @@ function Prompt<const T extends Record<string, string>>(props: {
 
   const content = () => (
     <box
-      backgroundColor={theme.backgroundPanel}
+      backgroundColor={element("permission.panel").bg}
       border={["left"]}
-      borderColor={theme.warning}
+      borderColor={element("permission.border").fg}
       customBorderChars={SplitBorder.customBorderChars}
       {...(store.expanded
         ? { top: dimensions().height * -1 + 1, bottom: 1, left: 2, right: 2, position: "absolute" }
@@ -651,8 +651,8 @@ function Prompt<const T extends Record<string, string>>(props: {
           when={props.header}
           fallback={
             <box flexDirection="row" gap={1} paddingLeft={1} flexShrink={0}>
-              <text fg={theme.warning}>{"△"}</text>
-              <text fg={theme.text}>{props.title}</text>
+              <text fg={element("permission.marker").fg}>{"△"}</text>
+              <text fg={element("permission.body").fg}>{props.title}</text>
             </box>
           }
         >
@@ -670,7 +670,7 @@ function Prompt<const T extends Record<string, string>>(props: {
         paddingLeft={2}
         paddingRight={3}
         paddingBottom={1}
-        backgroundColor={theme.backgroundElement}
+        backgroundColor={element("permission.bar").bg}
         justifyContent={narrow() ? "flex-start" : "space-between"}
         alignItems={narrow() ? "flex-start" : "center"}
       >
@@ -680,14 +680,24 @@ function Prompt<const T extends Record<string, string>>(props: {
               <box
                 paddingLeft={1}
                 paddingRight={1}
-                backgroundColor={option === store.selected ? theme.warning : theme.backgroundMenu}
+                backgroundColor={
+                  option === store.selected
+                    ? element("permission.option.selected").bg
+                    : element("permission.option").bg
+                }
                 onMouseOver={() => setStore("selected", option)}
                 onMouseUp={() => {
                   setStore("selected", option)
                   props.onSelect(option)
                 }}
               >
-                <text fg={option === store.selected ? selectedForeground(theme, theme.warning) : theme.textMuted}>
+                <text
+                  fg={
+                    option === store.selected
+                      ? element("permission.option.selected").fg
+                      : element("permission.option").fg
+                  }
+                >
                   {props.options[option]}
                 </text>
               </box>
@@ -696,15 +706,15 @@ function Prompt<const T extends Record<string, string>>(props: {
         </box>
         <box flexDirection="row" gap={2} flexShrink={0}>
           <Show when={props.fullscreen}>
-            <text fg={theme.text}>
-              {fullscreenHint()} <span style={{ fg: theme.textMuted }}>{hint()}</span>
+            <text fg={element("permission.body").fg}>
+              {fullscreenHint()} <span style={{ fg: element("permission.caption").fg }}>{hint()}</span>
             </text>
           </Show>
-          <text fg={theme.text}>
-            {"⇆"} <span style={{ fg: theme.textMuted }}>select</span>
+          <text fg={element("permission.body").fg}>
+            {"⇆"} <span style={{ fg: element("permission.caption").fg }}>select</span>
           </text>
-          <text fg={theme.text}>
-            enter <span style={{ fg: theme.textMuted }}>confirm</span>
+          <text fg={element("permission.body").fg}>
+            enter <span style={{ fg: element("permission.caption").fg }}>confirm</span>
           </text>
         </box>
       </box>

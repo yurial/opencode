@@ -1,12 +1,12 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { BuiltinTuiPlugin } from "../builtins"
 import { createMemo, For, Show, createSignal } from "solid-js"
+import { textAttributes } from "../../theme/catalog"
 
 const id = "internal:sidebar-lsp"
 
 function View(props: { api: TuiPluginApi }) {
   const [open, setOpen] = createSignal(true)
-  const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.lsp())
   const off = createMemo(() => !props.api.state.config.lsp)
 
@@ -14,15 +14,20 @@ function View(props: { api: TuiPluginApi }) {
     <box>
       <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
         <Show when={list().length > 2}>
-          <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
+          <text fg={props.api.theme.element("sidebar.text").fg}>{open() ? "▼" : "▶"}</text>
         </Show>
-        <text fg={theme().text}>
-          <b>LSP</b>
+        <text
+          fg={props.api.theme.element("sidebar.strong").fg}
+          attributes={textAttributes(props.api.theme.element("sidebar.strong").attributes)}
+        >
+          LSP
         </text>
       </box>
       <Show when={list().length <= 2 || open()}>
         <Show when={list().length === 0}>
-          <text fg={theme().textMuted}>{off() ? "LSPs are disabled" : "LSPs will activate as files are read"}</text>
+          <text fg={props.api.theme.element("sidebar.muted").fg}>
+            {off() ? "LSPs are disabled" : "LSPs will activate as files are read"}
+          </text>
         </Show>
         <For each={list()}>
           {(item) => (
@@ -30,12 +35,15 @@ function View(props: { api: TuiPluginApi }) {
               <text
                 flexShrink={0}
                 style={{
-                  fg: item.status === "connected" ? theme().success : theme().error,
+                  fg:
+                    item.status === "connected"
+                      ? props.api.theme.element("sidebar.status.ok").fg
+                      : props.api.theme.element("sidebar.status.error").fg,
                 }}
               >
                 •
               </text>
-              <text fg={theme().textMuted}>
+              <text fg={props.api.theme.element("sidebar.muted").fg}>
                 {item.id} {item.root}
               </text>
             </box>
