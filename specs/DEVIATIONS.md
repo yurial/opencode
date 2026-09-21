@@ -70,47 +70,31 @@ Tests: schema fixtures for valid v2, valid v1, and mixed files.
 Review focus: schema rejects unknown members consistent with the spec's
   invalid-entry behavior; docs enumerate the catalog reference.
 
-## D-6 2026-09-21 specs/tui-theme.md
-Spec edit: catalog errata — byte-identical defaults made binding (R48),
-  catalog defaults corrected to the actual rendering, missing elements added,
-  dangling elements dropped, syntax/markdown scope rules re-assigned to
-  split elements, run block diff fields become `run.block.diff.*` elements
-  (R44 rewritten), queued-chip computed override fixed (R49); supersedes
-  entry `D-3`, whose `Now` cited palette diff names for the run diff fields
-  that R44 no longer prescribes.
-Was: the migrated components keep flat-read workarounds at the corrected
-  surfaces (permission border and option fg, question hover tones, message
-  error body, unfocused select row, diff filetree selection, session
-  scrollbar track, prompt cursor) and hold spec-gap comments at the surfaces
-  the new elements govern; the scope table sources `string.escape`,
-  `string.regexp`, `keyword.import`, `keyword.export`, `tag.attribute`,
-  `comment.error`, `comment.warning`, `comment.todo`, `comment.note`,
-  `error`, `warning`, `markup.link.label`, `markup.underline`, `label`,
-  `markup.raw`, `markup.raw.block`, `keyword.type`, `type`, `module`,
-  `class`, and `namespace` from elements whose defaults differ from the
-  pre-v2 flags (pinned as CATALOG_DELTAS in
-  packages/tui/test/theme-syntax.test.ts); packages/opencode/src/cli/cmd/run/theme.ts
-  maps the block diff RunTheme fields from the palette diff names of the
-  effective theme.
-Now: catalog defaults equal the pre-v2 rendering byte for byte (R48), every
-  listed surface has a governing element, and the run diff fields resolve
-  from `run.block.diff.*` elements a theme may clear (for example
-  `{"bg": "transparent"}`).
-Code impact: packages/tui/src/theme/catalog.ts (corrected defaults, new
-  rows, dropped `markdown.code` and `prompt.cursor.unfocused`),
-  packages/tui/src/theme/index.ts (scope-to-element table),
-  routes/session/{permission,question,index}.tsx, ui/{dialog-select,dialog-prompt,toast}.tsx,
-  component/{dialog-provider,dialog-status,dialog-workspace-file-changes,
-  dialog-workspace-list,plugin-route-missing,prompt/index,prompt/autocomplete}.tsx,
-  feature-plugins/{system/which-key,sidebar/footer}.tsx,
-  routes/session/subagent-footer.tsx (wire the new elements, drop the flat
-  reads), packages/opencode/src/cli/cmd/run/theme.ts (element mapping for
-  the diff fields), packages/web/public/theme.json and themes.mdx locale
-  copies (entry `D-5` scope, catalog reference).
-Tests: the CATALOG_DELTAS pins in packages/tui/test/theme-syntax.test.ts
-  must collapse to zero deltas (every LEGACY_RULES entry green); resolution
-  tests for the added and dropped elements; run diff fields resolve to the
-  same values the palette diff names produced.
-Review focus: default-theme rendering identical to the pre-v2 build; no
-  consumer reads a dropped element; the question hover number tint and the
-  toast variant borders match the flat reads they replace.
+## D-7 2026-09-21 specs/tui-theme.md
+Spec edit: run diff background defaults corrected to the base rendering —
+  `run.block.diff.added-bg`, `run.block.diff.removed-bg`, and
+  `run.block.diff.context-bg` default to the transparent color (R44
+  extended, run zone of the Element catalog, J11 restated);
+  `thinkingOpacity` soft handling documented (Configuration row); supersedes
+  entry `D-6`, whose `Now` cited palette diff names for the run diff
+  backgrounds that the corrected catalog no longer prescribes.
+Was: the code resolves the three run diff backgrounds from the palette
+  diff names — the catalog defaults paint `diffAddedBg`, `diffRemovedBg`,
+  and `diffContextBg` opaque on the default theme, the run theme goldens
+  assert those opaque values, and the generated-system test skips the
+  three background assertions.
+Now: the spec prescribes transparent defaults for the three run diff
+  backgrounds, byte-identical to the base run rendering (R48), with both
+  directions addressable — the transparent value or a palette reference.
+Code impact: packages/tui/src/theme/catalog.ts (the three `run.block.diff.*`
+  background defaults), packages/opencode/test/cli/run/theme-v2.test.ts
+  (the goldens and element-path equality asserts for the three
+  backgrounds, the skipped generated-system assertions).
+Tests: the v1-defaults golden test and the element-path equality test drop
+  the palette expectation for the three backgrounds; the generated-system
+  test asserts them transparent; the override test keeps both directions
+  (a palette reference paints, the transparent value clears).
+Review focus: default-theme run diff backgrounds render transparent,
+  byte-identical to base; addressability holds in both directions — a v2
+  entry painting a background via a palette reference and clearing one via
+  `{"bg": "transparent"}` both resolve.

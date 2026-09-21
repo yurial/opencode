@@ -140,7 +140,7 @@ type ThemeFileV2 = {
 
 | Name | Allowed values | Default | Effect |
 |---|---|---|---|
-| `thinkingOpacity` | number 0–1 | `0.6` | Multiplier on every reasoning-block foreground and on the subtle-syntax alpha (R36, R37) |
+| `thinkingOpacity` | number 0–1; a non-numeric value falls back to the default without rejection, and a number outside 0–1 is accepted as-is | `0.6` | Multiplier on every reasoning-block foreground and on the subtle-syntax alpha (R36, R37) |
 | `ansiToRgba` | fixed table, ANSI index 0–255 → RGBA | — | Resolution of integer color values (R30) |
 | `retry-overlay-alpha` | magic 186/255 (nameless literal in the retry dialog) | — | Foreground alpha of `dialog.retry` (catalog) |
 | `logo-shadow-alpha` | magic `0.25` (nameless literal in the logo renderer) | — | tui-theme/tint share of `logo.shadow` (R34) |
@@ -538,9 +538,9 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `run.block.muted` | `textMuted` | — | — |
 | `run.block.diff.added` | `diffAdded` | — | — |
 | `run.block.diff.removed` | `diffRemoved` | — | — |
-| `run.block.diff.added-bg` | — | `diffAddedBg` | — |
-| `run.block.diff.removed-bg` | — | `diffRemovedBg` | — |
-| `run.block.diff.context-bg` | — | `diffContextBg` | — |
+| `run.block.diff.added-bg` | — | — | — |
+| `run.block.diff.removed-bg` | — | — | — |
+| `run.block.diff.context-bg` | — | — | — |
 | `run.block.diff.highlight-added` | `diffHighlightAdded` | — | — |
 | `run.block.diff.highlight-removed` | `diffHighlightRemoved` | — | — |
 | `run.block.diff.line-number` | `diffLineNumber` | — | — |
@@ -556,8 +556,14 @@ the splash colors with `splash-shadow-alpha`. The run block diff RunTheme
 fields (`diffAdded`, `diffRemoved`, `diffAddedBg`, `diffRemovedBg`,
 `diffContextBg`, `diffHighlightAdded`, `diffHighlightRemoved`,
 `diffLineNumber`, `diffAddedLineNumberBg`, `diffRemovedLineNumberBg`)
-resolve from the `run.block.diff.*` elements above, whose defaults equal the
-palette diff names they replace (R44). RunTheme field names are fixed run-CLI
+resolve from the `run.block.diff.*` elements above, whose defaults are
+byte-identical to the base run rendering (R48): the base pinned the added,
+removed, and context backgrounds transparent and took the foregrounds and
+the line-number backgrounds from the palette, so exactly those carry
+palette defaults. The run diff background elements stay addressable in both
+directions (R44): a theme may set one to the transparent color
+(`{"bg": "transparent"}`) or paint one through a palette reference
+(`"diffAddedBg"`). RunTheme field names are fixed run-CLI
 surface names and are distinct from element names: the footer
 `selectedText` field is the projection of `run.footer.selected-text`, not an
 element of its own.
@@ -595,7 +601,7 @@ element of its own.
 - R41. The scope `default` resolves to `syntax.default`.
 - R42. The TUI theme context exposes a reactive accessor `element(name)` returning the resolved foreground, background, and attribute set of the named element, and reads through it re-evaluate when the theme or the mode changes.
 - R43. `element(name)` with a name outside the tui-theme/catalog throws an error.
-- R44. The run CLI derives every RunTheme color field from the resolved `run.*` elements, keeps the computed derivatives of the run zone, and resolves through the shared pipeline instead of a private copy of the theme resolver.
+- R44. The run CLI derives every RunTheme color field from the resolved `run.*` elements, keeps the computed derivatives of the run zone, and resolves through the shared pipeline instead of a private copy of the theme resolver. The `run.block.diff.added-bg`, `run.block.diff.removed-bg`, and `run.block.diff.context-bg` defaults are the transparent color, and a theme entry on any of them may set either the transparent color or a reference such as the palette name `diffAddedBg`.
 - R45. The plugin theme API exposes `element(name)` with the same argument contract, and keeps the flat legacy projection `current` available and deprecated during the transition.
 - R46. The crash error-component palette and the Knight-Rider spinner trail stay outside the theme and are not addressable by elements.
 - R47. A rejected theme file is dropped at load with its reason surfaced to the user, and the active theme falls back to the default built-in theme.
@@ -624,7 +630,7 @@ element of its own.
 - J8. Why the attribute enum is exactly the @opentui/core `TextAttributes` set (R16): the renderer can only apply the attributes it defines, so a wider set would create dead keys and a narrower set would lose renderable states.
 - J9. Why `thinkingOpacity` stays a scalar instead of per-element alpha (R20, R36): one global multiplier matches the single knob that exists today and avoids duplicating it across every reasoning element.
 - J10. Why unknown element names are rejected at load (R17, R47): a closed catalog turns typos into load errors instead of silently unstyled surfaces.
-- J11. Why the run block diff fields resolve from dedicated `run.block.diff.*` elements (R44): the run diff surfaces must stay element-addressable so a theme can clear one (for example `{"bg": "transparent"}` on an added-line background), their defaults equal the palette diff names they replace so the default rendering is unchanged, and the no-terminal-palette fallback keeps its bespoke seed derivation outside the element path.
+- J11. Why the run block diff fields resolve from dedicated `run.block.diff.*` elements (R44): the run diff surfaces must stay element-addressable so a theme can clear one (`{"bg": "transparent"}`) or paint one through a palette reference (`{"bg": "diffAddedBg"}`), the base pinned the added, removed, and context backgrounds transparent and took the foregrounds and the line-number backgrounds from the palette, so those defaults keep the default rendering byte-identical to base, and the no-terminal-palette fallback keeps its bespoke seed derivation outside the element path.
 - J12. Why default-theme byte-identity is binding for catalog defaults and element-sourced rules (R48): the element format is a re-addressing of the existing rendering rather than a restyling, so any normalization delta between the pre-v2 hardcoded styles and the catalog is a migration defect rather than a design choice, which extends the R23 losslessness promise from the palette to the rule layer.
 - J13. Why the home footer consumes the `footer.*` zone (Element catalog): the home footer strip renders the same footer surface as the session footer, so reusing the zone keeps one addressable surface with lossless defaults instead of duplicating identical rows.
 - J14. Why the dialog status dots share one `dialog.status.*` trio across dialogs (Element catalog): status dots render the same ok, warn, and error semantics wherever a dialog shows them, so one shared trio keeps the defaults identical to the flat reads it replaces while `sidebar.status.*` stays separate for independent tuning of the sidebar.
