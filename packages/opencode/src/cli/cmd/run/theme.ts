@@ -442,7 +442,8 @@ export async function loadPrepared(source: unknown, pick: "dark" | "light"): Pro
  * Purpose: the element → RunTheme projection of the run zone — footer fields
  * from `run.footer.*`, entry roles from `run.entry.*`, splash from
  * `run.splash.*`, background from `run.background`, and the block diff fields
- * from the effective theme's palette diff names (J11).
+ * from `run.block.diff.*` (J11) so a theme can clear one (for example
+ * `{"bg": "transparent"}`).
  *
  * Contract: `footer` and `scrollback` are prepared themes — the footer one
  * renders the exact theme colors while `scrollback` is the palette-matched
@@ -484,7 +485,6 @@ export function runTheme(
   subtleSyntax?.destroy()
   const splashLeft = nearestIndexed(indexed, element(scrollback, "run.splash.left").fg)
   const splashRight = nearestIndexed(indexed, element(scrollback, "run.splash.right").fg)
-  const diff = scrollback.theme
 
   return {
     background,
@@ -539,16 +539,16 @@ export function runTheme(
       muted: element(scrollback, "run.block.muted").fg,
       syntax,
       subtleSyntax: opaqueSubtleSyntax,
-      diffAdded: diff.diffAdded,
-      diffRemoved: diff.diffRemoved,
-      diffAddedBg: diff.diffAddedBg,
-      diffRemovedBg: diff.diffRemovedBg,
-      diffContextBg: diff.diffContextBg,
-      diffHighlightAdded: diff.diffHighlightAdded,
-      diffHighlightRemoved: diff.diffHighlightRemoved,
-      diffLineNumber: diff.diffLineNumber,
-      diffAddedLineNumberBg: diff.diffAddedLineNumberBg,
-      diffRemovedLineNumberBg: diff.diffRemovedLineNumberBg,
+      diffAdded: element(scrollback, "run.block.diff.added").fg,
+      diffRemoved: element(scrollback, "run.block.diff.removed").fg,
+      diffAddedBg: element(scrollback, "run.block.diff.added-bg").bg,
+      diffRemovedBg: element(scrollback, "run.block.diff.removed-bg").bg,
+      diffContextBg: element(scrollback, "run.block.diff.context-bg").bg,
+      diffHighlightAdded: element(scrollback, "run.block.diff.highlight-added").fg,
+      diffHighlightRemoved: element(scrollback, "run.block.diff.highlight-removed").fg,
+      diffLineNumber: element(scrollback, "run.block.diff.line-number").fg,
+      diffAddedLineNumberBg: element(scrollback, "run.block.diff.added-line-number-bg").bg,
+      diffRemovedLineNumberBg: element(scrollback, "run.block.diff.removed-line-number-bg").bg,
     },
   }
 }
