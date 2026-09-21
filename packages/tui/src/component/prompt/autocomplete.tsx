@@ -91,7 +91,7 @@ export function Autocomplete(props: {
   const project = useProject()
   const slashes = useCommandSlashes()
   const modeStack = useOpencodeModeStack()
-  const { theme, element } = useTheme()
+  const { element } = useTheme()
   const dimensions = useTerminalDimensions()
   const frecency = useFrecency()
   const tuiConfig = useTuiConfig()
@@ -741,7 +741,7 @@ export function Autocomplete(props: {
           each={options()}
           fallback={
             <box paddingLeft={1} paddingRight={1}>
-              <text fg={theme.textMuted}>No matching items</text>
+              <text fg={element("autocomplete.muted").fg}>No matching items</text>
             </box>
           }
         >
@@ -768,7 +768,7 @@ export function Autocomplete(props: {
                 {option().display}
               </text>
               <Show when={option().description}>
-                <text fg={index === store.selected ? element("autocomplete.row.selected").fg : theme.textMuted} wrapMode="none">
+                <text fg={index === store.selected ? element("autocomplete.row.selected").fg : element("autocomplete.muted").fg} wrapMode="none">
                   {" " + option().description?.trimStart()}
                 </text>
               </Show>

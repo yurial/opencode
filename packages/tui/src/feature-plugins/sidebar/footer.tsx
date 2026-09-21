@@ -33,7 +33,7 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
     <box gap={1}>
       <Show when={show()}>
         <box
-          backgroundColor={props.api.theme.current.backgroundElement}
+          backgroundColor={props.api.theme.element("sidebar.getting-started").bg}
           paddingTop={1}
           paddingBottom={1}
           paddingLeft={2}

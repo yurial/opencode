@@ -24,6 +24,8 @@ const theme = {
   text: RGBA.fromHex("#ffffff"),
   textMuted: RGBA.fromHex("#888888"),
   error: RGBA.fromHex("#ff0000"),
+  selectedForeground: RGBA.fromHex("#000000"),
+  selectedNameForeground: RGBA.fromHex("#00ffff"),
 }
 
 describe("DiffViewerFileTree", () => {

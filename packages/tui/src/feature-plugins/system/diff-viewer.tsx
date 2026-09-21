@@ -793,6 +793,8 @@ function DiffViewer(props: { api: TuiPluginApi }) {
                       primary: element("diff.filetree.row.selected").bg,
                       text: element("diff.text").fg,
                       textMuted: element("diff.filetree.row").fg,
+                      selectedForeground: element("diff.filetree.row.selected").fg,
+                      selectedNameForeground: element("diff.filetree.row.selected.name").fg,
                     }}
                     focused={focus() === "files"}
                     width={FILE_TREE_WIDTH}

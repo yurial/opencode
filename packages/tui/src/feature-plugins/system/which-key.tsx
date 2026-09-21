@@ -92,8 +92,8 @@ function text(value: unknown) {
 function skin(api: TuiPluginApi): Skin {
   return {
     panel: api.theme.element("which-key.panel").bg,
-    text: api.theme.current.text,
-    muted: api.theme.current.textMuted,
+    text: api.theme.element("which-key.text").fg,
+    muted: api.theme.element("which-key.muted").fg,
     subtle: api.theme.element("which-key.subtle").fg,
     key: api.theme.element("which-key.key").fg,
     accent: api.theme.element("which-key.accent").fg,

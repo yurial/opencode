@@ -13,6 +13,10 @@ export type DiffViewerFileTreeTheme = {
   readonly primary: ColorInput
   readonly text: RGBA
   readonly textMuted: RGBA
+  /** `diff.filetree.row.selected.fg` — foreground painted over the highlighted row background */
+  readonly selectedForeground: RGBA
+  /** `diff.filetree.row.selected.name.fg` — foreground of the selected file name */
+  readonly selectedNameForeground: RGBA
 }
 
 export type DiffViewerFileTreeProps = {
@@ -80,16 +84,16 @@ export function DiffViewerFileTree(props: DiffViewerFileTreeProps) {
                     backgroundColor={highlighted() ? props.theme.primary : undefined}
                     onMouseUp={() => props.onRowClick?.(row)}
                   >
-                    <text fg={highlighted() ? props.theme.background : fadedColor()} wrapMode="none" flexShrink={0}>
+                    <text fg={highlighted() ? props.theme.selectedForeground : fadedColor()} wrapMode="none" flexShrink={0}>
                       {prefix()}
                     </text>
                     <box flexGrow={1} minWidth={0}>
                       <text
                         fg={
                           highlighted()
-                            ? props.theme.background
+                            ? props.theme.selectedForeground
                             : selected()
-                              ? props.theme.primary
+                              ? props.theme.selectedNameForeground
                               : reviewed() || row.kind === "directory"
                                 ? props.theme.textMuted
                                 : props.theme.text
@@ -100,7 +104,7 @@ export function DiffViewerFileTree(props: DiffViewerFileTreeProps) {
                       </text>
                     </box>
                     <text
-                      fg={highlighted() ? props.theme.background : props.theme.textMuted}
+                      fg={highlighted() ? props.theme.selectedForeground : props.theme.textMuted}
                       wrapMode="none"
                       flexShrink={0}
                     >
