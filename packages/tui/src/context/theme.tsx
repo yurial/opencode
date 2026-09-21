@@ -307,8 +307,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 
     createEffect(() => renderer.setBackgroundColor(values().background))
 
-    const syntax = createSyntaxStyleMemo(() => generateSyntax(values()))
-    const subtleSyntax = createSyntaxStyleMemo(() => generateSubtleSyntax(values()))
+    // Rules resolve from the prepared theme's elements (R40): entries and
+    // overrides participate, and the memo re-evaluates on theme or mode change.
+    const syntax = createSyntaxStyleMemo(() => generateSyntax(prepared()))
+    const subtleSyntax = createSyntaxStyleMemo(() => generateSubtleSyntax(prepared()))
 
     return {
       theme: new Proxy(values(), {

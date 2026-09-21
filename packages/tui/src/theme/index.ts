@@ -1,6 +1,6 @@
 import { SyntaxStyle, RGBA, type TerminalColors } from "@opentui/core"
 import { tint } from "./color"
-import { loadTheme, selectedForeground, type PreparedTheme, type ThemeLoadResult } from "./resolve"
+import { loadTheme, resolveElement, selectedForeground, type PreparedTheme, type ThemeLoadResult } from "./resolve"
 import { DEFAULT_THEMES } from "./builtin"
 import { type ThemeRejectionReason } from "./migrate"
 import {
@@ -387,537 +387,438 @@ function generateMutedTextColor(bg: RGBA, isDark: boolean): RGBA {
 
 export type SyntaxStyleOverrides = Record<string, { italic?: boolean }>
 
-export function generateSyntax(theme: Theme) {
-  return SyntaxStyle.fromTheme(getSyntaxRules(theme))
+/**
+ * Adapts a theme source into the element-resolvable form (R40).
+ *
+ * Purpose: lets flat-based callers — the run CLI passes a `PreparedTheme`'s
+ * legacy palette — keep generating element-sourced syntax rules without
+ * re-loading the theme file.
+ *
+ * Contract: returns `source` unchanged when it already is a `PreparedTheme`;
+ * a flat `Theme` is wrapped with no entries and no defs, so every rule style
+ * resolves from catalog defaults against the palette alone. `mode` is never
+ * read on that path — catalog defaults carry no `{dark, light}` arms (R31
+ * applies to file entries only).
+ */
+function asPrepared(source: PreparedTheme | Theme): PreparedTheme {
+  if ("entries" in source) return source
+  return { mode: "dark", theme: source, entries: {}, defs: {} }
 }
 
-export function generateSubtleSyntax(theme: Theme, overrides?: SyntaxStyleOverrides) {
-  const rules = getSyntaxRules(theme)
+/**
+ * Resolves one catalog element into a SyntaxStyle rule style (R40).
+ *
+ * Purpose: the single mapping from `ResolvedElement` to the renderer's rule
+ * style shape — every syntax, markdown, and extmark rule sources its channels
+ * and attributes here.
+ *
+ * Contract: `name` must be a catalog element name (`resolveElement` throws
+ * otherwise). Foreground and background are copied when resolved
+ * non-transparent and omitted otherwise — the transparent color paints
+ * nothing, and an omitted channel lets the surface inherit. Each attribute of
+ * the resolved set maps onto its expressible flag (`bold`, `italic`,
+ * `underline`, `dim`); the rule style shape cannot express `blink`,
+ * `inverse`, `hidden`, or `strikethrough`, and no element a rule sources
+ * carries one (guarded by test — a future catalog addition must surface here,
+ * never drop silently).
+ */
+function elementStyle(prepared: PreparedTheme, name: string) {
+  const element = resolveElement(prepared, name)
+  const style: {
+    foreground?: RGBA
+    background?: RGBA
+    bold?: boolean
+    italic?: boolean
+    underline?: boolean
+    dim?: boolean
+  } = {}
+  if (element.fg.a > 0) style.foreground = element.fg
+  if (element.bg.a > 0) style.background = element.bg
+  for (const attribute of element.attributes) {
+    if (attribute === "bold") style.bold = true
+    else if (attribute === "italic") style.italic = true
+    else if (attribute === "underline") style.underline = true
+    else if (attribute === "dim") style.dim = true
+  }
+  return style
+}
+
+/**
+ * Builds the full syntax style for code and markdown rendering (R40, R41).
+ *
+ * Purpose: the shared generator behind the TUI context and the run CLI —
+ * every scope rule takes its foreground, background, and attributes from the
+ * corresponding `syntax.*`, `markdown.*`, or `prompt.extmark.*` element.
+ *
+ * Contract: `source` is a `PreparedTheme` (element entries participate, R25)
+ * or a flat legacy `Theme` (catalog defaults resolve against the palette via
+ * `asPrepared`). The result is a fresh `SyntaxStyle` the caller owns —
+ * destroy it when replaced.
+ */
+export function generateSyntax(source: PreparedTheme | Theme) {
+  return SyntaxStyle.fromTheme(getSyntaxRules(asPrepared(source)))
+}
+
+/**
+ * Builds the subtle syntax variant for reasoning bodies (R37).
+ *
+ * Purpose: the same rules as `generateSyntax` with every present foreground
+ * alpha replaced by the theme's `thinkingOpacity`, so reasoning text renders
+ * muted; attributes are unchanged (R37).
+ *
+ * Contract: `overrides` may force per-scope flags — merged across the rule's
+ * scopes, and never able to override the foreground. The multiplier is the
+ * effective theme's flat `thinkingOpacity` (carried on `PreparedTheme.theme`,
+ * default 0.6).
+ */
+export function generateSubtleSyntax(source: PreparedTheme | Theme, overrides?: SyntaxStyleOverrides) {
+  const prepared = asPrepared(source)
   return SyntaxStyle.fromTheme(
-    rules.map((rule) => {
+    getSyntaxRules(prepared).map((rule) => {
       const override = rule.scope.reduce((acc, scope) => ({ ...acc, ...overrides?.[scope] }), {})
-      if (rule.style.foreground) {
-        const fg = rule.style.foreground
-        return {
-          ...rule,
-          style: {
-            ...rule.style,
-            ...override,
-            foreground: RGBA.fromInts(
-              Math.round(fg.r * 255),
-              Math.round(fg.g * 255),
-              Math.round(fg.b * 255),
-              Math.round(theme.thinkingOpacity * 255),
-            ),
-          },
-        }
+      const foreground = rule.style.foreground
+      if (!foreground) return rule
+      return {
+        ...rule,
+        style: {
+          ...rule.style,
+          ...override,
+          foreground: RGBA.fromInts(
+            Math.round(foreground.r * 255),
+            Math.round(foreground.g * 255),
+            Math.round(foreground.b * 255),
+            Math.round(prepared.theme.thinkingOpacity * 255),
+          ),
+        },
       }
-      return rule
     }),
   )
 }
 
-function getSyntaxRules(theme: Theme) {
+/**
+ * The scope → element rule table (R40, R41).
+ *
+ * Purpose: binds every tree-sitter highlight scope — and the prompt editor's
+ * extmark style ids — to the catalog element its style resolves from.
+ *
+ * Contract: scope names are external tree-sitter identifiers; the extmark
+ * style ids stay `extmark.*` (the prompt editor resolves them via
+ * `getStyleId`) while their styles come from the `prompt.extmark.*` elements;
+ * the scope `default` resolves to `syntax.default` (R41). Rule order matters
+ * for scope specificity and mirrors the legacy highlight list. Styles resolve
+ * through `elementStyle`: with the default themes the output reproduces the
+ * legacy highlight list except where the catalog redefines a flag (each delta
+ * is pinned by test against the catalog table).
+ */
+function getSyntaxRules(prepared: PreparedTheme) {
+  const from = (name: string) => elementStyle(prepared, name)
   return [
     {
       scope: ["default"],
-      style: {
-        foreground: theme.text,
-      },
+      style: from("syntax.default"),
     },
     {
       scope: ["prompt"],
-      style: {
-        foreground: theme.accent,
-      },
+      style: from("syntax.prompt"),
     },
     {
       scope: ["extmark.file"],
-      style: {
-        foreground: theme.warning,
-        bold: true,
-      },
+      style: from("prompt.extmark.file"),
     },
     {
       scope: ["extmark.agent"],
-      style: {
-        foreground: theme.secondary,
-        bold: true,
-      },
+      style: from("prompt.extmark.agent"),
     },
     {
       scope: ["extmark.paste"],
-      style: {
-        foreground: selectedForeground(theme, theme.warning),
-        background: theme.warning,
-        bold: true,
-      },
+      style: from("prompt.extmark.paste"),
     },
     {
       scope: ["comment"],
-      style: {
-        foreground: theme.syntaxComment,
-        italic: true,
-      },
+      style: from("syntax.comment"),
     },
     {
       scope: ["comment.documentation"],
-      style: {
-        foreground: theme.syntaxComment,
-        italic: true,
-      },
+      style: from("syntax.comment"),
     },
     {
       scope: ["string", "symbol"],
-      style: {
-        foreground: theme.syntaxString,
-      },
+      style: from("syntax.string"),
     },
     {
       scope: ["number", "boolean"],
-      style: {
-        foreground: theme.syntaxNumber,
-      },
+      style: from("syntax.number"),
     },
     {
       scope: ["character.special"],
-      style: {
-        foreground: theme.syntaxString,
-      },
+      style: from("syntax.string"),
     },
     {
       scope: ["keyword.return", "keyword.conditional", "keyword.repeat", "keyword.coroutine"],
-      style: {
-        foreground: theme.syntaxKeyword,
-        italic: true,
-      },
+      style: from("syntax.keyword"),
     },
     {
       scope: ["keyword.type"],
-      style: {
-        foreground: theme.syntaxType,
-        bold: true,
-        italic: true,
-      },
+      style: from("syntax.type"),
     },
     {
       scope: ["keyword.function", "function.method"],
-      style: {
-        foreground: theme.syntaxFunction,
-      },
+      style: from("syntax.function"),
     },
     {
       scope: ["keyword"],
-      style: {
-        foreground: theme.syntaxKeyword,
-        italic: true,
-      },
+      style: from("syntax.keyword"),
     },
     {
       scope: ["keyword.import"],
-      style: {
-        foreground: theme.syntaxKeyword,
-      },
+      style: from("syntax.keyword"),
     },
     {
       scope: ["operator", "keyword.operator", "punctuation.delimiter"],
-      style: {
-        foreground: theme.syntaxOperator,
-      },
+      style: from("syntax.operator"),
     },
     {
       scope: ["keyword.conditional.ternary"],
-      style: {
-        foreground: theme.syntaxOperator,
-      },
+      style: from("syntax.operator"),
     },
     {
       scope: ["variable", "variable.parameter", "function.method.call", "function.call"],
-      style: {
-        foreground: theme.syntaxVariable,
-      },
+      style: from("syntax.variable"),
     },
     {
       scope: ["variable.member", "function", "constructor"],
-      style: {
-        foreground: theme.syntaxFunction,
-      },
+      style: from("syntax.function"),
     },
     {
       scope: ["type", "module"],
-      style: {
-        foreground: theme.syntaxType,
-      },
+      style: from("syntax.type"),
     },
     {
       scope: ["constant"],
-      style: {
-        foreground: theme.syntaxNumber,
-      },
+      style: from("syntax.number"),
     },
     {
       scope: ["property"],
-      style: {
-        foreground: theme.syntaxVariable,
-      },
+      style: from("syntax.variable"),
     },
     {
       scope: ["class"],
-      style: {
-        foreground: theme.syntaxType,
-      },
+      style: from("syntax.type"),
     },
     {
       scope: ["parameter"],
-      style: {
-        foreground: theme.syntaxVariable,
-      },
+      style: from("syntax.variable"),
     },
     {
       scope: ["punctuation", "punctuation.bracket"],
-      style: {
-        foreground: theme.syntaxPunctuation,
-      },
+      style: from("syntax.punctuation"),
     },
     {
       scope: ["variable.builtin", "type.builtin", "function.builtin", "module.builtin", "constant.builtin"],
-      style: {
-        foreground: theme.error,
-      },
+      style: from("syntax.error"),
     },
     {
       scope: ["variable.super"],
-      style: {
-        foreground: theme.error,
-      },
+      style: from("syntax.error"),
     },
     {
       scope: ["string.escape", "string.regexp"],
-      style: {
-        foreground: theme.syntaxKeyword,
-      },
+      style: from("syntax.keyword"),
     },
     {
       scope: ["keyword.directive"],
-      style: {
-        foreground: theme.syntaxKeyword,
-        italic: true,
-      },
+      style: from("syntax.keyword"),
     },
     {
       scope: ["punctuation.special"],
-      style: {
-        foreground: theme.syntaxOperator,
-      },
+      style: from("syntax.operator"),
     },
     {
       scope: ["keyword.modifier"],
-      style: {
-        foreground: theme.syntaxKeyword,
-        italic: true,
-      },
+      style: from("syntax.keyword"),
     },
     {
       scope: ["keyword.exception"],
-      style: {
-        foreground: theme.syntaxKeyword,
-        italic: true,
-      },
+      style: from("syntax.keyword"),
     },
-    // Markdown specific styles
+    // Markdown — markup.* scopes resolve markdown.* elements (R40).
     {
       scope: ["markup.heading"],
-      style: {
-        foreground: theme.markdownHeading,
-        bold: true,
-      },
+      style: from("markdown.heading"),
     },
     {
       scope: ["markup.heading.1"],
-      style: {
-        foreground: theme.markdownHeading,
-        bold: true,
-        underline: true,
-      },
+      style: from("markdown.heading.h1"),
     },
     {
       scope: ["markup.heading.2"],
-      style: {
-        foreground: theme.markdownHeading,
-        bold: true,
-      },
+      style: from("markdown.heading"),
     },
     {
       scope: ["markup.heading.3"],
-      style: {
-        foreground: theme.markdownHeading,
-        bold: true,
-      },
+      style: from("markdown.heading"),
     },
     {
       scope: ["markup.heading.4"],
-      style: {
-        foreground: theme.markdownHeading,
-        bold: true,
-      },
+      style: from("markdown.heading"),
     },
     {
       scope: ["markup.heading.5"],
-      style: {
-        foreground: theme.markdownHeading,
-        bold: true,
-      },
+      style: from("markdown.heading"),
     },
     {
       scope: ["markup.heading.6"],
-      style: {
-        foreground: theme.markdownHeading,
-        bold: true,
-      },
+      style: from("markdown.heading"),
     },
     {
       scope: ["markup.bold", "markup.strong"],
-      style: {
-        foreground: theme.markdownStrong,
-        bold: true,
-      },
+      style: from("markdown.strong"),
     },
     {
       scope: ["markup.italic"],
-      style: {
-        foreground: theme.markdownEmph,
-        italic: true,
-      },
+      style: from("markdown.emph"),
     },
     {
       scope: ["markup.list"],
-      style: {
-        foreground: theme.markdownListItem,
-      },
+      style: from("markdown.list"),
     },
     {
       scope: ["markup.quote"],
-      style: {
-        foreground: theme.markdownBlockQuote,
-        italic: true,
-      },
+      style: from("markdown.quote"),
     },
     {
       scope: ["markup.raw", "markup.raw.block"],
-      style: {
-        foreground: theme.markdownCode,
-      },
+      style: from("markdown.code"),
     },
     {
       scope: ["markup.raw.inline"],
-      style: {
-        foreground: theme.markdownCode,
-        background: theme.background,
-      },
+      style: from("markdown.code"),
     },
     {
       scope: ["markup.link"],
-      style: {
-        foreground: theme.markdownLink,
-        underline: true,
-      },
+      style: from("markdown.link"),
     },
     {
       scope: ["markup.link.label"],
-      style: {
-        foreground: theme.markdownLinkText,
-        underline: true,
-      },
+      style: from("markdown.link.label"),
     },
     {
       scope: ["markup.link.url"],
-      style: {
-        foreground: theme.markdownLink,
-        underline: true,
-      },
+      style: from("markdown.link"),
     },
     {
       scope: ["label"],
-      style: {
-        foreground: theme.markdownLinkText,
-      },
+      style: from("markdown.link.label"),
     },
     {
       scope: ["spell", "nospell"],
-      style: {
-        foreground: theme.text,
-      },
+      style: from("syntax.default"),
     },
     {
       scope: ["conceal"],
-      style: {
-        foreground: theme.textMuted,
-      },
+      style: from("syntax.conceal"),
     },
     // Additional common highlight groups
     {
       scope: ["string.special", "string.special.url"],
-      style: {
-        foreground: theme.markdownLink,
-        underline: true,
-      },
+      style: from("markdown.link"),
     },
     {
       scope: ["character"],
-      style: {
-        foreground: theme.syntaxString,
-      },
+      style: from("syntax.string"),
     },
     {
       scope: ["float"],
-      style: {
-        foreground: theme.syntaxNumber,
-      },
+      style: from("syntax.number"),
     },
     {
       scope: ["comment.error"],
-      style: {
-        foreground: theme.error,
-        italic: true,
-        bold: true,
-      },
+      style: from("syntax.error"),
     },
     {
       scope: ["comment.warning"],
-      style: {
-        foreground: theme.warning,
-        italic: true,
-        bold: true,
-      },
+      style: from("syntax.warning"),
     },
     {
       scope: ["comment.todo", "comment.note"],
-      style: {
-        foreground: theme.info,
-        italic: true,
-        bold: true,
-      },
+      style: from("syntax.todo"),
     },
     {
       scope: ["namespace"],
-      style: {
-        foreground: theme.syntaxType,
-      },
+      style: from("syntax.type"),
     },
     {
       scope: ["field"],
-      style: {
-        foreground: theme.syntaxVariable,
-      },
+      style: from("syntax.variable"),
     },
     {
       scope: ["type.definition"],
-      style: {
-        foreground: theme.syntaxType,
-        bold: true,
-      },
+      style: from("syntax.type"),
     },
     {
       scope: ["keyword.export"],
-      style: {
-        foreground: theme.syntaxKeyword,
-      },
+      style: from("syntax.keyword"),
     },
     {
       scope: ["attribute", "annotation"],
-      style: {
-        foreground: theme.warning,
-      },
+      style: from("syntax.warning"),
     },
     {
       scope: ["tag"],
-      style: {
-        foreground: theme.error,
-      },
+      style: from("syntax.error"),
     },
     {
       scope: ["tag.attribute"],
-      style: {
-        foreground: theme.syntaxKeyword,
-      },
+      style: from("syntax.keyword"),
     },
     {
       scope: ["tag.delimiter"],
-      style: {
-        foreground: theme.syntaxOperator,
-      },
+      style: from("syntax.operator"),
     },
     {
       scope: ["markup.strikethrough"],
-      style: {
-        foreground: theme.textMuted,
-      },
+      style: from("syntax.conceal"),
     },
     {
       scope: ["markup.underline"],
-      style: {
-        foreground: theme.text,
-        underline: true,
-      },
+      style: from("markdown.text"),
     },
     {
       scope: ["markup.list.checked"],
-      style: {
-        foreground: theme.success,
-      },
+      style: from("syntax.checked"),
     },
     {
       scope: ["markup.list.unchecked"],
-      style: {
-        foreground: theme.textMuted,
-      },
+      style: from("syntax.conceal"),
     },
     {
       scope: ["diff.plus"],
-      style: {
-        foreground: theme.diffAdded,
-        background: theme.diffAddedBg,
-      },
+      style: from("syntax.diff.plus"),
     },
     {
       scope: ["diff.minus"],
-      style: {
-        foreground: theme.diffRemoved,
-        background: theme.diffRemovedBg,
-      },
+      style: from("syntax.diff.minus"),
     },
     {
       scope: ["diff.delta"],
-      style: {
-        foreground: theme.diffContext,
-        background: theme.diffContextBg,
-      },
+      style: from("syntax.diff.delta"),
     },
     {
       scope: ["error"],
-      style: {
-        foreground: theme.error,
-        bold: true,
-      },
+      style: from("syntax.error"),
     },
     {
       scope: ["warning"],
-      style: {
-        foreground: theme.warning,
-        bold: true,
-      },
+      style: from("syntax.warning"),
     },
     {
       scope: ["info"],
-      style: {
-        foreground: theme.info,
-      },
+      style: from("syntax.todo"),
     },
     {
       scope: ["debug"],
-      style: {
-        foreground: theme.textMuted,
-      },
+      style: from("syntax.conceal"),
     },
   ]
 }
+
