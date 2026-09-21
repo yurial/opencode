@@ -1,17 +1,17 @@
 # Discard Context Specification
 
 Status: stable
-Spec source of truth for: the `discard_context` config flag and model-facing tool in both the V2 and V1 runtimes, the runner history filtering it drives in each runtime, the part-id markers carried by provider projections, and the discard markers rendered by session-ui, the TUI, and exported transcripts.
+Spec source of truth for: the `discard_context` config flag and model-facing tool in both the V2 and V1 runtimes, the runner history filtering it drives in each runtime, the part-id markers carried by provider projections, and the discard markers rendered by session-ui, the TUI, and exported transcripts, and the discard-statistics block of the TUI session sidebar.
 
 ## Overview
 
-The model can mark parts of its own earlier assistant turns and parts of earlier user turns as no longer needed by calling the `discard_context` tool. Each call persists as an ordinary tool part in session history; from the next provider turn on, marked parts, the discard calls themselves, and messages emptied by removal are excluded from the provider request while remaining in durable history. So that the marked ids stay addressable, every provider turn that resolves the flag enabled projects the id of each part it carries: text parts open with the core-discard-context/projected-id-marker line, file parts of V2 user messages open with the marker line immediately ahead of the file content, tool parts are identified by their core-discard-context/provider-call-id natively, and reasoning parts carry the marker only when they are projected at all; the markers are a projection-only transformation that nothing durable ever stores. A settled call always answers with a non-empty model-facing line that confirms successful execution and states how many parts it marked; the zero-count wording tells the model not to repeat the call without new ids. Filtering runs after runner history selection, before history lowering, and before both compaction paths, so marked content is never baked into a summary or a conversation checkpoint; the most recent user entry of the session always survives filtering whole, because the runner reads the current turn's steering from the projected history. Marker surfaces (the session-ui divider, the TUI inline marker, and the transcript export line) render one line per call with an exact session-wide token suffix; the marked ids themselves are never rendered. The mechanism is bounded against tui-session-display/meta-part: a meta part is a display-only part type excluded from provider context and transcripts by construction, while a core-discard-context/discard-call is a regular tool part excluded from provider context by filtering and kept in transcripts as a marker line.
+The model can mark parts of its own earlier assistant turns and parts of earlier user turns as no longer needed by calling the `discard_context` tool. Each call persists as an ordinary tool part in session history; from the next provider turn on, marked parts, the discard calls themselves, and messages emptied by removal are excluded from the provider request while remaining in durable history. So that the marked ids stay addressable, every provider turn that resolves the flag enabled projects the id of each part it carries: text parts open with the core-discard-context/projected-id-marker line, file parts of V2 user messages open with the marker line immediately ahead of the file content, tool parts are identified by their core-discard-context/provider-call-id natively, and reasoning parts carry the marker only when they are projected at all; the markers are a projection-only transformation that nothing durable ever stores. A settled call always answers with a non-empty model-facing line that confirms successful execution and states how many parts it marked; the zero-count wording tells the model not to repeat the call without new ids. Filtering runs after runner history selection, before history lowering, and before both compaction paths, so marked content is never baked into a summary or a conversation checkpoint; the most recent user entry of the session always survives filtering whole, because the runner reads the current turn's steering from the projected history. Marker surfaces (the session-ui divider, the TUI inline marker, and the transcript export line) render one line per call with a session-wide token suffix that is exact for fully discarded messages and a deterministic char-weighted share for partially discarded ones, prefixed with `~` whenever a share entered the sum; the TUI session sidebar adds a discard-statistics block with the same numbers; the marked ids themselves are never rendered. The mechanism is bounded against tui-session-display/meta-part: a meta part is a display-only part type excluded from provider context and transcripts by construction, while a core-discard-context/discard-call is a regular tool part excluded from provider context by filtering and kept in transcripts as a marker line.
 
 The same mechanism runs in the V1 (legacy) runtime. The flag is a root key of the V1 config surface and its value is carried into the V2 surface by config migration; the tool is a V1 wrapper whose call persists as an ordinary V1 tool part that existing tool-part surfaces render unchanged; the fixed instruction joins the per-turn system parts that the provider request flattens into one combined system message; and a mirrored filter runs once per loop iteration over the reloaded history before any consumer reads it. The V1 filter matches tool parts by core-discard-context/provider-call-id as well as by part id, because a V1 tool part reaches the model under its provider call id while its own part id stays internal. The V1 mirror carries the same part-id markers on flag-enabled turns, the same user-part marking and guard, and the same settled-output line.
 
 ## Scope
 
-In: the `discard_context` config flag; the `discard_context` tool contract, registration gate, system instruction, and non-empty settled-output line; runner history filtering semantics (marked-id union, part removal for assistant and user messages, discard-call removal, empty-message drop, ordering, most-recent-user-entry guard, lowered-request validity, application point before lowering and both compactions); the flag-gated projection-only part-id markers in the provider request; the V1 runtime surface of the same mechanism (V1 config key read and its migration carry into the V2 surface, tool wrapper and per-turn registry gate, per-turn instruction and loop-iteration filtering, provider-call-id matching, decoded-input id collection); marker rendering in session-ui and the TUI; the transcript marker; exact token attribution.
+In: the `discard_context` config flag; the `discard_context` tool contract, registration gate, system instruction, and non-empty settled-output line; runner history filtering semantics (marked-id union, part removal for assistant and user messages, discard-call removal, empty-message drop, ordering, most-recent-user-entry guard, lowered-request validity, application point before lowering and both compactions); the flag-gated projection-only part-id markers in the provider request; the V1 runtime surface of the same mechanism (V1 config key read and its migration carry into the V2 surface, tool wrapper and per-turn registry gate, per-turn instruction and loop-iteration filtering, provider-call-id matching, decoded-input id collection); marker rendering in session-ui and the TUI; the transcript marker; the TUI sidebar discard-statistics block; token attribution, exact for fully discarded messages and deterministic char-weighted for partially discarded ones.
 
 Out (non-goals): deletion or mutation of session history; the meta-part mechanism (tui-session-display); user-initiated discards; compaction itself (core-session); undoing or expiring markings; TUI attribution changes for V1 provider-call-id markings (the token suffix may be absent or under-report; see Usage constraints).
 
@@ -23,8 +23,10 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 - `core-discard-context/marked-part` — a content part of an assistant or user message whose id is a member of core-discard-context/marked-ids; the eligible part types are text, reasoning, and tool for assistant messages and text and file for user messages; in the V1 runtime an assistant tool part is also a marked-part when its core-discard-context/provider-call-id is a member; in the V2 runtime a user file part is also a marked-part when its core-discard-context/attachment-id is a member, and a file attachment carrying no id is never a marked-part.
 - `core-discard-context/provider-call-id` — the tool-call id under which a tool part appears in the provider context; in the V1 runtime it differs from the tool part's own id.
 - `core-discard-context/projected-id-marker` — the fixed line `[part id: <id>]`, placed on its own line at the start of a part's projected text on provider turns where the flag resolves enabled; a projection-only transformation that durable history, session reads, marker surfaces, and exported transcripts never contain.
-- `core-discard-context/fully-discarded-message` — an assistant message whose every eligible content part (text, reasoning, or tool other than a core-discard-context/discard-call) is a core-discard-context/marked-part; the unit of exact token attribution.
-- `core-discard-context/discarded-token-total` — the session-wide sum of output and reasoning tokens over core-discard-context/fully-discarded-messages; identical for every marker surface of the session.
+- `core-discard-context/fully-discarded-message` — an assistant message whose every eligible content part (text, reasoning, or tool other than a core-discard-context/discard-call) is a core-discard-context/marked-part; contributes its full output-and-reasoning token count to the core-discard-context/discarded-token-total.
+- `core-discard-context/partially-discarded-message` — an assistant message with at least one but not every eligible content part (text, reasoning, or tool other than a core-discard-context/discard-call) being a core-discard-context/marked-part; contributes a char-weighted share of its output-and-reasoning token count to the core-discard-context/discarded-token-total.
+- `core-discard-context/part-char-weight` — the volume weight of one eligible part of an assistant message, used only for share attribution: the length of its text for a text or reasoning part, and the combined length of its output and of `JSON.stringify(input)` for a tool part; a part carrying no text weighs zero, and no other part kind has a weight.
+- `core-discard-context/discarded-token-total` — the session-wide sum of exact whole-message contributions plus char-weighted shares of partially discarded messages: over every core-discard-context/fully-discarded-message its full output-and-reasoning token count, over every core-discard-context/partially-discarded-message its floored char-weighted share; identical for every surface that renders it (every marker surface and the TUI sidebar statistics block); estimated whenever it includes a nonzero share.
 
 ## Interface
 
@@ -40,6 +42,7 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
   - session-ui: one divider line per discard-call, localized through the i18n keys `ui.messagePart.context.discarded`, `ui.messagePart.context.discardedTokens`, and `ui.tool.discardContext`.
   - TUI: one inline marker line per discard-call with fixed English labels (pending label, failure label, and the discarded-count label).
   - transcript export: one marker line per discard-call, optionally with the token suffix.
+- Sidebar statistics: the TUI session sidebar renders one discard-statistics block per session with fixed English labels — unique marked-part count, core-discard-context/discarded-token-total in the compact format, discard-call count — always equal to the marker-surface values.
 
 ## Configuration
 
@@ -102,13 +105,14 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 - R6.4. A marker appends the token suffix only when the session's core-discard-context/discarded-token-total is positive.
 - R6.5. An exported transcript keeps exactly one marker line per discard-call and never contains the marked ids.
 - R7. Token attribution:
-- R7.1. The core-discard-context/discarded-token-total sums the output and reasoning tokens of every core-discard-context/fully-discarded-message in the session.
-- R7.2. An assistant message that is not a core-discard-context/fully-discarded-message contributes no tokens to the total.
+- R7.1. The core-discard-context/discarded-token-total sums the output and reasoning tokens of every core-discard-context/fully-discarded-message in the session plus the char-weighted contribution of every core-discard-context/partially-discarded-message.
+- R7.2. A core-discard-context/partially-discarded-message contributes its output and reasoning tokens multiplied by its share and rounded down to a whole token, never up; the share divides the summed core-discard-context/part-char-weights of the marked eligible parts by the summed core-discard-context/part-char-weights of all eligible parts of the same message, and a message whose eligible parts weigh zero in total contributes zero.
 - R7.3. Input and cache tokens are never counted in the total.
-- R7.4. Every marker surface of one session shows the same total.
+- R7.4. Every marker surface and the TUI sidebar statistics block of one session shows the same total.
 - R7.5. The suffix renders the total as a plain count below `tokens-k-threshold`, with a `k` suffix below `tokens-m-threshold`, and with an `M` suffix otherwise.
 - R7.6. A compact suffix carries one decimal place, and a trailing zero decimal is trimmed.
 - R7.7. Marked user parts never contribute tokens to the core-discard-context/discarded-token-total.
+- R7.8. When the core-discard-context/discarded-token-total includes the nonzero share of a core-discard-context/partially-discarded-message, every surface that renders the count — every marker suffix and the sidebar statistics block — prefixes it with `~`; a total of exact whole-message contributions alone carries no prefix.
 - R8. Part-id visibility:
 - R8.1. On a provider turn where the `discard_context` flag resolves enabled under the per-turn resolution of R2.3 and R2.8, the provider projection carries the id of each projected part of user and assistant messages as specified by R8.2 through R8.4 in both the V2 and V1 runtimes and by R8.7 in the V2 runtime.
 - R8.2. A projected text part of a user or assistant message carries its id as the core-discard-context/projected-id-marker line, placed on its own line at the start of the part's projected text.
@@ -117,6 +121,11 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 - R8.5. On a provider turn where the `discard_context` flag resolves disabled, the provider projection carries no core-discard-context/projected-id-marker, in either runtime.
 - R8.6. The core-discard-context/projected-id-marker exists only inside the provider request projection: durable history, session reads, the marker surfaces of R6, and exported transcripts never contain it.
 - R8.7. In the V2 runtime a projected file part of a user message carries its core-discard-context/attachment-id as the core-discard-context/projected-id-marker placed as a text block immediately before the file content of the same user message projection; a file attachment carrying no id projects no marker.
+- R9. Sidebar statistics:
+- R9.1. The TUI session sidebar renders one discard-statistics block with three rows: the count of unique marked parts (the content parts of the session history that are core-discard-context/marked-parts under the union of all calls), the core-discard-context/discarded-token-total in the compact format of R7.5 and R7.6, and the count of core-discard-context/discard-calls in the session history; the block never renders the marked ids.
+- R9.2. The token row of the block equals the total of every marker surface of the session (R7.4) and follows the `~` prefix rule of R7.8.
+- R9.3. The block derives every number from the durable session history alone — the same loaded record the marker surfaces read — and holds no discard state of its own; hiding or showing the sidebar changes no value.
+- R9.4. The block is rendered only when the session history contains at least one core-discard-context/marked-part; with nothing marked it is absent, following the sidebar widgets that hide an empty collection.
 
 ## Examples
 
@@ -137,15 +146,19 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 - A4.10. A user message emptied by marking disappears from the lowered context; the lowered request stays valid, with user and assistant turns kept alternating.
 - A5.6. On a V1 turn after a marking call, the next provider request, an auto-compaction summary, and a subtask replay all see the same history without the marked parts.
 - A7.1. A fully marked assistant message with output tokens and reasoning tokens contributes their sum, and every marker of the session shows that same session total.
-- A7.2. A message with a text part and a reasoning part where only the text part is marked contributes nothing, and its tokens appear in no suffix.
+- A7.2. A message with a 300-character text part and a 100-character reasoning part where only the text part is marked contributes three quarters of its output and reasoning tokens, floored to a whole token, and every rendering of the session total carries the `~` prefix.
 - A7.5. Session totals render as `950`, `4.2k`, and `1.3M` across the compact-format bounds.
 - A7.7. A marked user text part contributes no tokens to any suffix of the session.
+- A7.8. A session total of 1,284,000 tokens that includes a partial share renders as `~1.3M` in every marker suffix and in the sidebar token row; the same total built from fully discarded messages alone renders as `1.3M`.
+- A7.9. A partially marked message whose eligible parts carry no text weighs zero in total, contributes zero, and leaves an otherwise exact total without the `~` prefix.
 - A8.2. The text part `text-plan` projected on a flag-enabled turn opens with the line `[part id: text-plan]` ahead of its body text.
 - A8.3. A tool call reaches the model identified by its provider call id alone, with no marker line added.
 - A8.4. A reasoning part projected to a reasoning-capable provider opens with its marker line; the same part absent from the projection carries none.
 - A8.5. The same history lowered on a flag-disabled turn projects the same text bodies with no marker line.
 - A8.6. The durable row of a marked text part, its session read, its TUI rendering, and its transcript line all lack the `[part id: …]` line that the provider projection of the same part carries.
 - A8.7. In the V2 runtime a user file attachment whose core-discard-context/attachment-id is `file-notes` projects on a flag-enabled turn with the line `[part id: file-notes]` immediately ahead of its file content, and a marking call whose ids include `file-notes` counts the attachment in its settled marked count.
+- A9.1. A session whose three discard-calls mark five distinct parts renders the sidebar block with the rows 5, the session discarded-token-total — `~`-prefixed when a partial share entered it — and 3, equal to every marker suffix of the session.
+- A9.4. A session with no discard-call renders no discard-statistics block in the sidebar, while the context-usage block still renders its zero rows.
 
 ## Tests
 
@@ -179,13 +192,14 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 - T3.10. a flag-on turn projects a user file attachment with the core-discard-context/projected-id-marker immediately ahead of its file content, a call naming the attachment id counts it in the settled marked count, and the durable file row contains no marker (R1.2, R8.1, R8.6, R8.7).
 - T4. Token attribution (packages/session-ui/src/components/discard-context-summary.test.ts and the mirrored packages/tui/test/util/discard-context.test.ts):
 - T4.1. sums output and reasoning tokens of fully discarded assistant messages (R7.1).
-- T4.2. partially discarded messages contribute nothing (R7.2).
+- T4.2. partially discarded messages contribute the floored char-weighted share of their output and reasoning tokens, and a message whose eligible parts weigh zero in total contributes zero (R7.2).
 - T4.3. markers do not close on themselves: a message fully marked plus its own marker counts as fully discarded (R7.1).
 - T4.4. merges ids across multiple discard calls (R3.1).
 - T4.5. returns a zero total when nothing is discarded (R7.1).
 - T4.6. compact format bounds: plain, k, and M forms with decimal trimming (R7.5, R7.6).
 - T4.7. marked user parts add no tokens to the total (R7.7).
 - T4.8. TUI marker lines contain neither marked ids nor the projected-id-marker (R6.1, R8.6).
+- T4.9. the compact count carries the `~` prefix exactly when the total includes a nonzero partial share, on both mirrored modules (R7.8).
 - T5. Transcript marker (packages/tui/test/util/transcript.test.ts):
 - T5.1. formats a single marker line without ids (R6.1, R6.5).
 - T5.2. singular marker text for a single id (R6.1, R6.2).
@@ -202,15 +216,20 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 - T6.6. reproduction of the empty-output incident: a settled call with an empty ids array produces the non-empty zero-count line with the no-repeat instruction instead of the empty output that drove repeated calls (R1.2, R1.7, R1.8).
 - T6.7. a flag-on V1 turn lowers text parts with the marker line and identifies tool parts by provider call id, a flag-off V1 turn lowers no marker line, and the persisted parts never contain the marker (R8.1, R8.2, R8.3, R8.5, R8.6).
 - T6.8. the V1 filter removes marked user parts, drops emptied user messages, and keeps the most recent user entry with content (R4.2, R4.4, R4.8).
+- T7. Sidebar statistics (packages/tui/test/feature-plugins/sidebar-discard-stats.test.tsx):
+- T7.1. renders the three rows — unique marked-part count, session discarded-token-total in the compact format, discard-call count — from the loaded session history (R9.1, R9.3).
+- T7.2. the token row equals the marker-surface total and carries the `~` prefix exactly when the total is estimated (R9.2, R7.8).
+- T7.3. renders no block when the history contains no marked part (R9.4).
+- T7.4. toggling sidebar visibility changes no value (R9.3).
 
 ## Usage constraints
 
 - Enabling the flag changes the byte composition of projected parts by inserting the core-discard-context/projected-id-marker, so the first flag-enabled turn touches the provider prefix cache once; part ids are stable, so marker-bearing projections stay cache-stable afterwards.
 - In the V1 runtime the processor's doom-loop guard is not exempted from this tool: repeated identical discard calls can raise a permission confirmation.
-- In V1 sessions parts marked by core-discard-context/provider-call-id are excluded from provider context, but the TUI token suffix matches marked ids against part ids only, so the suffix may be absent or under-report; it never over-reports, and no TUI change is planned.
+- In V1 sessions parts marked by core-discard-context/provider-call-id are excluded from provider context, but the TUI attribution matches marked ids against part ids only, so the token suffix and the sidebar statistics block may be absent or under-report; they never over-report, and no TUI change is planned.
 - In the V2 runtime file attachments of durable user-message rows persisted before the attachment id field existed carry no id: they stay unaddressable, never matched by marking, never counted in a settled marked count, and never preceded by the core-discard-context/projected-id-marker; experimental V2 databases are disposable one-shot state under the established policy, so no backfill of ids is provided.
 - The V1 filter is a deliberate mirror copy of the core filter, kept as a copy because the core module's types bind to the V2 message shapes; any change must keep it semantically identical to the core filter.
-- The pure attribution logic exists as two deliberate copies (session-ui and the TUI package, which cannot depend on the web-only package); any change must keep them identical.
+- The pure attribution logic — the id union, the char weights, the total, the compact format, and the `~` prefix rule — exists as two deliberate copies (session-ui and the TUI package, which cannot depend on the web-only package); any change must keep them identical.
 - The i18n keys must exist in every supported locale (enforced by the locale parity test); translations may lag, leaving English copies in place.
 - The compact suffix always uses a dot as the decimal separator, and the token-count phrasing is not pluralization-aware in every locale.
 - The session-ui divider render has no direct unit test (a bundling constraint of the web package); its logic is covered through the attribution module tests.
@@ -218,23 +237,26 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 ## Justification
 
 - J1. Why input and cache tokens are excluded from the total (R7.3): providers report them for the whole request rather than per excluded content, so attributing them to discarded parts would be invented.
-- J2. Why partially discarded messages contribute nothing (R7.2): token counts exist per assistant message only, and estimating a share would misreport savings, so the total stays exact or empty — a deliberate exactness-over-coverage decision.
+- J2. Why partially discarded messages contribute a char-weighted share (R7.2, R7.8): providers report token counts per assistant message and expose no per-part counts, so an exact split of a partially discarded message does not exist; dividing the message count by the relative text volume of its parts, floored to a whole token, is a deterministic, conservative estimate that never overstates savings, and the `~` prefix keeps every surface from reading the estimate as exact. Input and cache tokens stay excluded for the J1 reason.
 - J3. Why filtering runs before both compactions (R5.2): a summary or checkpoint built from unfiltered entries would preserve marked content beyond the marking and re-enter it on every later turn.
 - J4. Why emptied messages are dropped (R4.4, R4.10): providers require alternating user and assistant turns, so an emptied message of either role would make the lowered request invalid.
-- J5. Why the token suffix is session-wide rather than per-marker (R7.4): attribution is exact per message and not per call, so a per-marker split would be arbitrary; one session total keeps every surface consistent.
+- J5. Why the token suffix is session-wide rather than per-marker (R7.4): attribution exists per message and not per call, so a per-marker split would be arbitrary; one session total keeps every surface consistent.
 - J6. Why registration is gated at Location build while the instruction and filtering are re-resolved per turn (R2.1, R2.3): tool definitions materialize per registration cycle, while per-turn re-resolution lets a reopened Location's config steer the very next provider turn without rebuilding the runner.
 - J7. Why the V1 filter matches tool parts by core-discard-context/provider-call-id as well as by part id (R4.7): a V1 tool part reaches the model under its core-discard-context/provider-call-id while its own part id stays internal, so id-only matching would leave marked tool calls visible to the model.
 - J8. Why the V1 filter is a mirrored copy rather than an import of the core filter (R4.7, R5.5): the core filter's types bind to the V2 message shapes, so reuse would erase the V1 types; a semantic mirror keeps each runtime's types intact at the cost of a copy that must stay identical to its original, like the existing attribution copies.
 - J9. Why the settled output is never empty and the zero-count line forbids repetition (R1.2, R1.8): a V1 incident showed that an empty settled output for an empty-ids call left the model without a completion signal and drove a loop of repeated identical calls, which an explicit success confirmation with the marked count closes.
 - J10. Why the most recent user entry survives filtering whole (R4.8): the runner reads the current turn's steering and formatting from the projected history, so removing the latest user entry or all of its parts would invalidate the very turn the marking tried to improve; ignoring its ids for the pass is the narrowest rule that prevents this.
-- J11. Why marked user parts contribute no tokens (R7.7): usage is reported per assistant message only, so no exact attribution exists for user parts; the total stays exact or empty, extending the decision of J2.
+- J11. Why marked user parts contribute no tokens (R7.7): usage is reported per assistant message only, so no attribution basis exists for user parts; user parts stay outside the weighted eligible set, extending the decision of J2.
 - J12. Why the part-id markers are projection-only (R8.6): durable history feeds resume, session reads, and every marker surface, so baking provider-facing identification into stored text would leak projection formatting into all of them, the same projection-only principle R5.4 states for filtering.
+- J13. Why the sidebar statistics block hides when nothing is marked (R9.4): the sidebar widgets that report a collection hide it when the collection is empty (the MCP and todo blocks), while only widgets whose quantity always exists render zeros (the context-usage block); discard statistics describe a collection that is empty before the first marking call, so the block follows the hide-on-empty family instead of adding three zero rows to every ordinary session.
+- J14. Why the sidebar statistics block reads durable history only (R9.3): every marker surface computes its numbers from the loaded history, so a block fed from local state could fork the totals after a resume or a restart; reading the same durable union keeps the block identical to the suffixes by construction.
 
 ## Error handling
 
 - Invalid tool input settles as an explicit model-visible error before execution; the executor is never invoked (R1.5).
 - A discard-call input that is missing, malformed, or unparseable JSON contributes no ids and never fails the provider turn (R3.3, R3.4).
 - A marker whose input carries no valid ids array renders a zero count instead of failing (R6.2).
+- A malformed discard-call input degrades in the sidebar statistics block as everywhere else: it contributes no ids to the union (R3.3, R3.4) while still counting as a call in the call-count row, and never fails the sidebar render (R9.1).
 - Marker rendering degradation never changes the provider turn's outcome.
 
 ## Dependencies
@@ -245,6 +267,7 @@ Out (non-goals): deletion or mutation of session history; the meta-part mechanis
 - core-tools-permissions — the V1 tool contract, registry, and permission flow hosting the V1 `discard_context` wrapper and its config gate in the materialized tool set (R2.7).
 - v2-tools — the local tool type, registration semantics, and the built-in permission pattern whose internal built-in-only exception this tool takes (R1.3).
 - tui-session-display — the exclusion-mechanism boundary against tui-session-display/meta-part stated in Overview and Definitions.
+- tui-architecture — the TUI session sidebar and its plugin slots, hosting the discard-statistics block of R9.
 
 ## Used by
 
