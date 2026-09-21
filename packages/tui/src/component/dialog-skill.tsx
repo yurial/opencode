@@ -13,7 +13,7 @@ export type DialogSkillProps = {
 export function DialogSkill(props: DialogSkillProps) {
   const dialog = useDialog()
   const sdk = useSDK()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   dialog.setSize("large")
 
   const [loadError, setLoadError] = createSignal<unknown>()
@@ -58,10 +58,10 @@ export function DialogSkill(props: DialogSkillProps) {
       emptyView={
         showError() ? (
           <box paddingLeft={4} paddingRight={4}>
-            <text fg={theme.error} attributes={TextAttributes.BOLD}>
+            <text fg={element("dialog.error").fg} attributes={TextAttributes.BOLD}>
               Could not load skills
             </text>
-            <text fg={theme.textMuted}>{errorMessage(loadError())}</text>
+            <text fg={element("dialog.muted").fg}>{errorMessage(loadError())}</text>
           </box>
         ) : undefined
       }

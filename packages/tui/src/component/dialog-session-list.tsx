@@ -47,7 +47,7 @@ export function DialogSessionList() {
   const route = useRoute()
   const sync = useSync()
   const project = useProject()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const sdk = useSDK()
   const event = useEvent()
   const local = useLocal()
@@ -240,11 +240,11 @@ export function DialogSessionList() {
       const gutter = isWorking
         ? () => <Spinner />
         : slot !== undefined
-          ? () => <text fg={theme.accent}>{slot}</text>
+          ? () => <text fg={element("dialog.session.gutter").fg}>{slot}</text>
           : undefined
       return {
         title: isDeleting ? `Press ${deleteHint()} again to confirm` : x.title,
-        bg: isDeleting ? theme.error : undefined,
+        bg: isDeleting ? element("dialog.session.deleted").bg : undefined,
         value: x.id,
         category,
         footer,

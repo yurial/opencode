@@ -1,10 +1,11 @@
-import { TextareaRenderable, TextAttributes } from "@opentui/core"
+import { TextareaRenderable } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
 import { createStore } from "solid-js/store"
 import { onMount, Show } from "solid-js"
 import { useTuiConfig } from "../config"
 import { useBindings } from "../keymap"
+import { textAttributes } from "../theme/catalog"
 
 export type DialogExportOptionsProps = {
   defaultFilename: string
@@ -24,7 +25,7 @@ export type DialogExportOptionsProps = {
 
 export function DialogExportOptions(props: DialogExportOptionsProps) {
   const dialog = useDialog()
-  const { theme } = useTheme()
+  const { element } = useTheme()
   const tuiConfig = useTuiConfig()
   let textarea: TextareaRenderable
   const [store, setStore] = createStore({
@@ -86,16 +87,16 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
+        <text attributes={textAttributes(element("dialog.title").attributes)} fg={element("dialog.title").fg}>
           Export Options
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={element("dialog.muted").fg} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
       <box gap={1}>
         <box>
-          <text fg={theme.text}>Filename:</text>
+          <text fg={element("dialog.body").fg}>Filename:</text>
         </box>
         <textarea
           onSubmit={() => {
@@ -114,10 +115,10 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           }}
           initialValue={props.defaultFilename}
           placeholder="Enter filename"
-          placeholderColor={theme.textMuted}
-          textColor={theme.text}
-          focusedTextColor={theme.text}
-          cursorColor={theme.text}
+          placeholderColor={element("dialog.muted").fg}
+          textColor={element("dialog.body").fg}
+          focusedTextColor={element("dialog.body").fg}
+          cursorColor={element("dialog.body").fg}
           cursorStyle={tuiConfig.cursor}
         />
       </box>
@@ -126,61 +127,89 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           flexDirection="row"
           gap={2}
           paddingLeft={1}
-          backgroundColor={store.active === "thinking" ? theme.backgroundElement : undefined}
+          backgroundColor={store.active === "thinking" ? element("dialog.export.option.active").bg : undefined}
           onMouseUp={() => setStore("active", "thinking")}
         >
-          <text fg={store.active === "thinking" ? theme.primary : theme.textMuted}>
+          <text fg={store.active === "thinking" ? element("dialog.export.option.active").fg : element("dialog.muted").fg}>
             {store.thinking ? "[x]" : "[ ]"}
           </text>
-          <text fg={store.active === "thinking" ? theme.primary : theme.text}>Include thinking</text>
+          <text
+            fg={store.active === "thinking" ? element("dialog.export.option.active").fg : element("dialog.export.option").fg}
+          >
+            Include thinking
+          </text>
         </box>
         <box
           flexDirection="row"
           gap={2}
           paddingLeft={1}
-          backgroundColor={store.active === "toolDetails" ? theme.backgroundElement : undefined}
+          backgroundColor={store.active === "toolDetails" ? element("dialog.export.option.active").bg : undefined}
           onMouseUp={() => setStore("active", "toolDetails")}
         >
-          <text fg={store.active === "toolDetails" ? theme.primary : theme.textMuted}>
+          <text fg={store.active === "toolDetails" ? element("dialog.export.option.active").fg : element("dialog.muted").fg}>
             {store.toolDetails ? "[x]" : "[ ]"}
           </text>
-          <text fg={store.active === "toolDetails" ? theme.primary : theme.text}>Include tool details</text>
+          <text
+            fg={store.active === "toolDetails" ? element("dialog.export.option.active").fg : element("dialog.export.option").fg}
+          >
+            Include tool details
+          </text>
         </box>
         <box
           flexDirection="row"
           gap={2}
           paddingLeft={1}
-          backgroundColor={store.active === "assistantMetadata" ? theme.backgroundElement : undefined}
+          backgroundColor={store.active === "assistantMetadata" ? element("dialog.export.option.active").bg : undefined}
           onMouseUp={() => setStore("active", "assistantMetadata")}
         >
-          <text fg={store.active === "assistantMetadata" ? theme.primary : theme.textMuted}>
+          <text
+            fg={store.active === "assistantMetadata" ? element("dialog.export.option.active").fg : element("dialog.muted").fg}
+          >
             {store.assistantMetadata ? "[x]" : "[ ]"}
           </text>
-          <text fg={store.active === "assistantMetadata" ? theme.primary : theme.text}>Include assistant metadata</text>
+          <text
+            fg={
+              store.active === "assistantMetadata"
+                ? element("dialog.export.option.active").fg
+                : element("dialog.export.option").fg
+            }
+          >
+            Include assistant metadata
+          </text>
         </box>
         <box
           flexDirection="row"
           gap={2}
           paddingLeft={1}
-          backgroundColor={store.active === "openWithoutSaving" ? theme.backgroundElement : undefined}
+          backgroundColor={store.active === "openWithoutSaving" ? element("dialog.export.option.active").bg : undefined}
           onMouseUp={() => setStore("active", "openWithoutSaving")}
         >
-          <text fg={store.active === "openWithoutSaving" ? theme.primary : theme.textMuted}>
+          <text
+            fg={store.active === "openWithoutSaving" ? element("dialog.export.option.active").fg : element("dialog.muted").fg}
+          >
             {store.openWithoutSaving ? "[x]" : "[ ]"}
           </text>
-          <text fg={store.active === "openWithoutSaving" ? theme.primary : theme.text}>Open without saving</text>
+          <text
+            fg={
+              store.active === "openWithoutSaving"
+                ? element("dialog.export.option.active").fg
+                : element("dialog.export.option").fg
+            }
+          >
+            Open without saving
+          </text>
         </box>
       </box>
       <Show when={store.active !== "filename"}>
-        <text fg={theme.textMuted} paddingBottom={1}>
-          Press <span style={{ fg: theme.text }}>space</span> to toggle, <span style={{ fg: theme.text }}>return</span>{" "}
-          to confirm
+        <text fg={element("dialog.muted").fg} paddingBottom={1}>
+          Press <span style={{ fg: element("dialog.body").fg }}>space</span> to toggle,{" "}
+          <span style={{ fg: element("dialog.body").fg }}>return</span> to confirm
         </text>
       </Show>
       <Show when={store.active === "filename"}>
-        <text fg={theme.textMuted} paddingBottom={1}>
-          Press <span style={{ fg: theme.text }}>return</span> to confirm, <span style={{ fg: theme.text }}>tab</span>{" "}
-          for options
+        <text fg={element("dialog.muted").fg} paddingBottom={1}>
+          Press <span style={{ fg: element("dialog.body").fg }}>return</span> to confirm,{" "}
+          <span style={{ fg: element("dialog.body").fg }}>tab</span> for options
         </text>
       </Show>
     </box>

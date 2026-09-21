@@ -20,6 +20,8 @@ export function DialogWorkspaceList() {
   const sdk = useSDK()
   const toast = useToast()
   const project = useProject()
+  // `theme` stays for the workspace status dot: no catalog element governs it
+  // (reported as a spec gap).
   const { theme } = useTheme()
   const [deleting, setDeleting] = createSignal<string>()
   const [removing, setRemoving] = createSignal<string>()

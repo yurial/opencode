@@ -25,7 +25,7 @@ export function DialogConsoleOrg() {
   const sdk = useSDK()
   const dialog = useDialog()
   const toast = useToast()
-  const { theme } = useTheme()
+  const { element } = useTheme()
 
   const [loadError, setLoadError] = createSignal<unknown>()
 
@@ -85,8 +85,8 @@ export function DialogConsoleOrg() {
         category: accountLabel(item),
         categoryView: (
           <box flexDirection="row" gap={2}>
-            <text fg={theme.accent}>{item.accountEmail}</text>
-            <text fg={theme.textMuted}>{accountHost(item.accountUrl)}</text>
+            <text fg={element("dialog.console.email").fg}>{item.accountEmail}</text>
+            <text fg={element("dialog.muted").fg}>{accountHost(item.accountUrl)}</text>
           </box>
         ),
         onSelect: async () => {
@@ -123,10 +123,10 @@ export function DialogConsoleOrg() {
       emptyView={
         showError() ? (
           <box paddingLeft={4} paddingRight={4}>
-            <text fg={theme.error} attributes={TextAttributes.BOLD}>
+            <text fg={element("dialog.error").fg} attributes={TextAttributes.BOLD}>
               Could not load orgs
             </text>
-            <text fg={theme.textMuted}>{errorMessage(loadError())}</text>
+            <text fg={element("dialog.muted").fg}>{errorMessage(loadError())}</text>
           </box>
         ) : undefined
       }

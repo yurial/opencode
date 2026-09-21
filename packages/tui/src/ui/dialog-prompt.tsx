@@ -1,10 +1,11 @@
-import { TextareaRenderable, TextAttributes } from "@opentui/core"
+import { TextareaRenderable } from "@opentui/core"
 import { useTheme } from "../context/theme"
 import { useDialog, type DialogContext } from "./dialog"
 import { Show, createEffect, createSignal, onMount, type JSX } from "solid-js"
 import { Spinner } from "../component/spinner"
 import { useTuiConfig } from "../config"
 import { useBindings, useCommandShortcut } from "../keymap"
+import { textAttributes } from "../theme/catalog"
 
 export type DialogPromptProps = {
   title: string
@@ -19,7 +20,9 @@ export type DialogPromptProps = {
 
 export function DialogPrompt(props: DialogPromptProps) {
   const dialog = useDialog()
-  const { theme } = useTheme()
+  // `theme` stays for the busy cursor color: no catalog element renders a
+  // backgroundElement-colored cursor (reported as a spec gap).
+  const { theme, element } = useTheme()
   const tuiConfig = useTuiConfig()
   const submitShortcut = useCommandShortcut("dialog.prompt.submit")
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
@@ -75,10 +78,10 @@ export function DialogPrompt(props: DialogPromptProps) {
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
+        <text attributes={textAttributes(element("dialog.title").attributes)} fg={element("dialog.title").fg}>
           {props.title}
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={element("dialog.muted").fg} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
@@ -92,21 +95,21 @@ export function DialogPrompt(props: DialogPromptProps) {
           }}
           initialValue={props.value}
           placeholder={props.placeholder ?? "Enter text"}
-          placeholderColor={theme.textMuted}
-          textColor={props.busy ? theme.textMuted : theme.text}
-          focusedTextColor={props.busy ? theme.textMuted : theme.text}
-          cursorColor={props.busy ? theme.backgroundElement : theme.text}
+          placeholderColor={element("dialog.muted").fg}
+          textColor={props.busy ? element("dialog.muted").fg : element("dialog.body").fg}
+          focusedTextColor={props.busy ? element("dialog.muted").fg : element("dialog.body").fg}
+          cursorColor={props.busy ? theme.backgroundElement : element("dialog.body").fg}
           cursorStyle={tuiConfig.cursor}
         />
         <Show when={props.busy}>
-          <Spinner color={theme.textMuted}>{props.busyText ?? "Working…"}</Spinner>
+          <Spinner color={element("dialog.muted").fg}>{props.busyText ?? "Working…"}</Spinner>
         </Show>
       </box>
       <box paddingBottom={1} gap={1} flexDirection="row">
-        <Show when={!props.busy} fallback={<text fg={theme.textMuted}>processing…</text>}>
+        <Show when={!props.busy} fallback={<text fg={element("dialog.muted").fg}>processing…</text>}>
           <Show when={submitShortcut()}>
-            <text fg={theme.text}>
-              {submitShortcut()} <span style={{ fg: theme.textMuted }}>submit</span>
+            <text fg={element("dialog.body").fg}>
+              {submitShortcut()} <span style={{ fg: element("dialog.muted").fg }}>submit</span>
             </text>
           </Show>
         </Show>

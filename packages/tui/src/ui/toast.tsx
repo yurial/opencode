@@ -3,7 +3,7 @@ import { createStore } from "solid-js/store"
 import { useTheme } from "../context/theme"
 import { useTerminalDimensions } from "@opentui/solid"
 import { SplitBorder } from "./border"
-import { TextAttributes } from "@opentui/core"
+import { textAttributes } from "../theme/catalog"
 export type ToastOptions = {
   title?: string
   message: string
@@ -14,7 +14,7 @@ type ToastInput = Omit<ToastOptions, "duration"> & { duration?: number }
 
 export function Toast() {
   const toast = useToast()
-  const { theme } = useTheme()
+  const { theme, element } = useTheme()
   const dimensions = useTerminalDimensions()
 
   return (
@@ -31,17 +31,27 @@ export function Toast() {
           paddingRight={2}
           paddingTop={1}
           paddingBottom={1}
-          backgroundColor={theme.backgroundPanel}
-          borderColor={theme[current().variant]}
+          backgroundColor={element("toast.panel").bg}
+          borderColor={
+            current().variant === "error"
+              ? element("toast.error.border").fg
+              : current().variant === "info"
+                ? element("toast.info.border").fg
+                : theme[current().variant]
+          }
           border={["left", "right"]}
           customBorderChars={SplitBorder.customBorderChars}
         >
           <Show when={current().title}>
-            <text attributes={TextAttributes.BOLD} marginBottom={1} fg={theme.text}>
+            <text
+              attributes={textAttributes(element("toast.title").attributes)}
+              marginBottom={1}
+              fg={element("toast.title").fg}
+            >
               {current().title}
             </text>
           </Show>
-          <text fg={theme.text} wrapMode="word" width="100%">
+          <text fg={element("toast.body").fg} wrapMode="word" width="100%">
             {current().message}
           </text>
         </box>

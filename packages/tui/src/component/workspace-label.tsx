@@ -3,17 +3,20 @@ import { useTheme } from "../context/theme"
 export type WorkspaceStatus = "connected" | "connecting" | "disconnected" | "error"
 
 export function WorkspaceLabel(props: { type: string; name: string; status?: WorkspaceStatus; icon?: boolean }) {
-  const { theme } = useTheme()
+  // WorkspaceLabel renders inside the session sidebar, so the sidebar zone's
+  // status/text elements govern its channels.
+  const { element } = useTheme()
   const color = () => {
-    if (props.status === "connected") return theme.success
-    if (props.status === "error") return theme.error
-    return theme.textMuted
+    if (props.status === "connected") return element("sidebar.status.ok").fg
+    if (props.status === "error") return element("sidebar.status.error").fg
+    return element("sidebar.muted").fg
   }
 
   return (
     <>
       {props.icon ? <span style={{ fg: color() }}>● </span> : undefined}
-      <span style={{ fg: theme.text }}>{props.name}</span> <span style={{ fg: theme.textMuted }}>({props.type})</span>
+      <span style={{ fg: element("sidebar.text").fg }}>{props.name}</span>{" "}
+      <span style={{ fg: element("sidebar.muted").fg }}>({props.type})</span>
     </>
   )
 }
