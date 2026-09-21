@@ -1,10 +1,12 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2"
 
 // discard_context marks context parts as excluded from the LLM context by
-// part id (state.input.ids). Token attribution stays exact only for whole
-// assistant messages: providers report output/reasoning tokens per message,
-// so a partially discarded message contributes nothing (deliberate decision —
-// never estimate).
+// part id (state.input.ids). Token attribution is exact for whole assistant
+// messages; a partially discarded one contributes a deterministic
+// char-weighted share of its output+reasoning tokens, floored to a whole
+// token and reported via `estimated`, so every surface prefixes the total
+// with "~" once a nonzero share entered it (specs/discard-context.md
+// R7.2, R7.8).
 
 // Union of part ids marked by every discard_context call among `parts`.
 // discard_context tool parts themselves are skipped: they are hidden markers,
@@ -22,18 +24,20 @@ export function collectDiscardedPartIds(parts: readonly Part[]): Set<string> {
   return ids
 }
 
-// Sums output + reasoning tokens over assistant messages whose every content
-// part (text/reasoning/tool, minus the discard_context markers) is present in
-// the discarded union. Messages with no such parts and partially discarded
-// messages contribute 0. Input/cache tokens are never counted: they describe
-// the whole request, not the excluded content.
+// Sums output + reasoning tokens over assistant messages: the full count
+// when every content part (text/reasoning/tool, minus the discard_context
+// markers) is marked, otherwise the char-weighted share of the marked parts
+// floored to a whole token (R7.2). estimated is true when a nonzero partial
+// share entered the total (R7.8). Input/cache tokens are never counted: they
+// describe the whole request, not the excluded content.
 export function discardedTokenTotal(
   messages: readonly Message[],
   getParts: (messageID: string) => readonly Part[] | undefined,
-): number {
+): { total: number; estimated: boolean } {
   const partsOf = (messageID: string) => getParts(messageID) ?? []
   const discarded = collectDiscardedPartIds(messages.flatMap((message) => partsOf(message.id)))
   let total = 0
+  let estimated = false
   for (const message of messages) {
     if (message.role !== "assistant") continue
     const eligible = partsOf(message.id).filter(
@@ -43,10 +47,33 @@ export function discardedTokenTotal(
         (part.type === "tool" && part.tool !== "discard_context"),
     )
     if (eligible.length === 0) continue
-    if (!eligible.every((part) => discarded.has(part.id))) continue
-    total += (message.tokens?.output ?? 0) + (message.tokens?.reasoning ?? 0)
+    const tokens = (message.tokens?.output ?? 0) + (message.tokens?.reasoning ?? 0)
+    if (eligible.every((part) => discarded.has(part.id))) {
+      total += tokens
+      continue
+    }
+    const marked = weightOf(eligible.filter((part) => discarded.has(part.id)))
+    if (marked === 0) continue
+    const share = Math.floor((marked * tokens) / weightOf(eligible))
+    if (share === 0) continue
+    total += share
+    estimated = true
   }
-  return total
+  return { total, estimated }
+}
+
+// Char weight of one eligible part (R7.2): its text length for text/reasoning,
+// the combined length of its output and JSON.stringify(input) for tool parts.
+function partWeight(part: Part): number {
+  if (part.type === "text" || part.type === "reasoning") return part.text.length
+  if (part.type !== "tool") return 0
+  const output = part.state.status === "completed" ? part.state.output.length : 0
+  const input = part.state.input as unknown
+  return output + (input === undefined ? 0 : JSON.stringify(input).length)
+}
+
+function weightOf(parts: readonly Part[]): number {
+  return parts.reduce((sum, part) => sum + partWeight(part), 0)
 }
 
 // Compact token count for inline markers: 950 -> "950", 4200 -> "4.2k",

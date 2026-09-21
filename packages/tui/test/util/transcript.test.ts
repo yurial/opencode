@@ -357,8 +357,29 @@ describe("transcript", () => {
           time: { start: 1000, end: 1100 },
         },
       }
-      const result = formatPart(part, { ...options, discardedTokens: 4200 })
+      const result = formatPart(part, { ...options, discardedTokens: { total: 4200, estimated: false } })
       expect(result).toBe("**Discarded 2 context parts · 4.2k tokens**\n\n")
+    })
+
+    test("prefixes the token total with ~ when the total is estimated (T4.9)", () => {
+      const part: Part = {
+        id: "part_1",
+        sessionID: "ses_123",
+        messageID: "msg_123",
+        type: "tool",
+        callID: "call_1",
+        tool: "discard_context",
+        state: {
+          status: "completed",
+          input: { ids: ["part_a", "part_b"] },
+          output: "ok",
+          title: "Discard context",
+          metadata: {},
+          time: { start: 1000, end: 1100 },
+        },
+      }
+      const result = formatPart(part, { ...options, discardedTokens: { total: 4200, estimated: true } })
+      expect(result).toBe("**Discarded 2 context parts · ~4.2k tokens**\n\n")
     })
 
     test("omits token total when zero or absent", () => {
@@ -378,7 +399,9 @@ describe("transcript", () => {
           time: { start: 1000, end: 1100 },
         },
       }
-      expect(formatPart(part, { ...options, discardedTokens: 0 })).toBe("**Discarded 1 context part**\n\n")
+      expect(formatPart(part, { ...options, discardedTokens: { total: 0, estimated: true } })).toBe(
+        "**Discarded 1 context part**\n\n",
+      )
       expect(formatPart(part, options)).toBe("**Discarded 1 context part**\n\n")
     })
   })
@@ -547,7 +570,9 @@ describe("transcript", () => {
 
       expect(result).toContain("Hello")
       expect(result).toContain("pondering")
-      expect(result).toContain("**Discarded 2 context parts**")
+      // msg_2 is partially discarded (marked "Hi!" of 12 chars total) with
+      // 50 tokens: floor(3/12 * 50) = 12, estimated, so the suffix carries "~".
+      expect(result).toContain("**Discarded 2 context parts · ~12 tokens**")
       // The projection-only marker never reaches the transcript, even though
       // the settled tool output (which quotes it nowhere durable) is exported.
       expect(result).not.toContain("[part id:")
@@ -650,7 +675,7 @@ describe("transcript", () => {
       expect(result).not.toContain("claude-sonnet-4-20250514")
     })
 
-    test("appends discarded token total only for fully discarded assistant messages", () => {
+    test("appends an exact discarded token total when an assistant message is fully discarded", () => {
       const session = {
         id: "ses_abc123",
         title: "Test Session",
@@ -734,8 +759,10 @@ describe("transcript", () => {
       })
 
       // The token total is session-wide, so both discard markers carry it.
+      // Nothing is partially discarded here: the total is exact, without "~".
       expect(result).toContain("**Discarded 1 context part · 4.2k tokens**\n\n")
       expect(result).toContain("**Discarded 0 context parts · 4.2k tokens**\n\n")
+      expect(result).not.toContain("~")
       expect(result).not.toContain("999")
     })
   })
