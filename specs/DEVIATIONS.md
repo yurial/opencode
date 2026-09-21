@@ -44,19 +44,6 @@ Review focus: every hardcoded attribute site mapped to a catalog default;
   hover pairs swap all channels; crash error-component palette stays
   outside the theme.
 
-## D-3 2026-09-20 specs/tui-theme.md
-Spec edit: run CLI consumption (R44) — RunTheme built from elements through
-  the shared resolution pipeline.
-Was: packages/opencode/src/cli/cmd/run/theme.ts carries a duplicated copy of
-  the v1 resolver and generator and maps the flat theme into RunTheme.
-Now: RunTheme color fields resolve from the `run.*` elements and palette
-  diff names; footer/splash derivatives stay computed per Configuration;
-  the duplicated resolver is removed.
-Code impact: packages/opencode/src/cli/cmd/run/theme.ts.
-Tests: run footer/splash derivative expectations to be kept numerically
-  identical.
-Review focus: derivatives unchanged numerically; single shared resolver.
-
 ## D-4 2026-09-20 specs/tui-theme.md
 Spec edit: plugin API consumption (R45) — element access on the plugin
   theme surface.
@@ -82,3 +69,48 @@ Code impact: packages/web/public/theme.json, packages/web/src/content/docs/theme
 Tests: schema fixtures for valid v2, valid v1, and mixed files.
 Review focus: schema rejects unknown members consistent with the spec's
   invalid-entry behavior; docs enumerate the catalog reference.
+
+## D-6 2026-09-21 specs/tui-theme.md
+Spec edit: catalog errata — byte-identical defaults made binding (R48),
+  catalog defaults corrected to the actual rendering, missing elements added,
+  dangling elements dropped, syntax/markdown scope rules re-assigned to
+  split elements, run block diff fields become `run.block.diff.*` elements
+  (R44 rewritten), queued-chip computed override fixed (R49); supersedes
+  entry `D-3`, whose `Now` cited palette diff names for the run diff fields
+  that R44 no longer prescribes.
+Was: the migrated components keep flat-read workarounds at the corrected
+  surfaces (permission border and option fg, question hover tones, message
+  error body, unfocused select row, diff filetree selection, session
+  scrollbar track, prompt cursor) and hold spec-gap comments at the surfaces
+  the new elements govern; the scope table sources `string.escape`,
+  `string.regexp`, `keyword.import`, `keyword.export`, `tag.attribute`,
+  `comment.error`, `comment.warning`, `comment.todo`, `comment.note`,
+  `error`, `warning`, `markup.link.label`, `markup.underline`, `label`,
+  `markup.raw`, `markup.raw.block`, `keyword.type`, `type`, `module`,
+  `class`, and `namespace` from elements whose defaults differ from the
+  pre-v2 flags (pinned as CATALOG_DELTAS in
+  packages/tui/test/theme-syntax.test.ts); packages/opencode/src/cli/cmd/run/theme.ts
+  maps the block diff RunTheme fields from the palette diff names of the
+  effective theme.
+Now: catalog defaults equal the pre-v2 rendering byte for byte (R48), every
+  listed surface has a governing element, and the run diff fields resolve
+  from `run.block.diff.*` elements a theme may clear (for example
+  `{"bg": "transparent"}`).
+Code impact: packages/tui/src/theme/catalog.ts (corrected defaults, new
+  rows, dropped `markdown.code` and `prompt.cursor.unfocused`),
+  packages/tui/src/theme/index.ts (scope-to-element table),
+  routes/session/{permission,question,index}.tsx, ui/{dialog-select,dialog-prompt,toast}.tsx,
+  component/{dialog-provider,dialog-status,dialog-workspace-file-changes,
+  dialog-workspace-list,plugin-route-missing,prompt/index,prompt/autocomplete}.tsx,
+  feature-plugins/{system/which-key,sidebar/footer}.tsx,
+  routes/session/subagent-footer.tsx (wire the new elements, drop the flat
+  reads), packages/opencode/src/cli/cmd/run/theme.ts (element mapping for
+  the diff fields), packages/web/public/theme.json and themes.mdx locale
+  copies (entry `D-5` scope, catalog reference).
+Tests: the CATALOG_DELTAS pins in packages/tui/test/theme-syntax.test.ts
+  must collapse to zero deltas (every LEGACY_RULES entry green); resolution
+  tests for the added and dropped elements; run diff fields resolve to the
+  same values the palette diff names produced.
+Review focus: default-theme rendering identical to the pre-v2 build; no
+  consumer reads a dropped element; the question hover number tint and the
+  toast variant borders match the flat reads they replace.

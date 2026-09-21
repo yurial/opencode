@@ -19,7 +19,10 @@ built-in themes stay as v1 files and go through the same migration. Resolution
 order, partial overrides, references, and error behavior are fixed in
 R25–R34 and R47. The consumption contract — the reactive `element(name)`
 accessor, syntax rules sourcing attributes from the theme, the run CLI
-RunTheme, and the plugin API — is fixed in R35–R46.
+RunTheme, and the plugin API — is fixed in R35–R46. With the default built-in
+theme the catalog defaults and the element-sourced rules are byte-identical to
+the pre-v2 rendering (R48), and the queued-chip computed override is fixed in
+R49.
 
 ## Scope
 
@@ -148,6 +151,7 @@ type ThemeFileV2 = {
 | `run-footer-line-fade` | magic fallback `0.24`, scale `0.9`, limit `0.98` | — | tui-theme/fade parameters of the footer `line` derivative (R44) |
 | `run-footer-status-tint` | magic shares `0.12`/`0.06` (dark), `0.06`/`0.04` (light), collapse lift `0.7`, accent lift `0.06` (nameless literals) | — | tui-theme/tint parameters of the footer `status`/`statusAccent` derivatives (R44) |
 | `luminance-weights` | magic `0.299`, `0.587`, `0.114` (nameless literals in the contrast helpers) | — | Luminance of tui-theme/selected-foreground and of terminal-mode detection (R33) |
+| `question-hover-number-tint` | magic `0.6` (nameless literal in the question dialog) | — | tui-theme/tint share of `question.option.hover.number` (R34) |
 | `knight-rider-trail` | magic — hardcoded trail shades (nameless literals in the spinner) | — | Spinner easter-egg animation; not themeable (R46) |
 
 ## Element catalog
@@ -158,7 +162,10 @@ is the transparent color for colors and the empty set for attributes. A
 backticked name is a tui-theme/palette reference. `selected-foreground` is
 the computed rule of R33 evaluated against the element's own resolved
 background (R32). `tint(...)` marks a computed blend (R34). Border elements
-paint single-color strokes on the `fg` channel. Legacy v1 keys not named in
+paint single-color strokes on the `fg` channel. Every default reproduces the
+rendering its surface had under the pre-v2 implementation (R48); where a live
+surface overrides its element with a computed color, the requirements name
+the override (R39, R49). Legacy v1 keys not named in
 any default cell are dropped by migration (R22): `diffHunkHeader`,
 `markdownHorizontalRule`, `markdownListEnumeration`, `markdownImage`,
 `markdownImageText`, `markdownCodeBlock`.
@@ -183,15 +190,25 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `dialog.notice` | `accent` | — | — |
 | `dialog.error` | `error` | `backgroundPanel` | — |
 | `dialog.retry` | `selected-foreground` | `backgroundPanel` | — |
+| `dialog.route.warning` | `warning` | — | — |
+| `dialog.route.home` | `text` | `backgroundElement` | — |
 | `dialog.session.gutter` | `accent` | — | — |
 | `dialog.session.deleted` | — | `error` | — |
+| `dialog.changes.list` | — | `backgroundElement` | — |
+| `dialog.changes.added` | `diffAdded` | — | — |
+| `dialog.changes.removed` | `diffRemoved` | — | — |
 | `dialog.console.email` | `accent` | — | — |
 | `dialog.plugins.active` | `success` | — | — |
 | `dialog.plugins.inactive` | `error` | — | — |
 | `dialog.mcp.enabled` | `success` | — | — |
+| `dialog.provider.connected` | `success` | — | — |
+| `dialog.status.ok` | `success` | — | — |
+| `dialog.status.warn` | `warning` | — | — |
+| `dialog.status.error` | `error` | — | — |
 | `dialog.debug.copied` | `success` | — | — |
 | `dialog.export.option` | `text` | — | — |
 | `dialog.export.option.active` | `primary` | `backgroundElement` | — |
+| `dialog.prompt.cursor.busy` | `backgroundElement` | — | — |
 
 ### Zone dialog.select — list/filter dialogs (DialogSelect and equivalents)
 
@@ -201,7 +218,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `dialog.select.filter.cursor` | `primary` | — | — |
 | `dialog.select.row` | `text` | — | — |
 | `dialog.select.row.selected` | `selected-foreground` | `primary` | `bold` |
-| `dialog.select.row.selected.unfocused` | `text` | `backgroundElement` | — |
+| `dialog.select.row.selected.unfocused` | `textMuted` | `backgroundElement` | — |
 | `dialog.select.category` | `accent` | — | `bold` |
 | `dialog.select.footer` | `text` | — | — |
 | `dialog.select.footer.label` | `textMuted` | — | — |
@@ -217,6 +234,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `autocomplete.menu.border` | `border` | — | — |
 | `autocomplete.row` | `text` | — | — |
 | `autocomplete.row.selected` | `selected-foreground` | `primary` | — |
+| `autocomplete.muted` | `textMuted` | — | — |
 
 ### Zone prompt — editor, placeholders, chips, extmarks
 
@@ -227,11 +245,14 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `prompt.shell.border` | `primary` | — | — |
 | `prompt.text` | `text` | — | — |
 | `prompt.placeholder` | `textMuted` | — | — |
-| `prompt.cursor` | `primary` | — | — |
-| `prompt.cursor.unfocused` | `textMuted` | — | — |
+| `prompt.cursor` | `text` | — | — |
 | `prompt.cursor.disabled` | — | `backgroundElement` | — |
 | `prompt.notice` | `accent` | — | — |
 | `prompt.chip` | `text` | `backgroundElement` | — |
+| `prompt.meta` | `textMuted` | — | — |
+| `prompt.retry` | `error` | — | — |
+| `prompt.interrupt` | `primary` | — | — |
+| `prompt.editor.pending` | `secondary` | — | — |
 | `prompt.extmark.file` | `warning` | — | `bold` |
 | `prompt.extmark.agent` | `secondary` | — | `bold` |
 | `prompt.extmark.paste` | `selected-foreground` | `warning` | `bold` |
@@ -243,6 +264,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `message.user.body` | `text` | `backgroundPanel` | — |
 | `message.user.body.hover` | `text` | `backgroundElement` | — |
 | `message.user.badge` | `selected-foreground` | `secondary` | — |
+| `message.user.file` | `textMuted` | `backgroundElement` | — |
 | `message.assistant.body` | `text` | — | — |
 | `message.assistant.meta` | `textMuted` | — | — |
 | `message.assistant.meta.mode` | `text` | — | — |
@@ -252,6 +274,8 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `message.reasoning.body` | `textMuted` | — | — |
 | `message.tool.card` | — | `backgroundPanel` | — |
 | `message.tool.card.hover` | — | `backgroundMenu` | — |
+| `message.tool.card.border` | `background` | — | — |
+| `message.tool.gutter` | `textMuted` | — | — |
 | `message.tool.header` | `textMuted` | — | — |
 | `message.tool.body` | `text` | — | — |
 | `message.tool.body.pending` | `textMuted` | — | — |
@@ -261,7 +285,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `message.tool.args.denied` | `text` | — | `strikethrough` |
 | `message.error.panel` | — | `backgroundPanel` | — |
 | `message.error.border` | `error` | — | — |
-| `message.error.body` | `error` | — | — |
+| `message.error.body` | `textMuted` | — | — |
 | `message.revert` | `textMuted` | `backgroundPanel` | — |
 | `message.revert.hover` | `textMuted` | `backgroundElement` | — |
 | `message.queued` | `textMuted` | — | `bold` |
@@ -295,6 +319,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `sidebar.status.warn` | `warning` | — | — |
 | `sidebar.status.error` | `error` | — | — |
 | `sidebar.todo.pending` | `warning` | — | — |
+| `sidebar.getting-started` | — | `backgroundElement` | — |
 | `sidebar.files.added` | `diffAdded` | — | — |
 | `sidebar.files.removed` | `diffRemoved` | — | — |
 
@@ -302,7 +327,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 
 | Element | fg default | bg default | attributes default |
 |---|---|---|---|
-| `scrollbar.track` | — | `backgroundPanel` | — |
+| `scrollbar.track` | — | `backgroundElement` | — |
 | `scrollbar.track.overlay` | — | `background` | — |
 | `scrollbar.thumb` | `border` | — | — |
 | `scrollbar.thumb.active` | `borderActive` | — | — |
@@ -324,7 +349,8 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `diff.banner.added` | `diffAdded` | — | — |
 | `diff.banner.removed` | `diffRemoved` | — | — |
 | `diff.filetree.row` | `textMuted` | — | — |
-| `diff.filetree.row.selected` | `selected-foreground` | `primary` | — |
+| `diff.filetree.row.selected` | `background` | `primary` | — |
+| `diff.filetree.row.selected.name` | `primary` | — | — |
 
 ### Zone markdown — markdown rendering (scope-driven)
 
@@ -338,9 +364,12 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `markdown.emph` | `markdownEmph` | — | `italic` |
 | `markdown.quote` | `markdownBlockQuote` | — | `italic` |
 | `markdown.list` | `markdownListItem` | — | — |
-| `markdown.code` | `markdownCode` | `background` | — |
+| `markdown.code.inline` | `markdownCode` | `background` | — |
+| `markdown.code.block` | `markdownCode` | — | — |
 | `markdown.link` | `markdownLink` | — | `underline` |
-| `markdown.link.label` | `markdownLinkText` | — | — |
+| `markdown.link.label` | `markdownLinkText` | — | `underline` |
+| `markdown.label` | `markdownLinkText` | — | — |
+| `markdown.underline` | `text` | — | `underline` |
 
 ### Zone syntax — code highlighting (scope-driven)
 
@@ -349,21 +378,31 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `syntax.default` | `text` | — | — |
 | `syntax.comment` | `syntaxComment` | — | `italic` |
 | `syntax.keyword` | `syntaxKeyword` | — | `italic` |
+| `syntax.keyword.import` | `syntaxKeyword` | — | — |
+| `syntax.escape` | `syntaxKeyword` | — | — |
+| `syntax.tag.attribute` | `syntaxKeyword` | — | — |
 | `syntax.string` | `syntaxString` | — | — |
 | `syntax.number` | `syntaxNumber` | — | — |
-| `syntax.type` | `syntaxType` | — | `bold` |
+| `syntax.type` | `syntaxType` | — | — |
+| `syntax.type.definition` | `syntaxType` | — | `bold` |
+| `syntax.type.keyword` | `syntaxType` | — | `bold`, `italic` |
 | `syntax.function` | `syntaxFunction` | — | — |
 | `syntax.variable` | `syntaxVariable` | — | — |
 | `syntax.operator` | `syntaxOperator` | — | — |
 | `syntax.punctuation` | `syntaxPunctuation` | — | — |
 | `syntax.error` | `error` | — | — |
+| `syntax.error.strong` | `error` | — | `bold` |
+| `syntax.comment.error` | `error` | — | `italic`, `bold` |
 | `syntax.warning` | `warning` | — | — |
+| `syntax.warning.strong` | `warning` | — | `bold` |
+| `syntax.comment.warning` | `warning` | — | `italic`, `bold` |
 | `syntax.todo` | `info` | — | — |
+| `syntax.comment.todo` | `info` | — | `italic`, `bold` |
 | `syntax.checked` | `success` | — | — |
 | `syntax.conceal` | `textMuted` | — | — |
 | `syntax.prompt` | `accent` | — | — |
-| `syntax.diff.plus` | — | `diffAddedBg` | — |
-| `syntax.diff.minus` | — | `diffRemovedBg` | — |
+| `syntax.diff.plus` | `diffAdded` | `diffAddedBg` | — |
+| `syntax.diff.minus` | `diffRemoved` | `diffRemovedBg` | — |
 | `syntax.diff.delta` | `diffContext` | `diffContextBg` | — |
 
 ### Zone toast
@@ -375,18 +414,25 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `toast.body` | `text` | — | — |
 | `toast.error.border` | `error` | — | — |
 | `toast.info.border` | `info` | — | — |
+| `toast.success.border` | `success` | — | — |
+| `toast.warning.border` | `warning` | — | — |
 
 ### Zone permission — permission prompt
 
 | Element | fg default | bg default | attributes default |
 |---|---|---|---|
 | `permission.panel` | — | `backgroundPanel` | — |
-| `permission.border` | `borderActive` | — | — |
+| `permission.border` | `warning` | — | — |
 | `permission.border.reject` | `error` | — | — |
 | `permission.marker` | `warning` | — | — |
-| `permission.option` | `text` | `backgroundMenu` | — |
+| `permission.marker.reject` | `error` | — | — |
+| `permission.option` | `textMuted` | `backgroundMenu` | — |
 | `permission.option.selected` | `selected-foreground` | `warning` | — |
 | `permission.caption` | `textMuted` | — | — |
+| `permission.bar` | — | `backgroundElement` | — |
+| `permission.body` | `text` | — | — |
+| `permission.text` | `text` | — | — |
+| `permission.text.cursor` | `primary` | — | — |
 
 ### Zone question — question dialog
 
@@ -398,11 +444,17 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `question.tab.active` | `selected-foreground` | `accent` | — |
 | `question.tab.hover` | `text` | `backgroundElement` | — |
 | `question.option` | `text` | `backgroundPanel` | — |
-| `question.option.hover` | `text` | `backgroundElement` | — |
+| `question.option.hover` | `secondary` | `backgroundElement` | — |
+| `question.option.hover.number` | `tint(textMuted, secondary, question-hover-number-tint)` | `backgroundElement` | — |
 | `question.option.selected` | `selected-foreground` | `secondary` | — |
 | `question.option.picked` | `success` | — | — |
 | `question.muted` | `textMuted` | — | — |
 | `question.unanswered` | `error` | — | — |
+| `question.body` | `text` | — | — |
+| `question.review` | `text` | — | — |
+| `question.text` | `text` | — | — |
+| `question.text.cursor` | `primary` | — | — |
+| `question.hint` | `text` | — | — |
 
 ### Zone subagent — subagent footer bar
 
@@ -412,6 +464,7 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `subagent.footer.border` | `border` | — | — |
 | `subagent.footer.text` | `text` | — | — |
 | `subagent.footer.strong` | `text` | — | `bold` |
+| `subagent.footer.muted` | `textMuted` | — | — |
 | `subagent.footer.hover` | `text` | `backgroundElement` | — |
 
 ### Zone which-key — which-key overlay
@@ -419,6 +472,8 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | Element | fg default | bg default | attributes default |
 |---|---|---|---|
 | `which-key.panel` | — | `backgroundMenu` | — |
+| `which-key.text` | `text` | — | — |
+| `which-key.muted` | `textMuted` | — | — |
 | `which-key.key` | `warning` | — | — |
 | `which-key.subtle` | `borderSubtle` | — | — |
 | `which-key.tab` | `selectedListItemText` | — | — |
@@ -481,17 +536,31 @@ any default cell are dropped by migration (R22): `diffHunkHeader`,
 | `run.block.warning` | `warning` | — | — |
 | `run.block.text` | `text` | — | — |
 | `run.block.muted` | `textMuted` | — | — |
+| `run.block.diff.added` | `diffAdded` | — | — |
+| `run.block.diff.removed` | `diffRemoved` | — | — |
+| `run.block.diff.added-bg` | — | `diffAddedBg` | — |
+| `run.block.diff.removed-bg` | — | `diffRemovedBg` | — |
+| `run.block.diff.context-bg` | — | `diffContextBg` | — |
+| `run.block.diff.highlight-added` | `diffHighlightAdded` | — | — |
+| `run.block.diff.highlight-removed` | `diffHighlightRemoved` | — | — |
+| `run.block.diff.line-number` | `diffLineNumber` | — | — |
+| `run.block.diff.added-line-number-bg` | — | `diffAddedLineNumberBg` | — |
+| `run.block.diff.removed-line-number-bg` | — | `diffRemovedLineNumberBg` | — |
 
 Run-zone derivatives stay computed and carry no elements: the footer
 `status`, `statusAccent`, `shade`, `surface`, and `line` fields are
 tui-theme/tint or tui-theme/fade derivations of `run.footer.pane`,
 `run.background`, and the footer mode with the Configuration constants; the
 splash `leftShadow`/`rightShadow` fields are tui-theme/tint derivations of
-the splash colors with `splash-shadow-alpha`; the run block diff fields
-(`diffAdded`, `diffRemoved`, `diffAddedBg`, `diffRemovedBg`, `diffContextBg`,
-`diffHighlightAdded`, `diffHighlightRemoved`, `diffLineNumber`,
-`diffAddedLineNumberBg`, `diffRemovedLineNumberBg`) resolve from the palette
-diff names of the effective theme.
+the splash colors with `splash-shadow-alpha`. The run block diff RunTheme
+fields (`diffAdded`, `diffRemoved`, `diffAddedBg`, `diffRemovedBg`,
+`diffContextBg`, `diffHighlightAdded`, `diffHighlightRemoved`,
+`diffLineNumber`, `diffAddedLineNumberBg`, `diffRemovedLineNumberBg`)
+resolve from the `run.block.diff.*` elements above, whose defaults equal the
+palette diff names they replace (R44). RunTheme field names are fixed run-CLI
+surface names and are distinct from element names: the footer
+`selectedText` field is the projection of `run.footer.selected-text`, not an
+element of its own.
 
 ## Requirements
 
@@ -526,10 +595,12 @@ diff names of the effective theme.
 - R41. The scope `default` resolves to `syntax.default`.
 - R42. The TUI theme context exposes a reactive accessor `element(name)` returning the resolved foreground, background, and attribute set of the named element, and reads through it re-evaluate when the theme or the mode changes.
 - R43. `element(name)` with a name outside the tui-theme/catalog throws an error.
-- R44. The run CLI derives every RunTheme color field from the resolved `run.*` elements and the palette diff names, keeps the computed derivatives of the run zone, and resolves through the shared pipeline instead of a private copy of the theme resolver.
+- R44. The run CLI derives every RunTheme color field from the resolved `run.*` elements, keeps the computed derivatives of the run zone, and resolves through the shared pipeline instead of a private copy of the theme resolver.
 - R45. The plugin theme API exposes `element(name)` with the same argument contract, and keeps the flat legacy projection `current` available and deprecated during the transition.
 - R46. The crash error-component palette and the Knight-Rider spinner trail stay outside the theme and are not addressable by elements.
 - R47. A rejected theme file is dropped at load with its reason surfaced to the user, and the active theme falls back to the default built-in theme.
+- R48. With the default built-in theme, every tui-theme/catalog default and every element-sourced syntax or markdown rule resolves to exactly the foreground, background, and attribute set the same surface rendered under the pre-v2 implementation.
+- R49. The queued message chip takes its attribute set and its resting foreground from `message.queued`. While the computed agent color of R39 is available, the chip paints that color as its background and tui-theme/selected-foreground over it as its foreground.
 
 ## Examples
 
@@ -553,7 +624,10 @@ diff names of the effective theme.
 - J8. Why the attribute enum is exactly the @opentui/core `TextAttributes` set (R16): the renderer can only apply the attributes it defines, so a wider set would create dead keys and a narrower set would lose renderable states.
 - J9. Why `thinkingOpacity` stays a scalar instead of per-element alpha (R20, R36): one global multiplier matches the single knob that exists today and avoids duplicating it across every reasoning element.
 - J10. Why unknown element names are rejected at load (R17, R47): a closed catalog turns typos into load errors instead of silently unstyled surfaces.
-- J11. Why the run block diff fields map from palette diff names instead of dedicated elements (R44): their defaults are identical to the TUI diff palette and no run-specific divergence exists today.
+- J11. Why the run block diff fields resolve from dedicated `run.block.diff.*` elements (R44): the run diff surfaces must stay element-addressable so a theme can clear one (for example `{"bg": "transparent"}` on an added-line background), their defaults equal the palette diff names they replace so the default rendering is unchanged, and the no-terminal-palette fallback keeps its bespoke seed derivation outside the element path.
+- J12. Why default-theme byte-identity is binding for catalog defaults and element-sourced rules (R48): the element format is a re-addressing of the existing rendering rather than a restyling, so any normalization delta between the pre-v2 hardcoded styles and the catalog is a migration defect rather than a design choice, which extends the R23 losslessness promise from the palette to the rule layer.
+- J13. Why the home footer consumes the `footer.*` zone (Element catalog): the home footer strip renders the same footer surface as the session footer, so reusing the zone keeps one addressable surface with lossless defaults instead of duplicating identical rows.
+- J14. Why the dialog status dots share one `dialog.status.*` trio across dialogs (Element catalog): status dots render the same ok, warn, and error semantics wherever a dialog shows them, so one shared trio keeps the defaults identical to the flat reads it replaces while `sidebar.status.*` stays separate for independent tuning of the sidebar.
 
 ## Error handling
 
