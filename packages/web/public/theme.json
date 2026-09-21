@@ -32,6 +32,9 @@
         "autocomplete.menu.border": {
           "$ref": "#/definitions/elementStyle"
         },
+        "autocomplete.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "autocomplete.row": {
           "$ref": "#/definitions/elementStyle"
         },
@@ -51,6 +54,15 @@
           "$ref": "#/definitions/elementStyle"
         },
         "dialog.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.changes.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.changes.list": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.changes.removed": {
           "$ref": "#/definitions/elementStyle"
         },
         "dialog.console.email": {
@@ -89,7 +101,19 @@
         "dialog.plugins.inactive": {
           "$ref": "#/definitions/elementStyle"
         },
+        "dialog.prompt.cursor.busy": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.provider.connected": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "dialog.retry": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.route.home": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.route.warning": {
           "$ref": "#/definitions/elementStyle"
         },
         "dialog.select.category": {
@@ -131,6 +155,15 @@
         "dialog.session.gutter": {
           "$ref": "#/definitions/elementStyle"
         },
+        "dialog.status.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.status.ok": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "dialog.status.warn": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "dialog.title": {
           "$ref": "#/definitions/elementStyle"
         },
@@ -150,6 +183,9 @@
           "$ref": "#/definitions/elementStyle"
         },
         "diff.filetree.row.selected": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "diff.filetree.row.selected.name": {
           "$ref": "#/definitions/elementStyle"
         },
         "diff.gutter": {
@@ -212,7 +248,10 @@
         "markdown.bg": {
           "$ref": "#/definitions/elementStyle"
         },
-        "markdown.code": {
+        "markdown.code.block": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.code.inline": {
           "$ref": "#/definitions/elementStyle"
         },
         "markdown.emph": {
@@ -222,6 +261,9 @@
           "$ref": "#/definitions/elementStyle"
         },
         "markdown.heading.h1": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.label": {
           "$ref": "#/definitions/elementStyle"
         },
         "markdown.link": {
@@ -240,6 +282,9 @@
           "$ref": "#/definitions/elementStyle"
         },
         "markdown.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "markdown.underline": {
           "$ref": "#/definitions/elementStyle"
         },
         "message.assistant.body": {
@@ -299,7 +344,13 @@
         "message.tool.card": {
           "$ref": "#/definitions/elementStyle"
         },
+        "message.tool.card.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "message.tool.card.hover": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "message.tool.gutter": {
           "$ref": "#/definitions/elementStyle"
         },
         "message.tool.header": {
@@ -323,6 +374,15 @@
         "message.user.body.hover": {
           "$ref": "#/definitions/elementStyle"
         },
+        "message.user.file": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.bar": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "permission.border": {
           "$ref": "#/definitions/elementStyle"
         },
@@ -335,6 +395,9 @@
         "permission.marker": {
           "$ref": "#/definitions/elementStyle"
         },
+        "permission.marker.reject": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "permission.option": {
           "$ref": "#/definitions/elementStyle"
         },
@@ -342,6 +405,12 @@
           "$ref": "#/definitions/elementStyle"
         },
         "permission.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "permission.text.cursor": {
           "$ref": "#/definitions/elementStyle"
         },
         "prompt.chip": {
@@ -359,7 +428,7 @@
         "prompt.cursor.disabled": {
           "$ref": "#/definitions/elementStyle"
         },
-        "prompt.cursor.unfocused": {
+        "prompt.editor.pending": {
           "$ref": "#/definitions/elementStyle"
         },
         "prompt.extmark.agent": {
@@ -371,10 +440,19 @@
         "prompt.extmark.paste": {
           "$ref": "#/definitions/elementStyle"
         },
+        "prompt.interrupt": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.meta": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "prompt.notice": {
           "$ref": "#/definitions/elementStyle"
         },
         "prompt.placeholder": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "prompt.retry": {
           "$ref": "#/definitions/elementStyle"
         },
         "prompt.shell.border": {
@@ -383,7 +461,13 @@
         "prompt.text": {
           "$ref": "#/definitions/elementStyle"
         },
+        "question.body": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "question.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.hint": {
           "$ref": "#/definitions/elementStyle"
         },
         "question.muted": {
@@ -395,6 +479,9 @@
         "question.option.hover": {
           "$ref": "#/definitions/elementStyle"
         },
+        "question.option.hover.number": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "question.option.picked": {
           "$ref": "#/definitions/elementStyle"
         },
@@ -402,6 +489,9 @@
           "$ref": "#/definitions/elementStyle"
         },
         "question.panel": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.review": {
           "$ref": "#/definitions/elementStyle"
         },
         "question.tab": {
@@ -413,10 +503,46 @@
         "question.tab.hover": {
           "$ref": "#/definitions/elementStyle"
         },
+        "question.text": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "question.text.cursor": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "question.unanswered": {
           "$ref": "#/definitions/elementStyle"
         },
         "run.background": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.added-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.added-line-number-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.context-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.highlight-added": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.highlight-removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.line-number": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.removed": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.removed-bg": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "run.block.diff.removed-line-number-bg": {
           "$ref": "#/definitions/elementStyle"
         },
         "run.block.highlight": {
@@ -512,6 +638,9 @@
         "sidebar.files.removed": {
           "$ref": "#/definitions/elementStyle"
         },
+        "sidebar.getting-started": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "sidebar.item.open": {
           "$ref": "#/definitions/elementStyle"
         },
@@ -551,6 +680,9 @@
         "subagent.footer.hover": {
           "$ref": "#/definitions/elementStyle"
         },
+        "subagent.footer.muted": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "subagent.footer.panel": {
           "$ref": "#/definitions/elementStyle"
         },
@@ -564,6 +696,15 @@
           "$ref": "#/definitions/elementStyle"
         },
         "syntax.comment": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.comment.error": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.comment.todo": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.comment.warning": {
           "$ref": "#/definitions/elementStyle"
         },
         "syntax.conceal": {
@@ -584,10 +725,19 @@
         "syntax.error": {
           "$ref": "#/definitions/elementStyle"
         },
+        "syntax.error.strong": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.escape": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "syntax.function": {
           "$ref": "#/definitions/elementStyle"
         },
         "syntax.keyword": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.keyword.import": {
           "$ref": "#/definitions/elementStyle"
         },
         "syntax.number": {
@@ -605,16 +755,28 @@
         "syntax.string": {
           "$ref": "#/definitions/elementStyle"
         },
+        "syntax.tag.attribute": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "syntax.todo": {
           "$ref": "#/definitions/elementStyle"
         },
         "syntax.type": {
           "$ref": "#/definitions/elementStyle"
         },
+        "syntax.type.definition": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.type.keyword": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "syntax.variable": {
           "$ref": "#/definitions/elementStyle"
         },
         "syntax.warning": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "syntax.warning.strong": {
           "$ref": "#/definitions/elementStyle"
         },
         "tips.marker": {
@@ -632,13 +794,22 @@
         "toast.panel": {
           "$ref": "#/definitions/elementStyle"
         },
+        "toast.success.border": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "toast.title": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "toast.warning.border": {
           "$ref": "#/definitions/elementStyle"
         },
         "which-key.accent": {
           "$ref": "#/definitions/elementStyle"
         },
         "which-key.key": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.muted": {
           "$ref": "#/definitions/elementStyle"
         },
         "which-key.panel": {
@@ -648,6 +819,9 @@
           "$ref": "#/definitions/elementStyle"
         },
         "which-key.tab": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "which-key.text": {
           "$ref": "#/definitions/elementStyle"
         },
         "accent": {
@@ -963,15 +1137,25 @@
         "dialog.notice",
         "dialog.error",
         "dialog.retry",
+        "dialog.route.warning",
+        "dialog.route.home",
         "dialog.session.gutter",
         "dialog.session.deleted",
+        "dialog.changes.list",
+        "dialog.changes.added",
+        "dialog.changes.removed",
         "dialog.console.email",
         "dialog.plugins.active",
         "dialog.plugins.inactive",
         "dialog.mcp.enabled",
+        "dialog.provider.connected",
+        "dialog.status.ok",
+        "dialog.status.warn",
+        "dialog.status.error",
         "dialog.debug.copied",
         "dialog.export.option",
         "dialog.export.option.active",
+        "dialog.prompt.cursor.busy",
         "dialog.select.filter",
         "dialog.select.filter.cursor",
         "dialog.select.row",
@@ -987,22 +1171,27 @@
         "autocomplete.menu.border",
         "autocomplete.row",
         "autocomplete.row.selected",
+        "autocomplete.muted",
         "prompt.container",
         "prompt.container.border",
         "prompt.shell.border",
         "prompt.text",
         "prompt.placeholder",
         "prompt.cursor",
-        "prompt.cursor.unfocused",
         "prompt.cursor.disabled",
         "prompt.notice",
         "prompt.chip",
+        "prompt.meta",
+        "prompt.retry",
+        "prompt.interrupt",
+        "prompt.editor.pending",
         "prompt.extmark.file",
         "prompt.extmark.agent",
         "prompt.extmark.paste",
         "message.user.body",
         "message.user.body.hover",
         "message.user.badge",
+        "message.user.file",
         "message.assistant.body",
         "message.assistant.meta",
         "message.assistant.meta.mode",
@@ -1012,6 +1201,8 @@
         "message.reasoning.body",
         "message.tool.card",
         "message.tool.card.hover",
+        "message.tool.card.border",
+        "message.tool.gutter",
         "message.tool.header",
         "message.tool.body",
         "message.tool.body.pending",
@@ -1045,6 +1236,7 @@
         "sidebar.status.warn",
         "sidebar.status.error",
         "sidebar.todo.pending",
+        "sidebar.getting-started",
         "sidebar.files.added",
         "sidebar.files.removed",
         "scrollbar.track",
@@ -1065,6 +1257,7 @@
         "diff.banner.removed",
         "diff.filetree.row",
         "diff.filetree.row.selected",
+        "diff.filetree.row.selected.name",
         "markdown.text",
         "markdown.bg",
         "markdown.heading",
@@ -1073,22 +1266,35 @@
         "markdown.emph",
         "markdown.quote",
         "markdown.list",
-        "markdown.code",
+        "markdown.code.inline",
+        "markdown.code.block",
         "markdown.link",
         "markdown.link.label",
+        "markdown.label",
+        "markdown.underline",
         "syntax.default",
         "syntax.comment",
         "syntax.keyword",
+        "syntax.keyword.import",
+        "syntax.escape",
+        "syntax.tag.attribute",
         "syntax.string",
         "syntax.number",
         "syntax.type",
+        "syntax.type.definition",
+        "syntax.type.keyword",
         "syntax.function",
         "syntax.variable",
         "syntax.operator",
         "syntax.punctuation",
         "syntax.error",
+        "syntax.error.strong",
+        "syntax.comment.error",
         "syntax.warning",
+        "syntax.warning.strong",
+        "syntax.comment.warning",
         "syntax.todo",
+        "syntax.comment.todo",
         "syntax.checked",
         "syntax.conceal",
         "syntax.prompt",
@@ -1100,13 +1306,20 @@
         "toast.body",
         "toast.error.border",
         "toast.info.border",
+        "toast.success.border",
+        "toast.warning.border",
         "permission.panel",
         "permission.border",
         "permission.border.reject",
         "permission.marker",
+        "permission.marker.reject",
         "permission.option",
         "permission.option.selected",
         "permission.caption",
+        "permission.bar",
+        "permission.body",
+        "permission.text",
+        "permission.text.cursor",
         "question.panel",
         "question.border",
         "question.tab",
@@ -1114,16 +1327,25 @@
         "question.tab.hover",
         "question.option",
         "question.option.hover",
+        "question.option.hover.number",
         "question.option.selected",
         "question.option.picked",
         "question.muted",
         "question.unanswered",
+        "question.body",
+        "question.review",
+        "question.text",
+        "question.text.cursor",
+        "question.hint",
         "subagent.footer.panel",
         "subagent.footer.border",
         "subagent.footer.text",
         "subagent.footer.strong",
+        "subagent.footer.muted",
         "subagent.footer.hover",
         "which-key.panel",
+        "which-key.text",
+        "which-key.muted",
         "which-key.key",
         "which-key.subtle",
         "which-key.tab",
@@ -1160,7 +1382,17 @@
         "run.block.highlight",
         "run.block.warning",
         "run.block.text",
-        "run.block.muted"
+        "run.block.muted",
+        "run.block.diff.added",
+        "run.block.diff.removed",
+        "run.block.diff.added-bg",
+        "run.block.diff.removed-bg",
+        "run.block.diff.context-bg",
+        "run.block.diff.highlight-added",
+        "run.block.diff.highlight-removed",
+        "run.block.diff.line-number",
+        "run.block.diff.added-line-number-bg",
+        "run.block.diff.removed-line-number-bg"
       ],
       "description": "Dotted reference to a catalog element; resolves channel-wise (an fg reference takes the element's foreground, a bg reference its background; attributes never flow)"
     },
@@ -1221,15 +1453,25 @@
             "dialog.notice",
             "dialog.error",
             "dialog.retry",
+            "dialog.route.warning",
+            "dialog.route.home",
             "dialog.session.gutter",
             "dialog.session.deleted",
+            "dialog.changes.list",
+            "dialog.changes.added",
+            "dialog.changes.removed",
             "dialog.console.email",
             "dialog.plugins.active",
             "dialog.plugins.inactive",
             "dialog.mcp.enabled",
+            "dialog.provider.connected",
+            "dialog.status.ok",
+            "dialog.status.warn",
+            "dialog.status.error",
             "dialog.debug.copied",
             "dialog.export.option",
             "dialog.export.option.active",
+            "dialog.prompt.cursor.busy",
             "dialog.select.filter",
             "dialog.select.filter.cursor",
             "dialog.select.row",
@@ -1245,22 +1487,27 @@
             "autocomplete.menu.border",
             "autocomplete.row",
             "autocomplete.row.selected",
+            "autocomplete.muted",
             "prompt.container",
             "prompt.container.border",
             "prompt.shell.border",
             "prompt.text",
             "prompt.placeholder",
             "prompt.cursor",
-            "prompt.cursor.unfocused",
             "prompt.cursor.disabled",
             "prompt.notice",
             "prompt.chip",
+            "prompt.meta",
+            "prompt.retry",
+            "prompt.interrupt",
+            "prompt.editor.pending",
             "prompt.extmark.file",
             "prompt.extmark.agent",
             "prompt.extmark.paste",
             "message.user.body",
             "message.user.body.hover",
             "message.user.badge",
+            "message.user.file",
             "message.assistant.body",
             "message.assistant.meta",
             "message.assistant.meta.mode",
@@ -1270,6 +1517,8 @@
             "message.reasoning.body",
             "message.tool.card",
             "message.tool.card.hover",
+            "message.tool.card.border",
+            "message.tool.gutter",
             "message.tool.header",
             "message.tool.body",
             "message.tool.body.pending",
@@ -1303,6 +1552,7 @@
             "sidebar.status.warn",
             "sidebar.status.error",
             "sidebar.todo.pending",
+            "sidebar.getting-started",
             "sidebar.files.added",
             "sidebar.files.removed",
             "scrollbar.track",
@@ -1323,6 +1573,7 @@
             "diff.banner.removed",
             "diff.filetree.row",
             "diff.filetree.row.selected",
+            "diff.filetree.row.selected.name",
             "markdown.text",
             "markdown.bg",
             "markdown.heading",
@@ -1331,22 +1582,35 @@
             "markdown.emph",
             "markdown.quote",
             "markdown.list",
-            "markdown.code",
+            "markdown.code.inline",
+            "markdown.code.block",
             "markdown.link",
             "markdown.link.label",
+            "markdown.label",
+            "markdown.underline",
             "syntax.default",
             "syntax.comment",
             "syntax.keyword",
+            "syntax.keyword.import",
+            "syntax.escape",
+            "syntax.tag.attribute",
             "syntax.string",
             "syntax.number",
             "syntax.type",
+            "syntax.type.definition",
+            "syntax.type.keyword",
             "syntax.function",
             "syntax.variable",
             "syntax.operator",
             "syntax.punctuation",
             "syntax.error",
+            "syntax.error.strong",
+            "syntax.comment.error",
             "syntax.warning",
+            "syntax.warning.strong",
+            "syntax.comment.warning",
             "syntax.todo",
+            "syntax.comment.todo",
             "syntax.checked",
             "syntax.conceal",
             "syntax.prompt",
@@ -1358,13 +1622,20 @@
             "toast.body",
             "toast.error.border",
             "toast.info.border",
+            "toast.success.border",
+            "toast.warning.border",
             "permission.panel",
             "permission.border",
             "permission.border.reject",
             "permission.marker",
+            "permission.marker.reject",
             "permission.option",
             "permission.option.selected",
             "permission.caption",
+            "permission.bar",
+            "permission.body",
+            "permission.text",
+            "permission.text.cursor",
             "question.panel",
             "question.border",
             "question.tab",
@@ -1372,16 +1643,25 @@
             "question.tab.hover",
             "question.option",
             "question.option.hover",
+            "question.option.hover.number",
             "question.option.selected",
             "question.option.picked",
             "question.muted",
             "question.unanswered",
+            "question.body",
+            "question.review",
+            "question.text",
+            "question.text.cursor",
+            "question.hint",
             "subagent.footer.panel",
             "subagent.footer.border",
             "subagent.footer.text",
             "subagent.footer.strong",
+            "subagent.footer.muted",
             "subagent.footer.hover",
             "which-key.panel",
+            "which-key.text",
+            "which-key.muted",
             "which-key.key",
             "which-key.subtle",
             "which-key.tab",
@@ -1418,7 +1698,17 @@
             "run.block.highlight",
             "run.block.warning",
             "run.block.text",
-            "run.block.muted"
+            "run.block.muted",
+            "run.block.diff.added",
+            "run.block.diff.removed",
+            "run.block.diff.added-bg",
+            "run.block.diff.removed-bg",
+            "run.block.diff.context-bg",
+            "run.block.diff.highlight-added",
+            "run.block.diff.highlight-removed",
+            "run.block.diff.line-number",
+            "run.block.diff.added-line-number-bg",
+            "run.block.diff.removed-line-number-bg"
           ],
           "description": "Dotted reference to a catalog element; resolves channel-wise (an fg reference takes the element's foreground, a bg reference its background; attributes never flow)"
         },
@@ -1482,15 +1772,25 @@
             "dialog.notice",
             "dialog.error",
             "dialog.retry",
+            "dialog.route.warning",
+            "dialog.route.home",
             "dialog.session.gutter",
             "dialog.session.deleted",
+            "dialog.changes.list",
+            "dialog.changes.added",
+            "dialog.changes.removed",
             "dialog.console.email",
             "dialog.plugins.active",
             "dialog.plugins.inactive",
             "dialog.mcp.enabled",
+            "dialog.provider.connected",
+            "dialog.status.ok",
+            "dialog.status.warn",
+            "dialog.status.error",
             "dialog.debug.copied",
             "dialog.export.option",
             "dialog.export.option.active",
+            "dialog.prompt.cursor.busy",
             "dialog.select.filter",
             "dialog.select.filter.cursor",
             "dialog.select.row",
@@ -1506,22 +1806,27 @@
             "autocomplete.menu.border",
             "autocomplete.row",
             "autocomplete.row.selected",
+            "autocomplete.muted",
             "prompt.container",
             "prompt.container.border",
             "prompt.shell.border",
             "prompt.text",
             "prompt.placeholder",
             "prompt.cursor",
-            "prompt.cursor.unfocused",
             "prompt.cursor.disabled",
             "prompt.notice",
             "prompt.chip",
+            "prompt.meta",
+            "prompt.retry",
+            "prompt.interrupt",
+            "prompt.editor.pending",
             "prompt.extmark.file",
             "prompt.extmark.agent",
             "prompt.extmark.paste",
             "message.user.body",
             "message.user.body.hover",
             "message.user.badge",
+            "message.user.file",
             "message.assistant.body",
             "message.assistant.meta",
             "message.assistant.meta.mode",
@@ -1531,6 +1836,8 @@
             "message.reasoning.body",
             "message.tool.card",
             "message.tool.card.hover",
+            "message.tool.card.border",
+            "message.tool.gutter",
             "message.tool.header",
             "message.tool.body",
             "message.tool.body.pending",
@@ -1564,6 +1871,7 @@
             "sidebar.status.warn",
             "sidebar.status.error",
             "sidebar.todo.pending",
+            "sidebar.getting-started",
             "sidebar.files.added",
             "sidebar.files.removed",
             "scrollbar.track",
@@ -1584,6 +1892,7 @@
             "diff.banner.removed",
             "diff.filetree.row",
             "diff.filetree.row.selected",
+            "diff.filetree.row.selected.name",
             "markdown.text",
             "markdown.bg",
             "markdown.heading",
@@ -1592,22 +1901,35 @@
             "markdown.emph",
             "markdown.quote",
             "markdown.list",
-            "markdown.code",
+            "markdown.code.inline",
+            "markdown.code.block",
             "markdown.link",
             "markdown.link.label",
+            "markdown.label",
+            "markdown.underline",
             "syntax.default",
             "syntax.comment",
             "syntax.keyword",
+            "syntax.keyword.import",
+            "syntax.escape",
+            "syntax.tag.attribute",
             "syntax.string",
             "syntax.number",
             "syntax.type",
+            "syntax.type.definition",
+            "syntax.type.keyword",
             "syntax.function",
             "syntax.variable",
             "syntax.operator",
             "syntax.punctuation",
             "syntax.error",
+            "syntax.error.strong",
+            "syntax.comment.error",
             "syntax.warning",
+            "syntax.warning.strong",
+            "syntax.comment.warning",
             "syntax.todo",
+            "syntax.comment.todo",
             "syntax.checked",
             "syntax.conceal",
             "syntax.prompt",
@@ -1619,13 +1941,20 @@
             "toast.body",
             "toast.error.border",
             "toast.info.border",
+            "toast.success.border",
+            "toast.warning.border",
             "permission.panel",
             "permission.border",
             "permission.border.reject",
             "permission.marker",
+            "permission.marker.reject",
             "permission.option",
             "permission.option.selected",
             "permission.caption",
+            "permission.bar",
+            "permission.body",
+            "permission.text",
+            "permission.text.cursor",
             "question.panel",
             "question.border",
             "question.tab",
@@ -1633,16 +1962,25 @@
             "question.tab.hover",
             "question.option",
             "question.option.hover",
+            "question.option.hover.number",
             "question.option.selected",
             "question.option.picked",
             "question.muted",
             "question.unanswered",
+            "question.body",
+            "question.review",
+            "question.text",
+            "question.text.cursor",
+            "question.hint",
             "subagent.footer.panel",
             "subagent.footer.border",
             "subagent.footer.text",
             "subagent.footer.strong",
+            "subagent.footer.muted",
             "subagent.footer.hover",
             "which-key.panel",
+            "which-key.text",
+            "which-key.muted",
             "which-key.key",
             "which-key.subtle",
             "which-key.tab",
@@ -1679,7 +2017,17 @@
             "run.block.highlight",
             "run.block.warning",
             "run.block.text",
-            "run.block.muted"
+            "run.block.muted",
+            "run.block.diff.added",
+            "run.block.diff.removed",
+            "run.block.diff.added-bg",
+            "run.block.diff.removed-bg",
+            "run.block.diff.context-bg",
+            "run.block.diff.highlight-added",
+            "run.block.diff.highlight-removed",
+            "run.block.diff.line-number",
+            "run.block.diff.added-line-number-bg",
+            "run.block.diff.removed-line-number-bg"
           ],
           "description": "Dotted reference to a catalog element; resolves channel-wise (an fg reference takes the element's foreground, a bg reference its background; attributes never flow)"
         }

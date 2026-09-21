@@ -402,15 +402,25 @@ vim .opencode/themes/my-theme.json
 | `dialog.notice` | `accent` | — | — |
 | `dialog.error` | `error` | `backgroundPanel` | — |
 | `dialog.retry` | `selected-foreground` | `backgroundPanel` | — |
+| `dialog.route.warning` | `warning` | — | — |
+| `dialog.route.home` | `text` | `backgroundElement` | — |
 | `dialog.session.gutter` | `accent` | — | — |
 | `dialog.session.deleted` | — | `error` | — |
+| `dialog.changes.list` | — | `backgroundElement` | — |
+| `dialog.changes.added` | `diffAdded` | — | — |
+| `dialog.changes.removed` | `diffRemoved` | — | — |
 | `dialog.console.email` | `accent` | — | — |
 | `dialog.plugins.active` | `success` | — | — |
 | `dialog.plugins.inactive` | `error` | — | — |
 | `dialog.mcp.enabled` | `success` | — | — |
+| `dialog.provider.connected` | `success` | — | — |
+| `dialog.status.ok` | `success` | — | — |
+| `dialog.status.warn` | `warning` | — | — |
+| `dialog.status.error` | `error` | — | — |
 | `dialog.debug.copied` | `success` | — | — |
 | `dialog.export.option` | `text` | — | — |
 | `dialog.export.option.active` | `primary` | `backgroundElement` | — |
+| `dialog.prompt.cursor.busy` | `backgroundElement` | — | — |
 
 ---
 
@@ -422,7 +432,7 @@ vim .opencode/themes/my-theme.json
 | `dialog.select.filter.cursor` | `primary` | — | — |
 | `dialog.select.row` | `text` | — | — |
 | `dialog.select.row.selected` | `selected-foreground` | `primary` | `bold` |
-| `dialog.select.row.selected.unfocused` | `text` | `backgroundElement` | — |
+| `dialog.select.row.selected.unfocused` | `textMuted` | `backgroundElement` | — |
 | `dialog.select.category` | `accent` | — | `bold` |
 | `dialog.select.footer` | `text` | — | — |
 | `dialog.select.footer.label` | `textMuted` | — | — |
@@ -440,6 +450,7 @@ vim .opencode/themes/my-theme.json
 | `autocomplete.menu.border` | `border` | — | — |
 | `autocomplete.row` | `text` | — | — |
 | `autocomplete.row.selected` | `selected-foreground` | `primary` | — |
+| `autocomplete.muted` | `textMuted` | — | — |
 
 ---
 
@@ -452,11 +463,14 @@ vim .opencode/themes/my-theme.json
 | `prompt.shell.border` | `primary` | — | — |
 | `prompt.text` | `text` | — | — |
 | `prompt.placeholder` | `textMuted` | — | — |
-| `prompt.cursor` | `primary` | — | — |
-| `prompt.cursor.unfocused` | `textMuted` | — | — |
+| `prompt.cursor` | `text` | — | — |
 | `prompt.cursor.disabled` | — | `backgroundElement` | — |
 | `prompt.notice` | `accent` | — | — |
 | `prompt.chip` | `text` | `backgroundElement` | — |
+| `prompt.meta` | `textMuted` | — | — |
+| `prompt.retry` | `error` | — | — |
+| `prompt.interrupt` | `primary` | — | — |
+| `prompt.editor.pending` | `secondary` | — | — |
 | `prompt.extmark.file` | `warning` | — | `bold` |
 | `prompt.extmark.agent` | `secondary` | — | `bold` |
 | `prompt.extmark.paste` | `selected-foreground` | `warning` | `bold` |
@@ -470,6 +484,7 @@ vim .opencode/themes/my-theme.json
 | `message.user.body` | `text` | `backgroundPanel` | — |
 | `message.user.body.hover` | `text` | `backgroundElement` | — |
 | `message.user.badge` | `selected-foreground` | `secondary` | — |
+| `message.user.file` | `textMuted` | `backgroundElement` | — |
 | `message.assistant.body` | `text` | — | — |
 | `message.assistant.meta` | `textMuted` | — | — |
 | `message.assistant.meta.mode` | `text` | — | — |
@@ -479,6 +494,8 @@ vim .opencode/themes/my-theme.json
 | `message.reasoning.body` | `textMuted` | — | — |
 | `message.tool.card` | — | `backgroundPanel` | — |
 | `message.tool.card.hover` | — | `backgroundMenu` | — |
+| `message.tool.card.border` | `background` | — | — |
+| `message.tool.gutter` | `textMuted` | — | — |
 | `message.tool.header` | `textMuted` | — | — |
 | `message.tool.body` | `text` | — | — |
 | `message.tool.body.pending` | `textMuted` | — | — |
@@ -488,7 +505,7 @@ vim .opencode/themes/my-theme.json
 | `message.tool.args.denied` | `text` | — | `strikethrough` |
 | `message.error.panel` | — | `backgroundPanel` | — |
 | `message.error.border` | `error` | — | — |
-| `message.error.body` | `error` | — | — |
+| `message.error.body` | `textMuted` | — | — |
 | `message.revert` | `textMuted` | `backgroundPanel` | — |
 | `message.revert.hover` | `textMuted` | `backgroundElement` | — |
 | `message.queued` | `textMuted` | — | `bold` |
@@ -526,6 +543,7 @@ vim .opencode/themes/my-theme.json
 | `sidebar.status.warn` | `warning` | — | — |
 | `sidebar.status.error` | `error` | — | — |
 | `sidebar.todo.pending` | `warning` | — | — |
+| `sidebar.getting-started` | — | `backgroundElement` | — |
 | `sidebar.files.added` | `diffAdded` | — | — |
 | `sidebar.files.removed` | `diffRemoved` | — | — |
 
@@ -535,7 +553,7 @@ vim .opencode/themes/my-theme.json
 
 | Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
 |---|---|---|---|
-| `scrollbar.track` | — | `backgroundPanel` | — |
+| `scrollbar.track` | — | `backgroundElement` | — |
 | `scrollbar.track.overlay` | — | `background` | — |
 | `scrollbar.thumb` | `border` | — | — |
 | `scrollbar.thumb.active` | `borderActive` | — | — |
@@ -559,7 +577,8 @@ vim .opencode/themes/my-theme.json
 | `diff.banner.added` | `diffAdded` | — | — |
 | `diff.banner.removed` | `diffRemoved` | — | — |
 | `diff.filetree.row` | `textMuted` | — | — |
-| `diff.filetree.row.selected` | `selected-foreground` | `primary` | — |
+| `diff.filetree.row.selected` | `background` | `primary` | — |
+| `diff.filetree.row.selected.name` | `primary` | — | — |
 
 ---
 
@@ -575,9 +594,12 @@ vim .opencode/themes/my-theme.json
 | `markdown.emph` | `markdownEmph` | — | `italic` |
 | `markdown.quote` | `markdownBlockQuote` | — | `italic` |
 | `markdown.list` | `markdownListItem` | — | — |
-| `markdown.code` | `markdownCode` | `background` | — |
+| `markdown.code.inline` | `markdownCode` | `background` | — |
+| `markdown.code.block` | `markdownCode` | — | — |
 | `markdown.link` | `markdownLink` | — | `underline` |
-| `markdown.link.label` | `markdownLinkText` | — | — |
+| `markdown.link.label` | `markdownLinkText` | — | `underline` |
+| `markdown.label` | `markdownLinkText` | — | — |
+| `markdown.underline` | `text` | — | `underline` |
 
 ---
 
@@ -588,21 +610,31 @@ vim .opencode/themes/my-theme.json
 | `syntax.default` | `text` | — | — |
 | `syntax.comment` | `syntaxComment` | — | `italic` |
 | `syntax.keyword` | `syntaxKeyword` | — | `italic` |
+| `syntax.keyword.import` | `syntaxKeyword` | — | — |
+| `syntax.escape` | `syntaxKeyword` | — | — |
+| `syntax.tag.attribute` | `syntaxKeyword` | — | — |
 | `syntax.string` | `syntaxString` | — | — |
 | `syntax.number` | `syntaxNumber` | — | — |
-| `syntax.type` | `syntaxType` | — | `bold` |
+| `syntax.type` | `syntaxType` | — | — |
+| `syntax.type.definition` | `syntaxType` | — | `bold` |
+| `syntax.type.keyword` | `syntaxType` | — | `bold`, `italic` |
 | `syntax.function` | `syntaxFunction` | — | — |
 | `syntax.variable` | `syntaxVariable` | — | — |
 | `syntax.operator` | `syntaxOperator` | — | — |
 | `syntax.punctuation` | `syntaxPunctuation` | — | — |
 | `syntax.error` | `error` | — | — |
+| `syntax.error.strong` | `error` | — | `bold` |
+| `syntax.comment.error` | `error` | — | `italic`, `bold` |
 | `syntax.warning` | `warning` | — | — |
+| `syntax.warning.strong` | `warning` | — | `bold` |
+| `syntax.comment.warning` | `warning` | — | `italic`, `bold` |
 | `syntax.todo` | `info` | — | — |
+| `syntax.comment.todo` | `info` | — | `italic`, `bold` |
 | `syntax.checked` | `success` | — | — |
 | `syntax.conceal` | `textMuted` | — | — |
 | `syntax.prompt` | `accent` | — | — |
-| `syntax.diff.plus` | — | `diffAddedBg` | — |
-| `syntax.diff.minus` | — | `diffRemovedBg` | — |
+| `syntax.diff.plus` | `diffAdded` | `diffAddedBg` | — |
+| `syntax.diff.minus` | `diffRemoved` | `diffRemovedBg` | — |
 | `syntax.diff.delta` | `diffContext` | `diffContextBg` | — |
 
 ---
@@ -616,6 +648,8 @@ vim .opencode/themes/my-theme.json
 | `toast.body` | `text` | — | — |
 | `toast.error.border` | `error` | — | — |
 | `toast.info.border` | `info` | — | — |
+| `toast.success.border` | `success` | — | — |
+| `toast.warning.border` | `warning` | — | — |
 
 ---
 
@@ -624,12 +658,17 @@ vim .opencode/themes/my-theme.json
 | Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
 |---|---|---|---|
 | `permission.panel` | — | `backgroundPanel` | — |
-| `permission.border` | `borderActive` | — | — |
+| `permission.border` | `warning` | — | — |
 | `permission.border.reject` | `error` | — | — |
 | `permission.marker` | `warning` | — | — |
-| `permission.option` | `text` | `backgroundMenu` | — |
+| `permission.marker.reject` | `error` | — | — |
+| `permission.option` | `textMuted` | `backgroundMenu` | — |
 | `permission.option.selected` | `selected-foreground` | `warning` | — |
 | `permission.caption` | `textMuted` | — | — |
+| `permission.bar` | — | `backgroundElement` | — |
+| `permission.body` | `text` | — | — |
+| `permission.text` | `text` | — | — |
+| `permission.text.cursor` | `primary` | — | — |
 
 ---
 
@@ -643,11 +682,17 @@ vim .opencode/themes/my-theme.json
 | `question.tab.active` | `selected-foreground` | `accent` | — |
 | `question.tab.hover` | `text` | `backgroundElement` | — |
 | `question.option` | `text` | `backgroundPanel` | — |
-| `question.option.hover` | `text` | `backgroundElement` | — |
+| `question.option.hover` | `secondary` | `backgroundElement` | — |
+| `question.option.hover.number` | `tint(textMuted, secondary, question-hover-number-tint)` | `backgroundElement` | — |
 | `question.option.selected` | `selected-foreground` | `secondary` | — |
 | `question.option.picked` | `success` | — | — |
 | `question.muted` | `textMuted` | — | — |
 | `question.unanswered` | `error` | — | — |
+| `question.body` | `text` | — | — |
+| `question.review` | `text` | — | — |
+| `question.text` | `text` | — | — |
+| `question.text.cursor` | `primary` | — | — |
+| `question.hint` | `text` | — | — |
 
 ---
 
@@ -659,6 +704,7 @@ vim .opencode/themes/my-theme.json
 | `subagent.footer.border` | `border` | — | — |
 | `subagent.footer.text` | `text` | — | — |
 | `subagent.footer.strong` | `text` | — | `bold` |
+| `subagent.footer.muted` | `textMuted` | — | — |
 | `subagent.footer.hover` | `text` | `backgroundElement` | — |
 
 ---
@@ -668,6 +714,8 @@ vim .opencode/themes/my-theme.json
 | Элемент | fg по умолчанию | bg по умолчанию | атрибуты по умолчанию |
 |---|---|---|---|
 | `which-key.panel` | — | `backgroundMenu` | — |
+| `which-key.text` | `text` | — | — |
+| `which-key.muted` | `textMuted` | — | — |
 | `which-key.key` | `warning` | — | — |
 | `which-key.subtle` | `borderSubtle` | — | — |
 | `which-key.tab` | `selectedListItemText` | — | — |
@@ -740,15 +788,35 @@ vim .opencode/themes/my-theme.json
 | `run.block.warning` | `warning` | — | — |
 | `run.block.text` | `text` | — | — |
 | `run.block.muted` | `textMuted` | — | — |
+| `run.block.diff.added` | `diffAdded` | — | — |
+| `run.block.diff.removed` | `diffRemoved` | — | — |
+| `run.block.diff.added-bg` | — | `diffAddedBg` | — |
+| `run.block.diff.removed-bg` | — | `diffRemovedBg` | — |
+| `run.block.diff.context-bg` | — | `diffContextBg` | — |
+| `run.block.diff.highlight-added` | `diffHighlightAdded` | — | — |
+| `run.block.diff.highlight-removed` | `diffHighlightRemoved` | — | — |
+| `run.block.diff.line-number` | `diffLineNumber` | — | — |
+| `run.block.diff.added-line-number-bg` | — | `diffAddedLineNumberBg` | — |
+| `run.block.diff.removed-line-number-bg` | — | `diffRemovedLineNumberBg` | — |
 
 Run-zone derivatives stay computed and carry no elements: the footer
 `status`, `statusAccent`, `shade`, `surface`, and `line` fields are
 tui-theme/tint or tui-theme/fade derivations of `run.footer.pane`,
-`run.background`, and the footer mode with the Configuration constants; the
 splash `leftShadow`/`rightShadow` fields are tui-theme/tint derivations of
-the splash colors with `splash-shadow-alpha`; the run block diff fields
+the splash colors with `splash-shadow-alpha`. The run block diff fields
 (`diffAdded`, `diffRemoved`, `diffAddedBg`, `diffRemovedBg`, `diffContextBg`,
 `diffHighlightAdded`, `diffHighlightRemoved`, `diffLineNumber`,
-`diffAddedLineNumberBg`, `diffRemovedLineNumberBg`) resolve from the palette
-diff names of the effective theme.
+`diffAddedLineNumberBg`, `diffRemovedLineNumberBg`) resolve from the
+`run.block.diff.*` elements above, whose defaults equal the palette diff names
+they replace. Because these surfaces are now element-addressable, a theme can
+restyle the run diff per channel - for example, clearing the added-line
+background entirely with:
+
+```json
+{
+  "theme": {
+    "run.block.diff.added-bg": { "bg": "transparent" }
+  }
+}
+```
 
