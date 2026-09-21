@@ -71,13 +71,38 @@ export function transparentColor(): RGBA {
 }
 
 /**
+ * The hex color grammar of the `fg`/`bg` channels and `defs` members (R15).
+ *
+ * Purpose: the shared validation regex for every place a color value is
+ * parsed or validated — v1 migration and v2 resolution accept exactly the
+ * same hex forms.
+ *
+ * Contract: matches `#` followed by 3, 4, 6, or 8 hex digits; nothing else.
+ */
+export const HEX_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+
+/**
+ * The reference-name grammar of the `fg`/`bg` channels and `defs` members.
+ *
+ * Purpose: the shared validation regex for dotless reference names — v1
+ * migration and v2 resolution accept exactly the same names.
+ *
+ * Contract: a letter followed by letters, digits, underscores, or hyphens.
+ * Hyphens are accepted in continuation positions: built-in themes ship
+ * hyphenated defs names (e.g. mercury "purple-400") and migration must stay
+ * lossless for rendered output (R23, A21).
+ */
+export const REF_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/
+
+/**
  * Alpha blend of an overlay color over a base color (tui-theme/tint, R34).
  *
  * Purpose: the computed blend behind `logo.shadow`, `bg-pulse.base`, and the
  * run-zone derivatives.
  *
- * Contract: `alpha` is the overlay share in 0–1; the result keeps the base
- * alpha. `base` and `overlay` are not mutated.
+ * Contract: `alpha` is the overlay share in 0–1; the result is fully opaque —
+ * both inputs' alpha channels are ignored and the result carries a = 255.
+ * `base` and `overlay` are not mutated.
  */
 export function tint(base: RGBA, overlay: RGBA, alpha: number): RGBA {
   const r = base.r + (overlay.r - base.r) * alpha

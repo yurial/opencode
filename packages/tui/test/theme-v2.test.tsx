@@ -1,8 +1,15 @@
+/** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
 import { RGBA, TextAttributes } from "@opentui/core"
-// The client build: bun resolves the bare "solid-js" export to the server
-// build under test conditions, and only the client build is reactive.
-import { createEffect, createMemo, createRoot, createSignal } from "solid-js/dist/solid.js"
+import { testRender } from "@opentui/solid"
+// The @opentui/solid preload remaps the bare "solid-js" export onto the
+// reactive client build, so effects created here track the provider's
+// signals; importing "solid-js/dist/solid.js" directly would create a second
+// solid instance and silently never re-run.
+import { createEffect } from "solid-js"
+import { KVProvider } from "../src/context/kv"
+import { ThemeProvider, useTheme } from "../src/context/theme"
+import { TuiConfigProvider } from "../src/config"
 import {
   ATTRIBUTES,
   CATALOG,
@@ -18,6 +25,10 @@ import {
   type ThemeRejectionReason,
 } from "../src/theme"
 import { textAttributes } from "../src/theme/catalog"
+import { LEGACY_COLOR_KEYS, type ThemeColor } from "../src/theme/types"
+import { TestTuiContexts } from "./fixture/tui-environment"
+import { createTuiResolvedConfig } from "./fixture/tui-runtime"
+import path from "node:path"
 
 function hex(rgba: RGBA) {
   return (
@@ -173,6 +184,14 @@ test("catalog defaults match the spec errata v1.1 changed rows", () => {
     fg: { source: "tint", base: palette("textMuted"), overlay: palette("secondary"), alpha: 0.6 },
     bg: palette("backgroundElement"),
   } as const)
+  // The base run rendering pinned the diff surfaces transparent (R44, R48):
+  // no default entry, so the channel resolves to the transparent color.
+  expect(CATALOG["run.block.diff.added-bg"]).toEqual({})
+  expect(CATALOG["run.block.diff.removed-bg"]).toEqual({})
+  expect(CATALOG["run.block.diff.context-bg"]).toEqual({})
+  // logo.shadow has no static default: the renderer blends the background
+  // with each half's own foreground, which one row cannot express (R34).
+  expect(CATALOG["logo.shadow"]).toEqual({})
 })
 
 test("attribute vocabulary is exactly the eight spec names", () => {
@@ -518,9 +537,9 @@ test("migrated themes keep catalog defaults aligned with the flat palette", () =
         ["diff.filetree.row.selected.name", "fg", "primary"],
         ["run.block.diff.added", "fg", "diffAdded"],
         ["run.block.diff.removed", "fg", "diffRemoved"],
-        ["run.block.diff.added-bg", "bg", "diffAddedBg"],
-        ["run.block.diff.removed-bg", "bg", "diffRemovedBg"],
-        ["run.block.diff.context-bg", "bg", "diffContextBg"],
+        ["run.block.diff.added-bg", "bg", "#00000000"],
+        ["run.block.diff.removed-bg", "bg", "#00000000"],
+        ["run.block.diff.context-bg", "bg", "#00000000"],
         ["run.block.diff.highlight-added", "fg", "diffHighlightAdded"],
         ["run.block.diff.highlight-removed", "fg", "diffHighlightRemoved"],
         ["run.block.diff.line-number", "fg", "diffLineNumber"],
@@ -562,6 +581,70 @@ test("migrated themes keep catalog defaults aligned with the flat palette", () =
       expect(attrs(resolveElement(prepared, "markdown.code.inline").attributes)).toEqual([])
     }
   }
+})
+
+test("LEGACY_COLOR_KEYS mirrors the legacy Theme color keys exactly (R22)", () => {
+  // Compile-time drift guard: the satisfies check fails to compile when the
+  // legacy Theme type gains or loses a color key without this literal
+  // following. `thinkingOpacity` and `_hasSelectedListItemText` are not
+  // colors and stay outside both the type and the list.
+  const expected = {
+    primary: true,
+    secondary: true,
+    accent: true,
+    error: true,
+    warning: true,
+    success: true,
+    info: true,
+    text: true,
+    textMuted: true,
+    selectedListItemText: true,
+    background: true,
+    backgroundPanel: true,
+    backgroundElement: true,
+    backgroundMenu: true,
+    border: true,
+    borderActive: true,
+    borderSubtle: true,
+    diffAdded: true,
+    diffRemoved: true,
+    diffContext: true,
+    diffHunkHeader: true,
+    diffHighlightAdded: true,
+    diffHighlightRemoved: true,
+    diffAddedBg: true,
+    diffRemovedBg: true,
+    diffContextBg: true,
+    diffLineNumber: true,
+    diffAddedLineNumberBg: true,
+    diffRemovedLineNumberBg: true,
+    markdownText: true,
+    markdownHeading: true,
+    markdownLink: true,
+    markdownLinkText: true,
+    markdownCode: true,
+    markdownBlockQuote: true,
+    markdownEmph: true,
+    markdownStrong: true,
+    markdownHorizontalRule: true,
+    markdownListItem: true,
+    markdownListEnumeration: true,
+    markdownImage: true,
+    markdownImageText: true,
+    markdownCodeBlock: true,
+    syntaxComment: true,
+    syntaxKeyword: true,
+    syntaxFunction: true,
+    syntaxVariable: true,
+    syntaxString: true,
+    syntaxNumber: true,
+    syntaxType: true,
+    syntaxOperator: true,
+    syntaxPunctuation: true,
+  } satisfies Record<ThemeColor, true>
+  expect(LEGACY_COLOR_KEYS.length).toBe(52)
+  expect(new Set(LEGACY_COLOR_KEYS).size).toBe(52)
+  expect(new Set<string>(LEGACY_COLOR_KEYS)).toEqual(new Set(Object.keys(expected)))
 })
 
 test("menu fallback: backgroundMenu falls back to backgroundElement", () => {
@@ -669,35 +752,82 @@ test("resolveTheme keeps returning the flat legacy palette", () => {
   expect(() => resolveTheme(cyclic, "dark")).toThrow("Circular color reference")
 })
 
+const config = createTuiResolvedConfig()
+
+// Unique KV state per mount: the provider persists the mode lock there and the
+// tests must not leak a lock across mounts or parallel bun processes.
+function stateDir() {
+  return path.join("/tmp/opencode", "tui-theme-v2-test", crypto.randomUUID())
+}
+
+async function pollUntil(predicate: () => boolean, timeout = 5000) {
+  const start = Date.now()
+  for (;;) {
+    if (predicate()) return
+    if (Date.now() - start > timeout) throw new Error("timed out waiting for theme propagation")
+    await Bun.sleep(20)
+  }
+}
+
 test("element accessor re-evaluates on theme and mode change and throws on unknown names", async () => {
-  const tick = () => new Promise<void>((resolve) => queueMicrotask(resolve))
-  await createRoot(async (dispose) => {
-    const [source, setSource] = createSignal<unknown>({ theme: { "dialog.body": { fg: { dark: "#111111", light: "#eeeeee" } } } })
-    const [mode, setMode] = createSignal<"dark" | "light">("dark")
-    const prepared = createMemo(() => {
-      const result = loadTheme(source(), mode())
-      if (!result.ok) throw new Error(result.message)
-      return result.theme
-    })
-    // The context wires element() exactly like this: resolveElement(prepared(), name)
-    const element = (name: string) => resolveElement(prepared(), name)
-    let reads = 0
-    let observed = ""
+  // Mounted through the real ThemeProvider: the accessor under test is the
+  // context's own `element(name)` (R42), fed by the provider's prepared-theme
+  // memo — not a test replica of it.
+  let state: ReturnType<typeof useTheme> | undefined
+  let observed = ""
+  let reads = 0
+  function Probe() {
+    const theme = useTheme()
+    state = theme
     createEffect(() => {
-      observed = hex(element("dialog.body").fg)
+      observed = hex(theme.element("dialog.body").fg)
       reads++
     })
-    await tick()
-    expect(observed).toBe("#111111")
-    setMode("light")
-    await tick()
-    expect(observed).toBe("#eeeeee")
-    setSource({ theme: { "dialog.body": { fg: "#0000ff" } } })
-    await tick()
-    expect(observed).toBe("#0000ff")
+    return <box />
+  }
+  const app = await testRender(
+    () => (
+      <TestTuiContexts paths={{ state: stateDir() }}>
+        <TuiConfigProvider config={config}>
+          <KVProvider>
+            <ThemeProvider mode="dark">
+              <Probe />
+            </ThemeProvider>
+          </KVProvider>
+        </TuiConfigProvider>
+      </TestTuiContexts>
+    ),
+    { width: 20, height: 4 },
+  )
+  try {
+    // The provider gates children on readiness (theme discovery), so the
+    // first observation lands after the async mount settles.
+    await pollUntil(() => !!state?.ready && reads > 0)
+
+    // Mode change: the accessor re-evaluates to the mode's palette value.
+    const flipped = state!.mode() === "dark" ? "light" : "dark"
+    state!.setMode(flipped)
+    const modeHex = hex(resolveElement(prepare(DEFAULT_THEMES.opencode, flipped), "dialog.body").fg)
+    await pollUntil(() => observed === modeHex)
+
+    // Theme change: it re-evaluates to the switched theme's value.
+    expect(state!.set("matrix")).toBe(true)
+    const themeHex = hex(resolveElement(prepare(DEFAULT_THEMES.matrix, flipped), "dialog.body").fg)
+    await pollUntil(() => observed === themeHex)
     expect(reads).toBe(3)
-    expect(() => element("dialog.nope")).toThrow()
-    expect(() => element("toString")).toThrow()
-    dispose()
-  })
+
+    // Resolved channels match the resolveElement oracle for the active theme.
+    const oracle = prepare(DEFAULT_THEMES.matrix, flipped)
+    expect(state!.element("dialog.body")).toEqual(resolveElement(oracle, "dialog.body"))
+    expect(state!.element("app.background")).toEqual(resolveElement(oracle, "app.background"))
+    expect(state!.element("dialog.title")).toEqual(resolveElement(oracle, "dialog.title"))
+
+    // Non-catalog names throw (R43), including proxy escape hatches.
+    expect(() => state!.element("dialog.nope")).toThrow()
+    expect(() => state!.element("toString")).toThrow()
+  } finally {
+    state?.unlock()
+    state?.set("opencode")
+    app.renderer.destroy()
+  }
 })

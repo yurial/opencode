@@ -11,7 +11,7 @@ import {
   type ElementStyle,
   type ResolvedElement,
 } from "./catalog"
-import { ansiToRgba, tint, transparentColor } from "./color"
+import { HEX_PATTERN, REF_PATTERN, ansiToRgba, tint, transparentColor } from "./color"
 import { migrateThemeV1, ThemeRejection, type ThemeRejectionReason } from "./migrate"
 import { DEFAULT_THEMES } from "./builtin"
 import { LEGACY_COLOR_KEYS, type Theme, type ThemeColor, type ThemeJson } from "./types"
@@ -193,12 +193,6 @@ function validateColorValue(value: unknown): void {
   }
   throw new ThemeRejection("INVALID_COLOR", `Invalid color value: ${JSON.stringify(value) ?? "?"}`)
 }
-
-const HEX_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
-// Hyphens are accepted in continuation positions: built-in themes ship
-// hyphenated defs names (e.g. mercury "purple-400") and migration must stay
-// lossless for rendered output (R23, A21).
-const REF_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/
 
 const defaults = new Map<"dark" | "light", Theme>()
 

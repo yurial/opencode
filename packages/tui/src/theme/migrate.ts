@@ -1,5 +1,5 @@
 import { RGBA } from "@opentui/core"
-import { ansiToRgba, transparentColor } from "./color"
+import { HEX_PATTERN, REF_PATTERN, ansiToRgba, transparentColor } from "./color"
 import { LEGACY_COLOR_KEYS, type Theme, type ThemeColor, type ThemeJson } from "./types"
 
 /**
@@ -72,22 +72,18 @@ export class ThemeRejection extends Error {
 export function migrateThemeV1(source: ThemeJson, mode: "dark" | "light", fallback?: Theme): Theme {
   const defs = source.defs ?? {}
   const entries = source.theme
-  // Hyphenated names resolve: built-in themes ship defs names like "purple-400"
-  // and migration must stay lossless for rendered output (R23, A21).
-  const refPattern = /^[a-zA-Z][a-zA-Z0-9_-]*$/
-  const hexPattern = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
 
   function resolveColor(value: unknown, chain: string[]): RGBA {
     if (value instanceof RGBA) return value
     if (typeof value === "string") {
       if (value === "transparent" || value === "none") return transparentColor()
       if (value.startsWith("#")) {
-        if (!hexPattern.test(value)) {
+        if (!HEX_PATTERN.test(value)) {
           throw new ThemeRejection("INVALID_COLOR", `Invalid hex color: "${value}"`)
         }
         return RGBA.fromHex(value)
       }
-      if (refPattern.test(value)) {
+      if (REF_PATTERN.test(value)) {
         if (chain.includes(value)) {
           throw new ThemeRejection("CYCLIC_REFERENCE", `Circular color reference: ${[...chain, value].join(" -> ")}`)
         }

@@ -8,7 +8,12 @@ export function Logo() {
   const { theme, element } = useTheme()
 
   const renderLine = (line: string, fg: RGBA, attributes: number): JSX.Element[] => {
-    const shadow = tint(theme.background, fg, 0.25)
+    // logo.shadow contract: the catalog row has no static default because the
+    // shadow blends the background with each half's own foreground. A
+    // transparent (unset) element resolves to the computed per-half tint
+    // (logo-shadow-alpha 0.25); an explicit bg override paints both halves.
+    const override = element("logo.shadow").bg
+    const shadow = override.a === 0 ? tint(theme.background, fg, 0.25) : override
     return Array.from(line).map((char) => {
       if (char === "_") {
         return (

@@ -107,18 +107,20 @@ test("maps the built-in opencode v1 theme to the same RunTheme the deleted v1 re
   expect(rgb(theme.block.diffLineNumber)).toEqual([143, 143, 143, 255])
   expect(rgb(theme.block.diffAddedLineNumberBg)).toEqual([27, 43, 52, 255])
   expect(rgb(theme.block.diffRemovedLineNumberBg)).toEqual([45, 31, 38, 255])
-  expect(rgb(theme.block.diffAddedBg)).toEqual([32, 48, 59, 255])
-  expect(rgb(theme.block.diffRemovedBg)).toEqual([55, 34, 44, 255])
-  expect(rgb(theme.block.diffContextBg)).toEqual([20, 20, 20, 255])
+  expect(rgb(theme.block.diffAddedBg)).toEqual([0, 0, 0, 0])
+  expect(rgb(theme.block.diffRemovedBg)).toEqual([0, 0, 0, 0])
+  expect(rgb(theme.block.diffContextBg)).toEqual([0, 0, 0, 0])
 
   // R44/J11: the diff fields resolve from run.block.diff.* elements whose
-  // defaults equal the palette diff names, so the element path is lossless
-  // for every v1 input.
+  // defaults are byte-identical to base (R48): foregrounds and line-number
+  // backgrounds take the palette diff names, and the base pinned the added,
+  // removed, and context backgrounds transparent, so exactly those resolve
+  // to the transparent color for every v1 input.
   expect(rgb(theme.block.diffAdded)).toEqual(rgb(prepared.theme.diffAdded))
   expect(rgb(theme.block.diffRemoved)).toEqual(rgb(prepared.theme.diffRemoved))
-  expect(rgb(theme.block.diffAddedBg)).toEqual(rgb(prepared.theme.diffAddedBg))
-  expect(rgb(theme.block.diffRemovedBg)).toEqual(rgb(prepared.theme.diffRemovedBg))
-  expect(rgb(theme.block.diffContextBg)).toEqual(rgb(prepared.theme.diffContextBg))
+  expect(rgb(theme.block.diffAddedBg)).toEqual([0, 0, 0, 0])
+  expect(rgb(theme.block.diffRemovedBg)).toEqual([0, 0, 0, 0])
+  expect(rgb(theme.block.diffContextBg)).toEqual([0, 0, 0, 0])
   expect(rgb(theme.block.diffHighlightAdded)).toEqual(rgb(prepared.theme.diffHighlightAdded))
   expect(rgb(theme.block.diffHighlightRemoved)).toEqual(rgb(prepared.theme.diffHighlightRemoved))
   expect(rgb(theme.block.diffLineNumber)).toEqual(rgb(prepared.theme.diffLineNumber))
@@ -168,6 +170,11 @@ test("resolves the generated system theme identically to the deleted v1 pipeline
     expect(rgbIndexed(theme.block.muted)).toEqual([224, 175, 104, 255])
     expect(rgbIndexed(theme.block.diffAdded)).toEqual([158, 206, 106, 255])
     expect(rgbIndexed(theme.block.diffRemoved)).toEqual([247, 118, 142, 255])
+    // The diff surfaces stay transparent for the generated system theme too
+    // (R44, R48): the base pinned the added, removed, and context backgrounds.
+    expect(rgb(theme.block.diffAddedBg)).toEqual([0, 0, 0, 0])
+    expect(rgb(theme.block.diffRemovedBg)).toEqual([0, 0, 0, 0])
+    expect(rgb(theme.block.diffContextBg)).toEqual([0, 0, 0, 0])
     expect(rgbIndexed(theme.block.diffHighlightAdded)).toEqual([158, 206, 106, 255])
     expect(rgbIndexed(theme.block.diffHighlightRemoved)).toEqual([247, 118, 142, 255])
     expect(rgbIndexed(theme.block.diffLineNumber)).toEqual([224, 175, 104, 255])
@@ -234,16 +241,30 @@ test("resolves overridden run.block.diff.* elements on a v2 theme", async () => 
   )
   const theme = runTheme(prepared, prepared, vgaIndexed, resolveElement)
 
-  // A v2 theme can clear a diff surface (R44, J11).
+  // A v2 theme can keep clearing an already-transparent diff surface (R44, J11).
   expect(rgb(theme.block.diffAddedBg)).toEqual([0, 0, 0, 0])
   expect((theme.block.diffAddedBg as RGBA).a).toBe(0)
   expect(rgb(theme.block.diffLineNumber)).toEqual([1, 2, 3, 255])
 
-  // Unset diff elements keep the default built-in palette (R24).
+  // A v2 theme can also paint a diff surface through a palette reference (R44, J11).
+  const referenced = await loadPrepared(
+    {
+      $schema: "https://opencode.ai/theme.json",
+      theme: {
+        "run.block.diff.added-bg": { bg: "diffAddedBg" },
+      },
+    },
+    "dark",
+  )
+  const referencedTheme = runTheme(referenced, referenced, vgaIndexed, resolveElement)
+  expect(rgb(referencedTheme.block.diffAddedBg)).toEqual([32, 48, 59, 255])
+  expect(rgb(referencedTheme.block.diffAddedBg)).toEqual(rgb(referenced.theme.diffAddedBg))
+
+  // Unset fg keeps the default built-in palette; unset bg defaults stay transparent (R24, R48).
   const fallback = await loadPrepared(DEFAULT_THEMES.opencode, "dark")
   expect(rgb(theme.block.diffAdded)).toEqual(rgb(fallback.theme.diffAdded))
-  expect(rgb(theme.block.diffRemovedBg)).toEqual(rgb(fallback.theme.diffRemovedBg))
-  expect(rgb(theme.block.diffContextBg)).toEqual(rgb(fallback.theme.diffContextBg))
+  expect(rgb(theme.block.diffRemovedBg)).toEqual([0, 0, 0, 0])
+  expect(rgb(theme.block.diffContextBg)).toEqual([0, 0, 0, 0])
 })
 
 test("keeps the footer derivatives on the Configuration constants over overridden panes", async () => {

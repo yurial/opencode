@@ -145,7 +145,6 @@ export const ATTRIBUTES: readonly Attribute[] = [
 const palette = (name: string): ColorDefault => ({ source: "palette", name })
 const hex = (value: string): ColorDefault => ({ source: "hex", value })
 const selected = (): ColorDefault => ({ source: "selected-foreground" })
-const elementFg: ColorDefault = { source: "element-foreground" }
 const tintOf = (base: ColorDefault, overlay: ColorDefault, alpha: number): ColorDefault => ({
   source: "tint",
   base,
@@ -461,7 +460,11 @@ const STARTUP = {
 const LOGO = {
   "logo.left": { fg: TEXT_MUTED },
   "logo.right": { fg: TEXT, attributes: ["bold"] },
-  "logo.shadow": { bg: tintOf(BACKGROUND, elementFg, 0.25) },
+  // No static default can express the per-half shadow the renderer computes
+  // (tint of the background with each half's own foreground), so the row is
+  // addressable with no default: transparent means "computed per half", an
+  // explicit bg override paints both halves (R34).
+  "logo.shadow": {},
 } as const
 
 const BG_PULSE = {
@@ -501,9 +504,11 @@ const RUN = {
   "run.block.muted": { fg: TEXT_MUTED },
   "run.block.diff.added": { fg: palette("diffAdded") },
   "run.block.diff.removed": { fg: palette("diffRemoved") },
-  "run.block.diff.added-bg": { bg: palette("diffAddedBg") },
-  "run.block.diff.removed-bg": { bg: palette("diffRemovedBg") },
-  "run.block.diff.context-bg": { bg: palette("diffContextBg") },
+  // The base run rendering pinned the diff surfaces transparent and took the
+  // foregrounds and line-number backgrounds from the palette (R48, R44).
+  "run.block.diff.added-bg": {},
+  "run.block.diff.removed-bg": {},
+  "run.block.diff.context-bg": {},
   "run.block.diff.highlight-added": { fg: palette("diffHighlightAdded") },
   "run.block.diff.highlight-removed": { fg: palette("diffHighlightRemoved") },
   "run.block.diff.line-number": { fg: palette("diffLineNumber") },

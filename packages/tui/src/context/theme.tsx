@@ -305,7 +305,9 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
      */
     const element = (name: string) => resolveElement(prepared(), name)
 
-    createEffect(() => renderer.setBackgroundColor(values().background))
+    // The root surface paints the app.background element, not the flat
+    // palette proxy, so a v2 override re-addresses the terminal background (R35).
+    createEffect(() => renderer.setBackgroundColor(element("app.background").bg))
 
     // Rules resolve from the prepared theme's elements (R40): entries and
     // overrides participate, and the memo re-evaluates on theme or mode change.
