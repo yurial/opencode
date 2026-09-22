@@ -9,6 +9,7 @@ import { useArgs } from "./args"
 import { useSDK } from "./sdk"
 import { RGBA } from "@opentui/core"
 import { readJson, writeJsonAtomic } from "../util/persistence"
+import { isElementName } from "../theme"
 import { useTheme } from "./theme"
 import { useToast } from "../ui/toast"
 import { useRoute } from "./route"
@@ -54,7 +55,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const sync = useSync()
     const sdk = useSDK()
     const toast = useToast()
-    const theme = useTheme().theme
+    const { theme, element } = useTheme()
     const route = useRoute()
     const paths = useTuiPaths()
     const args = useArgs()
@@ -80,14 +81,17 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       const [agentStore, setAgentStore] = createStore({
         current: undefined as string | undefined,
       })
+      // R39.1: the rotation cycles the agent.color.* element foregrounds by
+      // visible-agent index; reads through element() re-evaluate on theme or
+      // mode change (R42).
       const colors = createMemo(() => [
-        theme.secondary,
-        theme.accent,
-        theme.success,
-        theme.warning,
-        theme.primary,
-        theme.error,
-        theme.info,
+        element("agent.color.one").fg,
+        element("agent.color.two").fg,
+        element("agent.color.three").fg,
+        element("agent.color.four").fg,
+        element("agent.color.five").fg,
+        element("agent.color.six").fg,
+        element("agent.color.seven").fg,
       ])
       return {
         list() {
@@ -123,9 +127,15 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
           if (agent?.color) {
             const color = agent.color
+            // R39.3–R39.5: a hex literal wins, then a catalog element name
+            // (its resolved foreground), then a legacy palette name. Config
+            // validation accepts the dotted element-name grammar structurally,
+            // so a grammar-valid name outside the closed catalog can reach
+            // this point; it is neither an element nor a palette name and
+            // falls back to the rotation color instead of painting undefined.
             if (color.startsWith("#")) return RGBA.fromHex(color)
-            // already validated by config, just satisfying TS here
-            return theme[color as keyof typeof theme] as RGBA
+            if (isElementName(color)) return element(color).fg
+            return (theme[color as keyof typeof theme] ?? colors()[index % colors().length]) as RGBA
           }
           return colors()[index % colors().length]
         },

@@ -7,6 +7,10 @@ import { ConfigPermissionV1 } from "./permission"
 const Color = Schema.Union([
   Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/)),
   Schema.Literals(["primary", "secondary", "accent", "success", "warning", "error", "info"]),
+  // tui-theme element name (specs/tui-theme.md R17): dot-separated lowercase
+  // segments starting with a letter. Catalog membership is closed and owned by
+  // the TUI, so validation here stays structural.
+  Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/)),
 ])
 
 const AgentSchema = Schema.StructWithRest(
@@ -29,7 +33,7 @@ const AgentSchema = Schema.StructWithRest(
     }),
     options: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
     color: Schema.optional(Color).annotate({
-      description: "Hex color code (e.g., #FF5733) or theme color (e.g., primary)",
+      description: "Hex color code (e.g., #FF5733), theme color (e.g., primary), or theme element (e.g., agent.color.one)",
     }),
     steps: Schema.optional(PositiveInt).annotate({
       description: "Maximum number of agentic iterations before forcing text-only response",
