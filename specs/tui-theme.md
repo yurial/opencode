@@ -685,6 +685,8 @@ rejection.
 
 - tui-architecture — theme resolution and element mapping for the TUI
   runtime (referenced there, not restated).
+- config-agents — the agent `color` override value domain and resolution
+  (R39.3–R39.5), cited from its R11.
 - app-desktop-cli — boundary statement: the terminal theme engine (this
   spec) and the web/desktop theme system are separate engines; neither
   consumes the other.

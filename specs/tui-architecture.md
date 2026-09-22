@@ -380,8 +380,10 @@ Runtime toggles not in `tui.json` live in KV (see R24).
 ### Local state
 
 - R31. Agent selection covers visible non-subagent agents; missing
-  selection falls back to the first; `agent.color` resolves hex or theme
-  key, else the theme color cycle by visible-agent index. Model selection
+  selection falls back to the first; `agent.color` resolves a hexadecimal
+  literal, a tui-theme/element name, or a tui-theme/palette name
+  (`tui-theme` R39), else the theme color cycle by visible-agent index.
+  Model selection
   resolves per-agent overrides → agent default → `--model` arg →
   `config.model` → recent list → first provider's default/first model,
   validity-checked against the provider list; selected/recent/favorite/
