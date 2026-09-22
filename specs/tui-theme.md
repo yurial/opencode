@@ -620,6 +620,7 @@ element of its own.
 - R39.4. An agent `color` configuration override naming a tui-theme/element resolves to the resolved foreground of that element.
 - R39.5. An agent `color` configuration override naming a tui-theme/palette name resolves against the palette.
 - R39.6. With the default built-in theme or a migrated v1 theme file, the rendered agent colors are identical to the pre-v2 rotation.
+- R39.7. An agent `color` configuration override naming neither a hexadecimal string, nor a tui-theme/element name contained in the tui-theme/catalog, nor a tui-theme/palette name leaves the agent's color unoverridden. The agent's rotation color (R39.1) applies.
 - R40. Syntax and markdown rendering take the foreground and the attributes of each scope rule from the corresponding `syntax.*` or `markdown.*` element.
 - R41. The scope `default` resolves to `syntax.default`.
 - R42. The TUI theme context exposes a reactive accessor `element(name)` returning the resolved foreground, background, and attribute set of the named element, and reads through it re-evaluate when the theme or the mode changes.
@@ -660,6 +661,7 @@ element of its own.
 - J14. Why the dialog status dots share one `dialog.status.*` trio across dialogs (Element catalog): status dots render the same ok, warn, and error semantics wherever a dialog shows them, so one shared trio keeps the defaults identical to the flat reads it replaces while `sidebar.status.*` stays separate for independent tuning of the sidebar.
 - J15. Why the agent rotation colors are positional `agent.color.*` elements placed between the prompt and message zones (Element catalog, R39.1, R39.2): the set of visible agents is dynamic while the tui-theme/catalog is closed (R17), so per-agent element names cannot exist; seven positional slots reproduce the fixed cycle length byte-identically, the zone sits between its two consumer zones (the prompt dot and the message border, marker, and chip), and an agent needing a stable identity color pins it through the `color` configuration override (R39.3).
 - J16. Why the agent `color` override keeps the palette-name path while gaining the element-name path (R39.3, R39.4, R39.5): palette-name resolution keeps every v1-era configuration working unchanged, and an element name lets a configuration pin an agent to a themed color without duplicating its hex value.
+- J17. Why an out-of-domain agent `color` override is a no-override rather than an error (R39.7): the configuration schemas validate the dotted form structurally — the closed tui-theme/catalog is owned by the TUI (R17) — so a grammar-valid dotted name outside the catalog is representable in a configuration, and resolving it to the agent's rotation color keeps every agent-colored surface defined without rejecting a configuration the schema accepted.
 
 ## Error handling
 
@@ -687,6 +689,10 @@ rejection.
   runtime (referenced there, not restated).
 - config-agents — the agent `color` override value domain and resolution
   (R39.3–R39.5), cited from its R11.
+- config-v1 — the agent `color` override value domain and resolution
+  (R39.3–R39.5, R39.7), cited from its agent entries table.
+- config-v2 — the agent `color` override value domain and resolution
+  (R39.3–R39.5, R39.7), cited from its agents table.
 - app-desktop-cli — boundary statement: the terminal theme engine (this
   spec) and the web/desktop theme system are separate engines; neither
   consumes the other.

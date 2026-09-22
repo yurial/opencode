@@ -124,7 +124,7 @@ Resource directories inside every config directory: `agent(s)/`, `mode(s)/`,
 | `mode` | enum | `subagent` \| `primary` \| `all` | entry-dependent | Runtime role |
 | `hidden` | boolean | — | `false` | Hide from autocomplete (subagents only) |
 | `disable` | boolean | — | `false` | Deactivate the agent |
-| `color` | string | `#RRGGBB` or theme name (`primary`, `secondary`, `accent`, `success`, `warning`, `error`, `info`) | none | Display color |
+| `color` | string | `#RRGGBB`, a tui-theme/element name, or a tui-theme/palette name (`primary`, `secondary`, `accent`, `success`, `warning`, `error`, `info`); override domain and resolution per tui-theme R39 | none | Display color |
 | `steps` | int > 0 | positive | model-dependent | Max agentic iterations before text-only response |
 | `maxSteps` | int > 0 | deprecated alias for `steps` | — | — |
 | `tools` | object | tool name → boolean; deprecated | — | Converted to permission rules (`write`/`edit`/`patch` collapse to `edit`) |
@@ -543,7 +543,8 @@ Other commands: `agent generate` (`--path`, `--description`,
 
 ## Dependencies
 
-None. This spec is the root of the V1 configuration surface.
+- tui-theme — owns the agent `color` override value domain and resolution
+  (R39.3–R39.5, R39.7) cited by the agent entries table.
 
 ## Used by
 

@@ -97,7 +97,7 @@ loader channels and are not part of the V2 discovery (implemented).
 | `description` | string | none | implemented |
 | `mode` | `subagent` \| `primary` \| `all` | entry-dependent | implemented |
 | `hidden` | boolean | `false` | implemented |
-| `color` | `#RRGGBB` or theme name | none | implemented |
+| `color` | `#RRGGBB`, a tui-theme/element name, or a tui-theme/palette name (`primary`, `secondary`, `accent`, `success`, `warning`, `error`, `info`); override domain and resolution per tui-theme R39 | none | implemented |
 | `steps` | positive int | model-dependent | implemented |
 | `disabled` | boolean | `false` | implemented (renamed from V1 `disable`) |
 | `permissions` | rule array | none | implemented |
@@ -281,6 +281,8 @@ tuple form.
   entry list (R5 defers to it).
 - config-v2-session — parity status of config-consuming runtime behavior
   (instructions consumption status).
+- tui-theme — owns the agent `color` override value domain and resolution
+  (R39.3–R39.5, R39.7) cited by the agents table.
 
 ## Used by
 
