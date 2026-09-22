@@ -477,6 +477,22 @@ The catalog below lists every addressable element - it is a closed set, and a th
 
 ---
 
+### agent — per-agent rotation colors
+
+The agent color rotation cycles through these seven elements by visible-agent index: their foregrounds paint the agent dot, the user-message left border, the assistant mode marker, and the background of the queued message chip. An agent `color` override in the configuration replaces the rotation with a fixed color - given as a hexadecimal value, a catalog element name (its resolved foreground), or a palette name.
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `agent.color.one` | `secondary` | — | — |
+| `agent.color.two` | `accent` | — | — |
+| `agent.color.three` | `success` | — | — |
+| `agent.color.four` | `warning` | — | — |
+| `agent.color.five` | `primary` | — | — |
+| `agent.color.six` | `error` | — | — |
+| `agent.color.seven` | `info` | — | — |
+
+---
+
 ### message — transcript messages per role
 
 | Element | fg default | bg default | attributes default |

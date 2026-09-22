@@ -251,6 +251,20 @@ const PROMPT = {
   "prompt.extmark.paste": { fg: selected(), bg: WARNING, attributes: ["bold"] },
 } as const
 
+// R39: positional rotation slots keyed by visible-agent index. The visible
+// agent set is dynamic while the catalog is closed, so per-agent names cannot
+// exist; the zone sits between its two consumer zones (the prompt dot and the
+// message border, marker, and chip).
+const AGENT = {
+  "agent.color.one": { fg: SECONDARY },
+  "agent.color.two": { fg: ACCENT },
+  "agent.color.three": { fg: SUCCESS },
+  "agent.color.four": { fg: WARNING },
+  "agent.color.five": { fg: PRIMARY },
+  "agent.color.six": { fg: ERROR },
+  "agent.color.seven": { fg: INFO },
+} as const
+
 const MESSAGE = {
   "message.user.body": { fg: TEXT, bg: BACKGROUND_PANEL },
   "message.user.body.hover": { fg: TEXT, bg: BACKGROUND_ELEMENT },
@@ -521,7 +535,7 @@ const RUN = {
  *
  * Purpose: the single source of truth for valid element names and their
  * per-channel defaults, transcribed from the Element catalog tables of
- * specs/tui-theme.md — 22 zones, one row per element.
+ * specs/tui-theme.md — 23 zones, one row per element.
  *
  * Contract: a theme file entry whose key is not an own property of this
  * object is invalid (`UNKNOWN_ELEMENT`, R17); an element channel absent from
@@ -535,6 +549,7 @@ export const CATALOG = {
   ...DIALOG_SELECT,
   ...AUTOCOMPLETE,
   ...PROMPT,
+  ...AGENT,
   ...MESSAGE,
   ...FOOTER,
   ...SIDEBAR,

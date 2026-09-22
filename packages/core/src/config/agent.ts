@@ -8,6 +8,10 @@ import { PositiveInt } from "../schema"
 export const Color = Schema.Union([
   Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/)),
   Schema.Literals(["primary", "secondary", "accent", "success", "warning", "error", "info"]),
+  // tui-theme element name (specs/tui-theme.md R17): dot-separated lowercase
+  // segments starting with a letter. Catalog membership is closed and owned by
+  // the TUI, so validation here stays structural.
+  Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/)),
 ])
 
 export class Info extends Schema.Class<Info>("ConfigV2.Agent")({

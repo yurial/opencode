@@ -216,8 +216,9 @@ session-runtime consumption of agents (see the session specs).
 
 - R11. Schema (`ConfigAgentV1.Info`): known keys `model`, `variant`,
   `temperature`, `top_p`, `prompt`, `description`, `mode`
-  (`subagent|primary|all`), `hidden`, `disable`, `color` (`#RRGGBB` or the
-  seven theme names), `steps` (positive int; `maxSteps` deprecated
+  (`subagent|primary|all`), `hidden`, `disable`, `color` (a hexadecimal
+  literal, a tui-theme/element name, or a tui-theme/palette name; tui-theme
+  R39), `steps` (positive int; `maxSteps` deprecated
   fallback), `tools` (deprecated), `permission`, `options`; all unknown
   keys fold into `options` at decode time. Runtime `Agent.Info`
   (`packages/opencode/src/agent/agent.ts`) carries the resolved form:
@@ -448,6 +449,8 @@ session-runtime consumption of agents (see the session specs).
   side of that boundary.
 - config-v2-catalog-lifecycle — owns reload-lifecycle design work; this
   spec records the implemented V1 behavior that design starts from.
+- tui-theme — owns the agent `color` override value domain and resolution
+  (R39.3–R39.5) cited by R11.
 
 ## Used by
 

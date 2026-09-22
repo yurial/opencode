@@ -65,11 +65,39 @@ function reject(input: unknown, reason: ThemeRejectionReason, mode: "dark" | "li
 }
 
 test("catalog is closed and matches the spec element count", () => {
-  expect(Object.keys(CATALOG).length).toBe(267)
+  expect(Object.keys(CATALOG).length).toBe(274)
   expect(isElementName("dialog.title")).toBe(true)
   expect(isElementName("dialog.titel")).toBe(false)
   expect(isElementName("toString")).toBe(false)
   expect(isElementName("constructor")).toBe(false)
+})
+
+test("catalog agent rotation rows match the spec (R39)", () => {
+  const palette = (name: string) => ({ source: "palette", name }) as const
+  expect(CATALOG["agent.color.one"]).toEqual({ fg: palette("secondary") })
+  expect(CATALOG["agent.color.two"]).toEqual({ fg: palette("accent") })
+  expect(CATALOG["agent.color.three"]).toEqual({ fg: palette("success") })
+  expect(CATALOG["agent.color.four"]).toEqual({ fg: palette("warning") })
+  expect(CATALOG["agent.color.five"]).toEqual({ fg: palette("primary") })
+  expect(CATALOG["agent.color.six"]).toEqual({ fg: palette("error") })
+  expect(CATALOG["agent.color.seven"]).toEqual({ fg: palette("info") })
+  // Rotation order: the fg defaults cycle secondary, accent, success, warning,
+  // primary, error, info — the pre-v2 flat-palette rotation (R39.6).
+  const rotation = Object.keys(CATALOG)
+    .filter((name) => name.startsWith("agent.color."))
+  expect(rotation).toEqual([
+    "agent.color.one",
+    "agent.color.two",
+    "agent.color.three",
+    "agent.color.four",
+    "agent.color.five",
+    "agent.color.six",
+    "agent.color.seven",
+  ])
+  // The zone sits between its consumer zones prompt and message (J15).
+  const keys = Object.keys(CATALOG)
+  expect(keys.indexOf("agent.color.one")).toBeGreaterThan(keys.indexOf("prompt.extmark.paste"))
+  expect(keys.indexOf("agent.color.seven")).toBeLessThan(keys.indexOf("message.user.body"))
 })
 
 test("catalog matches the spec errata v1.1 element set", () => {
@@ -462,6 +490,13 @@ test("migrated themes keep catalog defaults aligned with the flat palette", () =
         ["prompt.extmark.file", "fg", "warning"],
         ["prompt.extmark.agent", "fg", "secondary"],
         ["prompt.extmark.paste", "bg", "warning"],
+        ["agent.color.one", "fg", "secondary"],
+        ["agent.color.two", "fg", "accent"],
+        ["agent.color.three", "fg", "success"],
+        ["agent.color.four", "fg", "warning"],
+        ["agent.color.five", "fg", "primary"],
+        ["agent.color.six", "fg", "error"],
+        ["agent.color.seven", "fg", "info"],
         ["message.user.body", "bg", "backgroundPanel"],
         ["message.compaction", "fg", "borderActive"],
         ["footer.status.ok", "fg", "success"],
@@ -722,6 +757,15 @@ test("a native v2 file resolves against the default built-in palette", () => {
   expect(resolveElement(prepared, "app.background").bg).toEqual(opencode.theme.background)
   expect(resolveElement(prepared, "autocomplete.menu").bg).toEqual(opencode.theme.backgroundElement)
   expect(resolveElement(prepared, "dialog.title").fg).toEqual(RGBA.fromHex("#ff0000"))
+})
+
+test("a v2 theme recolors the agent rotation through agent.color entries", () => {
+  const prepared = prepare({ theme: { "agent.color.two": { fg: "#ff00ff" } } })
+  // Untouched slots keep their palette-derived defaults; the overridden slot
+  // recolors every surface painted from it (the second rotation color, hence
+  // the queued chip background of that agent, R39.2/R49).
+  expect(resolveElement(prepared, "agent.color.one").fg).toEqual(prepared.theme.secondary)
+  expect(hex(resolveElement(prepared, "agent.color.two").fg)).toBe("#ff00ff")
 })
 
 test("the generated system theme migrates like any v1 source", () => {

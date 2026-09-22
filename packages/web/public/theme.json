@@ -23,6 +23,27 @@
       "type": "object",
       "description": "Theme entries. Format v2 (the authoring format) maps catalog element names to {fg, bg, attributes} entries, plus the optional thinkingOpacity scalar. The legacy v1 flat color keys are still accepted by this schema and by opencode (auto-migrated at load) but are deprecated. Asymmetry to note: a file mixing v2 element entries and v1 color keys is valid against this schema so that editors keep offering both, but opencode rejects such mixed files at load with MIXED_FORMATS - use one format per file. Unknown names are not allowed: the element catalog is closed and unknown elements are rejected at load with UNKNOWN_ELEMENT.",
       "properties": {
+        "agent.color.one": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "agent.color.two": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "agent.color.three": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "agent.color.four": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "agent.color.five": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "agent.color.six": {
+          "$ref": "#/definitions/elementStyle"
+        },
+        "agent.color.seven": {
+          "$ref": "#/definitions/elementStyle"
+        },
         "app.background": {
           "$ref": "#/definitions/elementStyle"
         },
@@ -1188,6 +1209,13 @@
         "prompt.extmark.file",
         "prompt.extmark.agent",
         "prompt.extmark.paste",
+        "agent.color.one",
+        "agent.color.two",
+        "agent.color.three",
+        "agent.color.four",
+        "agent.color.five",
+        "agent.color.six",
+        "agent.color.seven",
         "message.user.body",
         "message.user.body.hover",
         "message.user.badge",
@@ -1504,6 +1532,13 @@
             "prompt.extmark.file",
             "prompt.extmark.agent",
             "prompt.extmark.paste",
+            "agent.color.one",
+            "agent.color.two",
+            "agent.color.three",
+            "agent.color.four",
+            "agent.color.five",
+            "agent.color.six",
+            "agent.color.seven",
             "message.user.body",
             "message.user.body.hover",
             "message.user.badge",
@@ -1823,6 +1858,13 @@
             "prompt.extmark.file",
             "prompt.extmark.agent",
             "prompt.extmark.paste",
+            "agent.color.one",
+            "agent.color.two",
+            "agent.color.three",
+            "agent.color.four",
+            "agent.color.five",
+            "agent.color.six",
+            "agent.color.seven",
             "message.user.body",
             "message.user.body.hover",
             "message.user.badge",

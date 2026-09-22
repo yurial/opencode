@@ -45,3 +45,24 @@ it.instance(
     },
   },
 )
+
+it.instance(
+  "agent color accepts tui-theme element names alongside hex and palette names",
+  () =>
+    Effect.gen(function* () {
+      const cfg = yield* Config.use.get()
+      expect(cfg.agent?.["review"]?.color).toBe("agent.color.two")
+      expect(cfg.agent?.["docs"]?.color).toBe("#00FF00")
+      expect(cfg.agent?.["plan"]?.color).toBe("success")
+    }),
+  {
+    git: true,
+    config: {
+      agent: {
+        review: { color: "agent.color.two" },
+        docs: { color: "#00FF00" },
+        plan: { color: "success" },
+      },
+    },
+  },
+)
