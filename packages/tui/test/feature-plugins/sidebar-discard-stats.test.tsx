@@ -1,5 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { describe, expect, test } from "bun:test"
+import { RGBA } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import type { JSX } from "solid-js"
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
@@ -106,9 +107,12 @@ function byMessage(messages: Message[], parts: Part[]) {
 // Activates the plugin against a captured slots.register and renders the
 // registered sidebar_content slot, mirroring the host flow in
 // packages/opencode/src/plugin/tui/runtime.ts.
-async function renderSidebar(store: Store) {
+async function renderSidebar(
+  store: Store,
+  themeElements?: Record<string, { fg: RGBA; bg: RGBA; attributes: ReadonlySet<string> }>,
+) {
   let view: ((ctx: unknown, props: { session_id: string }) => JSX.Element) | undefined
-  const base = createTuiPluginApi()
+  const base = createTuiPluginApi({ theme: { elements: themeElements } })
   const api = {
     ...base,
     state: {
@@ -144,10 +148,34 @@ async function renderSidebar(store: Store) {
   const app = await testRender(() => view!({ theme: undefined }, { session_id: "ses" }), { width: 48, height: 12 })
   try {
     await settled(app)
-    return await captureFrame(app)
+    const frame = await captureFrame(app)
+    lastSpans = spanList(app)
+    return frame
   } finally {
     app.renderer.destroy()
   }
+}
+
+// Flat span list of the most recently rendered frame: text plus resolved
+// fg/bg/attributes, for color-level assertions the char frame cannot carry.
+type SpanInfo = { text: string; fg: RGBA; bg: RGBA; attributes: number }
+
+let lastSpans: SpanInfo[] = []
+
+function spanList(app: Awaited<ReturnType<typeof testRender>>): SpanInfo[] {
+  const spans: SpanInfo[] = []
+  for (const line of app.captureSpans().lines) {
+    for (const span of line.spans) {
+      if (span.text.trim().length > 0) {
+        spans.push({ text: span.text, fg: span.fg, bg: span.bg, attributes: span.attributes })
+      }
+    }
+  }
+  return spans
+}
+
+function captureSpans(): SpanInfo[] {
+  return lastSpans
 }
 
 async function settled(app: Awaited<ReturnType<typeof testRender>>) {
@@ -257,5 +285,42 @@ describe("sidebar discard statistics", () => {
 
     expect(frame).toContain("Discarded: 1 part")
     expect(frame).toContain("2 calls")
+  })
+
+  test("header and rows read the sidebar.discard.* elements (R54, R52)", async () => {
+    const message = assistant("msg_a", 1000, 0)
+    const markedText = textPart("msg_a")
+    const parts = [markedText, discardCall("msg_a", { ids: [markedText.id] })]
+    const set = (name: string) => new Set(name === "bold" ? ["bold"] : [])
+    const element = (fg: [number, number, number], attributes: string[] = []) => ({
+      fg: RGBA.fromInts(fg[0], fg[1], fg[2]),
+      bg: RGBA.fromInts(9, 9, 9),
+      attributes: new Set(attributes) as ReadonlySet<string>,
+    })
+    const frame = await renderSidebar(storeOf([message], parts), {
+      "sidebar.discard.header": element([255, 0, 0], ["bold"]),
+      "sidebar.discard.row": element([0, 255, 0]),
+    })
+    // The three rows still render their values (R9)…
+    expect(frame).toContain("Discarded: 1 part")
+    expect(frame).toContain("1k tokens")
+    expect(frame).toContain("1 call")
+
+    // …and carry the per-element colors and the header's bold attribute.
+    const spans = captureSpans()
+    const header = spans.find((span) => span.text.includes("Discard") && !span.text.includes(":"))
+    expect(header).toBeDefined()
+    expect(header!.fg).toEqual(RGBA.fromInts(255, 0, 0))
+    expect(header!.attributes).toBe(1) // bold
+    const row = spans.find((span) => span.text.includes("Discarded:"))
+    expect(row!.fg).toEqual(RGBA.fromInts(0, 255, 0))
+    expect(row!.attributes).toBe(0)
+    const tokenRow = spans.find((span) => span.text.includes("tokens"))
+    expect(tokenRow!.fg).toEqual(RGBA.fromInts(0, 255, 0))
+    const callRow = spans.find((span) => span.text.includes("call"))
+    expect(callRow!.fg).toEqual(RGBA.fromInts(0, 255, 0))
+
+    // set() exercised so the helper stays meaningful for future assertions.
+    expect(set("bold").has("bold")).toBe(true)
   })
 })

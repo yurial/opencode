@@ -378,6 +378,7 @@ The catalog below lists every addressable element - it is a closed set, and a th
 - A backticked name is a [palette reference](#references) resolved against the default theme's palette
 - `selected-foreground` is a computed contrast rule evaluated against the element's own resolved background
 - `tint(...)` marks a computed blend
+- `dimmed(...)` marks a computed dimmed-palette default - the palette color with its alpha multiplied by the configuration constant named inside the parentheses
 - Border elements paint single-color strokes on the `fg` channel
 
 ### app
@@ -519,6 +520,10 @@ The agent color rotation cycles through these seven elements by visible-agent in
 | `message.tool.status.error` | `error` | — | — |
 | `message.tool.status.done` | `textMuted` | — | — |
 | `message.tool.args.denied` | `text` | — | `strikethrough` |
+| `message.discarded.text` | `dimmed(textMuted, discarded-alpha)` | — | — |
+| `message.discarded.marker` | `textMuted` | — | — |
+| `message.discarded.pending` | `text` | — | — |
+| `message.discarded.error` | `error` | — | — |
 | `message.error.panel` | — | `backgroundPanel` | — |
 | `message.error.border` | `error` | — | — |
 | `message.error.body` | `textMuted` | — | — |
@@ -559,6 +564,8 @@ The agent color rotation cycles through these seven elements by visible-agent in
 | `sidebar.status.warn` | `warning` | — | — |
 | `sidebar.status.error` | `error` | — | — |
 | `sidebar.todo.pending` | `warning` | — | — |
+| `sidebar.discard.header` | `text` | — | `bold` |
+| `sidebar.discard.row` | `textMuted` | — | — |
 | `sidebar.getting-started` | — | `backgroundElement` | — |
 | `sidebar.files.added` | `diffAdded` | — | — |
 | `sidebar.files.removed` | `diffRemoved` | — | — |
@@ -754,7 +761,7 @@ The agent color rotation cycles through these seven elements by visible-agent in
 |---|---|---|---|
 | `logo.left` | `textMuted` | — | — |
 | `logo.right` | `text` | — | `bold` |
-| `logo.shadow` | — | `tint(background, element fg, logo-shadow-alpha)` | — |
+| `logo.shadow` | — | — | — |
 
 ---
 
@@ -806,9 +813,9 @@ The agent color rotation cycles through these seven elements by visible-agent in
 | `run.block.muted` | `textMuted` | — | — |
 | `run.block.diff.added` | `diffAdded` | — | — |
 | `run.block.diff.removed` | `diffRemoved` | — | — |
-| `run.block.diff.added-bg` | — | `diffAddedBg` | — |
-| `run.block.diff.removed-bg` | — | `diffRemovedBg` | — |
-| `run.block.diff.context-bg` | — | `diffContextBg` | — |
+| `run.block.diff.added-bg` | — | — | — |
+| `run.block.diff.removed-bg` | — | — | — |
+| `run.block.diff.context-bg` | — | — | — |
 | `run.block.diff.highlight-added` | `diffHighlightAdded` | — | — |
 | `run.block.diff.highlight-removed` | `diffHighlightRemoved` | — | — |
 | `run.block.diff.line-number` | `diffLineNumber` | — | — |

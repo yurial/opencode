@@ -8,12 +8,17 @@ type Opts = {
   attention?: Partial<TuiPluginApi["attention"]>
   event?: TuiPluginApi["event"]
   state?: { session?: Partial<TuiPluginApi["state"]["session"]> }
+  // Per-element resolved colors: `element(name)` returns the entry for the
+  // name, falling back to the shared default color. Lets a test observe
+  // which element a widget reads.
+  theme?: { elements?: Record<string, { fg: RGBA; bg: RGBA; attributes: ReadonlySet<string> }> }
 }
 
 export function createTuiPluginApi(opts: Opts = {}) {
   const values = new Map<string, unknown>()
   const color = RGBA.fromInts(200, 200, 200)
   const dialog = { clear() {}, replace() {}, setSize() {}, size: "medium" as const, depth: 0, open: false }
+  const elements = opts.theme?.elements
   return {
     attention: { notify: async () => ({ ok: false, notification: false, sound: false }), ...opts.attention },
     client: opts.client,
@@ -31,7 +36,8 @@ export function createTuiPluginApi(opts: Opts = {}) {
     state: { session: { get: () => undefined, ...opts.state?.session } },
     theme: {
       current: new Proxy({}, { get: () => color }),
-      element: () => ({ fg: color, bg: color, attributes: new Set() }),
+      element: (name: string) =>
+        elements?.[name] ?? { fg: color, bg: color, attributes: new Set<string>() },
     },
     tuiConfig: createTuiResolvedConfig(),
     ui: { dialog },

@@ -45,6 +45,7 @@
 | tui-theme/catalog | The closed set of dotted element names with per-channel defaults that a v2 theme file may address | tui-theme (R17) |
 | tui-theme/color-value | A value of the fg/bg channels: hex string, ANSI index, "none"/"transparent", a reference name, or a {dark, light} variant | tui-theme (R15) |
 | tui-theme/defs | Named color constants declared in the theme file's `defs` member; a dotless reference name resolves as a `defs` entry first, then as a palette name | tui-theme (R27) |
+| tui-theme/dimmed-palette | A computed catalog-default variant: a palette name whose resolved color is multiplied by a fixed alpha scalar | tui-theme (R34) |
 | tui-theme/element | A dotted lowercase name contained in the catalog, identifying one rendered UI surface or channel | tui-theme (R17) |
 | tui-theme/element-style | The `{fg?, bg?, attributes?}` entry mapped to an element name in a v2 theme file | tui-theme (R14) |
 | tui-theme/fade | The run-CLI α fade derivation over a base color with fallback, scale, and limit shares | tui-theme (R34) |

@@ -231,8 +231,9 @@ const cache = new WeakMap<PreparedTheme, Map<string, ResolvedElement>>()
  * through (R27, R28); ANSI indices resolve through the fixed vga-table (R30);
  * `{dark, light}` variants follow `prepared.mode` (R31); the computed
  * `selected-foreground` default evaluates against the element's own resolved
- * background (R32, R33). Results are cached per `prepared` instance; the
- * returned `attributes` set must not be mutated.
+ * background (R32, R33); the computed `dimmed-palette` default multiplies the
+ * resolved palette color's alpha by its fixed scalar (R34). Results are cached
+ * per `prepared` instance; the returned `attributes` set must not be mutated.
  */
 export function resolveElement(prepared: PreparedTheme, name: string): ResolvedElement {
   if (!isElementName(name)) throw new Error(`Unknown theme element: "${name}"`)
@@ -256,18 +257,35 @@ function resolveNamed(prepared: PreparedTheme, name: string, chain: string[]): R
   const fg = () => {
     if (fgValue) return fgValue
     fgValue = entry?.fg !== undefined
-      ? resolveColorValue(prepared, entry.fg, "fg", prepared.mode, name, chain)
+      ? isColorDefault(entry.fg)
+        ? defaultColor(prepared, entry.fg as unknown as ColorDefault, name, chain, bg)
+        : resolveColorValue(prepared, entry.fg, "fg", prepared.mode, name, chain)
       : defaultColor(prepared, def.fg, name, chain, bg)
     return fgValue
   }
   const bg = () => {
     if (bgValue) return bgValue
     bgValue = entry?.bg !== undefined
-      ? resolveColorValue(prepared, entry.bg, "bg", prepared.mode, name, chain)
+      ? isColorDefault(entry.bg)
+        ? defaultColor(prepared, entry.bg as unknown as ColorDefault, name, chain, fg)
+        : resolveColorValue(prepared, entry.bg, "bg", prepared.mode, name, chain)
       : defaultColor(prepared, def.bg, name, chain, fg)
     return bgValue
   }
   return { fg: fg(), bg: bg(), attributes: new Set(entry?.attributes ?? def.attributes ?? []) }
+}
+
+// Distinguishes a computed catalog `ColorDefault` from a file-grammar
+// `ColorValue`: entries normally carry file values, but the prepared form may
+// carry computed defaults (e.g. tests assembling `PreparedTheme` directly),
+// and both flow through the same entry branch.
+function isColorDefault(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "source" in value &&
+    typeof (value as { source: unknown }).source === "string"
+  )
 }
 
 function paletteOf(prepared: PreparedTheme): Record<string, RGBA> {
@@ -292,6 +310,16 @@ function defaultColor(
   if (def.source === "hex") return RGBA.fromHex(def.value)
   if (def.source === "selected-foreground") return selectedForeground(prepared.theme, other())
   if (def.source === "element-foreground") return other()
+  if (def.source === "dimmed-palette") {
+    // tui-theme/dimmed-palette (R34): the resolved palette color with its
+    // alpha channel multiplied by the fixed scalar; alpha 1 equals the plain
+    // palette color (the subtle-syntax alpha multiply, R37).
+    const value = paletteOf(prepared)[def.name]
+    if (value === undefined) {
+      throw new ThemeRejection("UNRESOLVED_REFERENCE", `Palette color "${def.name}" not found for element "${name}"`)
+    }
+    return RGBA.fromValues(value.r, value.g, value.b, value.a * def.alpha)
+  }
   return tint(
     defaultColor(prepared, def.base, name, chain, other),
     defaultColor(prepared, def.overlay, name, chain, other),

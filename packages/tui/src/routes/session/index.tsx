@@ -27,20 +27,16 @@ import { createSyntaxStyleMemo, generateSubtleSyntax, selectedForeground, useThe
 import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, RGBA } from "@opentui/core"
 import { textAttributes } from "../../theme/catalog"
 import { Prompt, type PromptRef } from "../../component/prompt"
+import type { AssistantMessage, MetaPart, Part, Provider, SessionStatus } from "@opencode-ai/sdk/v2"
 import type {
-  AssistantMessage,
-  MetaPart,
-  Part,
-  Provider,
-  ToolPart,
-  UserMessage,
-  TextPart,
-  ReasoningPart,
-  SessionStatus,
+  ToolPart as ToolPartSDK,
+  UserMessage as UserMessageSDK,
+  TextPart as TextPartSDK,
+  ReasoningPart as ReasoningPartSDK,
 } from "@opencode-ai/sdk/v2"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
-import { discardedTokenTotal, formatCompactTokens } from "../../util/discard-context"
+import { collectDiscardedPartIds, discardedTokenTotal, formatCompactTokens } from "../../util/discard-context"
 import { webSearchProviderLabel } from "../../util/tool-display"
 import { Dynamic, useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useSDK } from "../../context/sdk"
@@ -157,7 +153,9 @@ const sessionGlobalBindingCommands = [
 
 const sessionGlobalUnfocusedBindingCommands = ["session.first", "session.last"] as const
 
-const context = createContext<{
+// Exported for tests: the transcript context carries the marked-id set the
+// discarded-block styling reads (specs/discard-context.md R10).
+export const sessionTranscriptContext = createContext<{
   width: number
   sessionID: string
   conceal: () => boolean
@@ -170,7 +168,13 @@ const context = createContext<{
   providers: () => ReadonlyMap<string, Provider>
   sync: ReturnType<typeof useSync>
   tui: ReturnType<typeof useTuiConfig>
+  // core-discard-context/marked-ids over the session history, computed once
+  // per transcript render (R10) — never per part: the scan walks every part.
+  discarded: () => ReadonlySet<string>
+  discardTokens: () => { total: number; estimated: boolean }
 }>()
+
+const context = sessionTranscriptContext
 
 function use() {
   const ctx = useContext(context)
@@ -224,7 +228,7 @@ export function Session() {
     sync.data.capabilities.experimentalBackgroundSubagents
       ? messages().flatMap((message) =>
           (sync.data.part[message.id] ?? []).filter(
-            (part): part is ToolPart =>
+            (part): part is ToolPartSDK =>
               part.type === "tool" &&
               part.tool === "task" &&
               part.state.status === "running" &&
@@ -255,6 +259,16 @@ export function Session() {
   const lastAssistant = createMemo(() => {
     return messages().findLast((x) => x.role === "assistant")
   })
+
+  // The marked-id union and the session token total share one memoized scan of
+  // the durable history; the marker label and the discarded-block styling read
+  // the same values (R7.4, R10), and no part render rescans the history.
+  const discarded = createMemo(() =>
+    collectDiscardedPartIds(messages().flatMap((message) => sync.data.part[message.id] ?? [])),
+  )
+  const discardTokens = createMemo(() =>
+    discardedTokenTotal(messages(), (messageID) => sync.data.part[messageID]),
+  )
 
   const dimensions = useTerminalDimensions()
   const [sidebar, setSidebar] = kv.signal<"auto" | "hide">("sidebar", "auto")
@@ -1176,6 +1190,8 @@ export function Session() {
           providers,
           sync,
           tui: tuiConfig,
+          discarded,
+          discardTokens,
         }}
       >
         <box flexDirection="row" flexGrow={1} minHeight={0}>
@@ -1281,7 +1297,7 @@ export function Session() {
                               />
                             ))
                           }}
-                          message={message as UserMessage}
+                          message={message as UserMessageSDK}
                           parts={sync.data.part[message.id] ?? []}
                           pending={pending()}
                         />
@@ -1365,8 +1381,8 @@ export function Session() {
   )
 }
 
-function UserMessage(props: {
-  message: UserMessage
+export function UserMessage(props: {
+  message: UserMessageSDK
   parts: Part[]
   onMouseUp: () => void
   index: number
@@ -1374,17 +1390,10 @@ function UserMessage(props: {
 }) {
   const ctx = use()
   const local = useLocal()
-  const text = createMemo(() => {
-    const texts = props.parts
-      .map((x) => {
-        if (x.type === "text" && !x.synthetic) {
-          return x.text
-        }
-        return null
-      })
-      .filter(Boolean)
-    return texts.join("\n\n")
-  })
+  const textParts = createMemo(() =>
+    props.parts.filter((x): x is TextPartSDK => x.type === "text" && !x.synthetic && Boolean(x.text)).map((x) => x.text),
+  )
+  const text = createMemo(() => textParts().join("\n\n"))
   const files = createMemo(() => props.parts.flatMap((x) => (x.type === "file" ? [x] : [])))
   const { theme, element } = useTheme()
   const [hover, setHover] = createSignal(false)
@@ -1392,6 +1401,29 @@ function UserMessage(props: {
   const color = createMemo(() => local.agent.color(props.message.agent))
   const queuedFg = createMemo(() => selectedForeground(theme, color()))
   const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
+
+  // Discarded-block styling (R10.1, R51): per part, the marked id decides.
+  // The merged user text renders per-part spans when any contributing text
+  // part is marked (so unmarked siblings stay unstyled, R10.4), and keeps the
+  // pre-v2 plain join when none is — byte-identical by construction (R48).
+  const discarded = ctx.discarded
+  const discardedStyle = () => element("message.discarded.text")
+  const userTextParts = createMemo(() =>
+    props.parts.filter((x): x is TextPartSDK => x.type === "text" && !x.synthetic && Boolean(x.text)),
+  )
+  const someTextMarked = createMemo(() => userTextParts().some((x) => discarded().has(x.id)))
+  const allTextMarked = createMemo(
+    () => userTextParts().length > 0 && userTextParts().every((x) => discarded().has(x.id)),
+  )
+  // Sentinel background (R51.2): a non-transparent message.discarded.text bg
+  // repaints the block; the transparent default keeps the normal element.
+  const sentinelBg = createMemo(() => {
+    const marked =
+      props.parts.some((x) => x.type === "text" && !x.synthetic && x.text && discarded().has(x.id)) ||
+      files().some((file) => discarded().has(file.id))
+    if (!marked) return undefined
+    return discardedStyle().bg.a > 0 ? discardedStyle().bg : undefined
+  })
 
   const compaction = createMemo(() => props.parts.find((x) => x.type === "compaction"))
 
@@ -1417,21 +1449,73 @@ function UserMessage(props: {
             paddingTop={1}
             paddingBottom={1}
             paddingLeft={2}
-            backgroundColor={hover() ? element("message.user.body.hover").bg : element("message.user.body").bg}
+            backgroundColor={
+              sentinelBg() ?? (hover() ? element("message.user.body.hover").bg : element("message.user.body").bg)
+            }
             flexShrink={0}
           >
-            <text fg={element("message.user.body").fg}>{text()}</text>
+            <Show
+              when={someTextMarked()}
+              fallback={
+                <text fg={element("message.user.body").fg}>
+                  {text()}
+                </text>
+              }
+            >
+              <text
+                fg={element("message.user.body").fg}
+                attributes={allTextMarked() ? textAttributes(discardedStyle().attributes) : undefined}
+              >
+                <For each={userTextParts()}>
+                  {(part, index) => (
+                    <>
+                      {index() > 0 ? "\n\n" : ""}
+                      <Show
+                        when={discarded().has(part.id)}
+                        fallback={<span>{part.text}</span>}
+                      >
+                        <span
+                          style={{
+                            fg: discardedStyle().fg,
+                            bold: discardedStyle().attributes.has("bold"),
+                            italic: discardedStyle().attributes.has("italic"),
+                            underline: discardedStyle().attributes.has("underline"),
+                            dim: discardedStyle().attributes.has("dim"),
+                          }}
+                        >
+                          {part.text}
+                        </span>
+                      </Show>
+                    </>
+                  )}
+                </For>
+              </text>
+            </Show>
             <Show when={files().length}>
               <box flexDirection="row" paddingBottom={metadataVisible() ? 1 : 0} paddingTop={1} gap={1} flexWrap="wrap">
                 <For each={files()}>
                   {(file) => {
                     const directory = file.mime === "application/x-directory"
+                    // The badge text takes the discarded foreground when its
+                    // file part is marked; the badge backgrounds keep their
+                    // own elements (R51.3).
+                    const marked = () => discarded().has(file.id)
                     return (
                       <text fg={element("message.user.body").fg}>
-                        <span style={{ bg: element("message.user.badge").bg, fg: element("message.user.badge").fg }}>
+                        <span
+                          style={{
+                            bg: element("message.user.badge").bg,
+                            fg: marked() ? discardedStyle().fg : element("message.user.badge").fg,
+                          }}
+                        >
                           {directory ? " Directory " : " File "}
                         </span>
-                        <span style={{ bg: element("message.user.file").bg, fg: element("message.user.file").fg }}>
+                        <span
+                          style={{
+                            bg: element("message.user.file").bg,
+                            fg: marked() ? discardedStyle().fg : element("message.user.file").fg,
+                          }}
+                        >
                           {" "}
                           {file.filename}{" "}
                         </span>
@@ -1598,9 +1682,13 @@ const PART_MAPPING = {
 
 const INLINE_TOOL_ICON_WIDTH = 2
 
-function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: AssistantMessage }) {
+export function ReasoningPart(props: { last: boolean; part: ReasoningPartSDK; message: AssistantMessage }) {
   const { theme, element } = useTheme()
   const ctx = use()
+  // R10.1: a marked reasoning part renders its body text in the discarded
+  // style; the header keeps its own element and thinkingOpacity (R51.3).
+  const discarded = createMemo(() => ctx.discarded().has(props.part.id))
+  const discardedStyle = () => element("message.discarded.text")
   // Collapsed by default in hide mode: a single line throughout, so the
   // layout never shifts. Click to open the full markdown block, click to close.
   const [expanded, setExpanded] = createSignal(false)
@@ -1645,7 +1733,13 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
         />
       </box>
       <Show when={!opaque() && (!inMinimal() || expanded()) && summary().body}>
-        <box paddingLeft={inMinimal() ? 2 : 0} marginTop={1}>
+        <box
+          paddingLeft={inMinimal() ? 2 : 0}
+          marginTop={1}
+          // Sentinel background (R51.2): the body surface has no normal
+          // background element, so only a non-transparent discarded bg paints.
+          backgroundColor={discarded() && discardedStyle().bg.a > 0 ? discardedStyle().bg : undefined}
+        >
           <code
             filetype="markdown"
             drawUnstyledText={false}
@@ -1653,7 +1747,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
             syntaxStyle={syntax()}
             content={summary().body}
             conceal={ctx.conceal()}
-            fg={element("message.reasoning.body").fg}
+            fg={discarded() ? discardedStyle().fg : element("message.reasoning.body").fg}
           />
         </box>
       </Show>
@@ -1750,9 +1844,14 @@ export function MetaPartLine(props: { last: boolean; part: MetaPart; message: As
   )
 }
 
-function TextPart(props: { last: boolean; part: TextPart; message: AssistantMessage }) {
+export function TextPart(props: { last: boolean; part: TextPartSDK; message: AssistantMessage }) {
   const ctx = use()
   const { element, syntax } = useTheme()
+  // R10.1: the primary text of a marked assistant text part takes the
+  // message.discarded.text foreground; the markdown renderer exposes no
+  // attribute channel, so the element's attributes apply to fg/bg reads only.
+  const discarded = createMemo(() => ctx.discarded().has(props.part.id))
+  const discardedStyle = () => element("message.discarded.text")
   return (
     <Show when={props.part.text.trim()}>
       <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3} marginTop={1} flexShrink={0}>
@@ -1763,8 +1862,14 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
           content={props.part.text.trim()}
           tableOptions={{ style: "grid" }}
           conceal={ctx.conceal()}
-          fg={element("markdown.text").fg}
-          bg={element("markdown.bg").bg}
+          fg={discarded() ? discardedStyle().fg : element("markdown.text").fg}
+          // Sentinel background (R51.2): a non-transparent message.discarded.text
+          // bg repaints the block; the transparent default keeps markdown.bg.
+          bg={
+            discarded() && discardedStyle().bg.a > 0
+              ? discardedStyle().bg
+              : element("markdown.bg").bg
+          }
         />
       </box>
     </Show>
@@ -1773,7 +1878,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
 
 // Pending messages moved to individual tool pending functions
 
-function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMessage }) {
+export function ToolPart(props: { last: boolean; part: ToolPartSDK; message: AssistantMessage }) {
   const ctx = use()
   const display = createMemo(() => toolDisplay(props.part.tool))
 
@@ -1866,7 +1971,7 @@ type ToolProps = {
   metadata: Record<string, unknown>
   tool: string
   output?: string
-  part: ToolPart
+  part: ToolPartSDK
 }
 function GenericTool(props: ToolProps) {
   const { element } = useTheme()
@@ -1912,13 +2017,14 @@ function InlineTool(props: {
   icon: string
   iconColor?: RGBA
   color?: RGBA
+  errorColor?: RGBA
   complete: unknown
   pending: string
   failure?: string
   spinner?: boolean
   separate?: boolean
   children: JSX.Element
-  part: ToolPart
+  part: ToolPartSDK
   onClick?: () => void
 }) {
   const { element } = useTheme()
@@ -1946,10 +2052,15 @@ function InlineTool(props: {
 
   const failed = createMemo(() => Boolean(error() && !denied()))
   const clickable = createMemo(() => Boolean(props.onClick || failed()))
+  // R10.1: a marked tool part renders its label and icon in the discarded
+  // style; state colors keep their own elements ahead of it (R51.3).
+  const discarded = createMemo(() => ctx.discarded().has(props.part.id))
+  const discardedStyle = () => element("message.discarded.text")
   const fg = createMemo(() => {
     if (props.color) return props.color
     if (permission()) return element("message.tool.status.pending").fg
     if (failed()) return element("message.tool.status.error").fg
+    if (discarded()) return discardedStyle().fg
     // R38: the pending body pair swaps message.tool.body.pending (muted resting
     // rows) for message.tool.body on hover, and pending rows render bright.
     if ((hover() && props.onClick) || !props.complete) return element("message.tool.body").fg
@@ -1961,10 +2072,13 @@ function InlineTool(props: {
       icon={props.icon}
       iconColor={props.iconColor}
       color={fg()}
-      errorColor={element("message.tool.status.error").fg}
+      errorColor={props.errorColor ?? element("message.tool.status.error").fg}
       failed={failed()}
       denied={Boolean(denied())}
       deniedAttributes={textAttributes(element("message.tool.args.denied").attributes)}
+      // The discarded attribute set rides along with the discarded foreground;
+      // a denied part keeps its strikethrough surface (R51.3).
+      attributes={discarded() ? textAttributes(discardedStyle().attributes) : undefined}
       error={error()}
       errorExpanded={errorExpanded()}
       complete={props.complete}
@@ -1993,6 +2107,7 @@ export function InlineToolRow(props: {
   iconColor?: RGBA
   color?: RGBA
   errorColor?: RGBA
+  attributes?: number
   failed?: boolean
   denied?: boolean
   deniedAttributes?: number
@@ -2008,6 +2123,7 @@ export function InlineToolRow(props: {
   onMouseOut?: () => void
   onMouseUp?: () => void
 }) {
+  const deniedAttributes = () => (props.denied ? props.deniedAttributes : props.attributes)
   return (
     <box
       paddingLeft={3}
@@ -2031,7 +2147,7 @@ export function InlineToolRow(props: {
         <Match when={true}>
           <Show
             fallback={
-              <text paddingLeft={3} fg={props.color} attributes={props.denied ? props.deniedAttributes : undefined}>
+              <text paddingLeft={3} fg={props.color} attributes={deniedAttributes()}>
                 ~ {props.pending}
               </text>
             }
@@ -2041,14 +2157,14 @@ export function InlineToolRow(props: {
               <text
                 width={INLINE_TOOL_ICON_WIDTH}
                 fg={props.failed ? props.errorColor : (props.iconColor ?? props.color)}
-                attributes={props.denied ? props.deniedAttributes : undefined}
+                attributes={deniedAttributes()}
               >
                 {props.icon}
               </text>
               <text
                 flexGrow={1}
                 fg={props.failed ? props.errorColor : props.color}
-                attributes={props.denied ? props.deniedAttributes : undefined}
+                attributes={deniedAttributes()}
               >
                 {props.failed && !props.complete ? (props.failure ?? props.children) : props.children}
               </text>
@@ -2069,13 +2185,21 @@ function BlockTool(props: {
   title?: string
   children: JSX.Element
   onClick?: () => void
-  part?: ToolPart
+  part?: ToolPartSDK
   spinner?: boolean
 }) {
   const { element } = useTheme()
+  const ctx = use()
   const renderer = useRenderer()
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
+  // R10.1: the marked card's title takes the discarded style while the body
+  // surfaces and state colors keep their own elements (R51.3). Sentinel
+  // background (R51.2): a non-transparent message.discarded.text bg repaints
+  // the card; the transparent default keeps the normal card element.
+  const discarded = createMemo(() => Boolean(props.part && ctx.discarded().has(props.part.id)))
+  const discardedStyle = () => element("message.discarded.text")
+  const titleFg = createMemo(() => (discarded() ? discardedStyle().fg : element("message.tool.header").fg))
   return (
     <box
       ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
@@ -2085,7 +2209,13 @@ function BlockTool(props: {
       paddingLeft={2}
       marginTop={1}
       gap={1}
-      backgroundColor={hover() ? element("message.tool.card.hover").bg : element("message.tool.card").bg}
+      backgroundColor={
+        discarded() && discardedStyle().bg.a > 0
+          ? discardedStyle().bg
+          : hover()
+            ? element("message.tool.card.hover").bg
+            : element("message.tool.card").bg
+      }
       customBorderChars={SplitBorder.customBorderChars}
       borderColor={element("message.tool.card.border").fg}
       onMouseOver={() => props.onClick && setHover(true)}
@@ -2100,12 +2230,16 @@ function BlockTool(props: {
           <Show
             when={props.spinner}
             fallback={
-              <text paddingLeft={3} fg={element("message.tool.header").fg}>
+              <text
+                paddingLeft={3}
+                fg={titleFg()}
+                attributes={discarded() ? textAttributes(discardedStyle().attributes) : undefined}
+              >
                 {title()}
               </text>
             }
           >
-            <Spinner color={element("message.tool.header").fg}>{title().replace(/^# /, "")}</Spinner>
+            <Spinner color={titleFg()}>{title().replace(/^# /, "")}</Spinner>
           </Show>
         )}
       </Show>
@@ -2308,7 +2442,7 @@ function Task(props: ToolProps) {
   const tools = createMemo(() => {
     return messages().flatMap((msg) =>
       (sync.data.part[msg.id] ?? [])
-        .filter((part): part is ToolPart => part.type === "tool")
+        .filter((part): part is ToolPartSDK => part.type === "tool")
         .map((part) => ({ tool: part.tool, state: part.state })),
     )
   })
@@ -2663,23 +2797,35 @@ function Skill(props: ToolProps) {
 // marker line with the discarded count instead of a tool card or ids. The
 // session-wide token total is appended only when it is positive (R6.4); a
 // leading "~" marks a total that includes estimated partial-message shares
-// (R7.8).
+// (R7.8). The marker trio reads its own elements (R53): settled line and icon
+// take message.discarded.marker, the pending line message.discarded.pending,
+// and the failed line plus expanded error message.discarded.error — under the
+// default theme each equals the shared message.tool.* read it replaces (R52).
 function DiscardContext(props: ToolProps) {
   const ctx = use()
+  const { element } = useTheme()
   const ids = props.input.ids
   const count = Array.isArray(ids) ? ids.length : 0
   const label = createMemo(() => {
     const base = `Discarded ${count} context part${count === 1 ? "" : "s"}`
-    const { total, estimated } = discardedTokenTotal(
-      ctx.sync.data.message[ctx.sessionID] ?? [],
-      (messageID) => ctx.sync.data.part[messageID],
-    )
+    const { total, estimated } = ctx.discardTokens()
     if (total <= 0) return base
     return `${base} · ${estimated ? "~" : ""}${formatCompactTokens(total)} tokens`
+  })
+  // Branch mapping follows the InlineTool fg memo: failure, then settled
+  // completion, then the pending line.
+  const failed = createMemo(() => props.part.state.status === "error")
+  const fg = createMemo(() => {
+    if (failed()) return element("message.discarded.error").fg
+    if (props.part.state.status === "completed") return element("message.discarded.marker").fg
+    return element("message.discarded.pending").fg
   })
   return (
     <InlineTool
       icon="✕"
+      iconColor={element("message.discarded.marker").fg}
+      color={fg()}
+      errorColor={element("message.discarded.error").fg}
       pending="Discarding context…"
       failure="Discard failed"
       complete={props.part.state.status === "completed"}
