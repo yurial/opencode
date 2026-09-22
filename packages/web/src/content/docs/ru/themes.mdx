@@ -378,6 +378,7 @@ vim .opencode/themes/my-theme.json
 - Имя в обратных кавычках — это ссылка на палитру, разрешаемая против палитры темы по умолчанию
 - `selected-foreground` — вычисляемое правило контраста, оцениваемое по собственному разрешенному фону элемента
 - `tint(...)` — вычисляемое смешение цветов
+- `dimmed(...)` — вычисляемое затемненное значение по умолчанию: цвет палитры с альфой, умноженной на константу конфигурации, указанную в скобках
 - Элементы границ отрисовывают одноцветные штрихи по каналу `fg`
 
 ### app
@@ -519,6 +520,10 @@ vim .opencode/themes/my-theme.json
 | `message.tool.status.error` | `error` | — | — |
 | `message.tool.status.done` | `textMuted` | — | — |
 | `message.tool.args.denied` | `text` | — | `strikethrough` |
+| `message.discarded.text` | `dimmed(textMuted, discarded-alpha)` | — | — |
+| `message.discarded.marker` | `textMuted` | — | — |
+| `message.discarded.pending` | `text` | — | — |
+| `message.discarded.error` | `error` | — | — |
 | `message.error.panel` | — | `backgroundPanel` | — |
 | `message.error.border` | `error` | — | — |
 | `message.error.body` | `textMuted` | — | — |
@@ -559,6 +564,8 @@ vim .opencode/themes/my-theme.json
 | `sidebar.status.warn` | `warning` | — | — |
 | `sidebar.status.error` | `error` | — | — |
 | `sidebar.todo.pending` | `warning` | — | — |
+| `sidebar.discard.header` | `text` | — | `bold` |
+| `sidebar.discard.row` | `textMuted` | — | — |
 | `sidebar.getting-started` | — | `backgroundElement` | — |
 | `sidebar.files.added` | `diffAdded` | — | — |
 | `sidebar.files.removed` | `diffRemoved` | — | — |
