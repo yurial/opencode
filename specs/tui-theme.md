@@ -21,8 +21,8 @@ R25–R34 and R47. The consumption contract — the reactive `element(name)`
 accessor, syntax rules sourcing attributes from the theme, the run CLI
 RunTheme, and the plugin API — is fixed in R35–R46. With the default built-in
 theme the catalog defaults and the element-sourced rules are byte-identical to
-the pre-v2 rendering (R48), and the queued-chip computed override is fixed in
-R49.
+the pre-v2 rendering (R48), the agent color rotation is element-sourced (R39),
+and the queued-chip computed override is fixed in R49.
 
 ## Scope
 
@@ -30,9 +30,9 @@ In: the v2 theme-file structure (`$schema`/`defs`/`theme`), the color-value
 and attribute grammar, the element catalog and its defaults, format
 discrimination and mixing rules, the v1-to-v2 migration, resolution and error
 semantics, `thinkingOpacity`, the computed derivations
-(tui-theme/selected-foreground, tui-theme/tint, tui-theme/fade, agent dot
-rotation), and the consumption surfaces: TUI components, the run CLI theme,
-and the plugin theme API.
+(tui-theme/selected-foreground, tui-theme/tint, tui-theme/fade), the agent
+color rotation elements (R39), and the consumption surfaces: TUI components,
+the run CLI theme, and the plugin theme API.
 
 Out (non-goals): the opencode/opentui renderer sources; SGR rendering and
 color quantization; theme discovery directories, selection persistence, and
@@ -156,8 +156,9 @@ type ThemeFileV2 = {
 
 ## Element catalog
 
-The catalog is closed: exactly the elements listed below are valid
-tui-theme/element names (R17). Columns are per-channel defaults. A `—` cell
+The catalog is closed: exactly the `274` elements listed below, grouped
+into `23` zones, are valid tui-theme/element names (R17). Columns are
+per-channel defaults. A `—` cell
 is the transparent color for colors and the empty set for attributes. A
 backticked name is a tui-theme/palette reference. `selected-foreground` is
 the computed rule of R33 evaluated against the element's own resolved
@@ -165,7 +166,7 @@ background (R32). `tint(...)` marks a computed blend (R34). Border elements
 paint single-color strokes on the `fg` channel. Every default reproduces the
 rendering its surface had under the pre-v2 implementation (R48); where a live
 surface overrides its element with a computed color, the requirements name
-the override (R39, R49, R50). Legacy v1 keys not named in any default cell
+the override (R49, R50). Legacy v1 keys not named in any default cell
 are dropped by migration (R22): `diffHunkHeader`,
 `markdownHorizontalRule`, `markdownListEnumeration`, `markdownImage`,
 `markdownImageText`, `markdownCodeBlock`.
@@ -256,6 +257,22 @@ are dropped by migration (R22): `diffHunkHeader`,
 | `prompt.extmark.file` | `warning` | — | `bold` |
 | `prompt.extmark.agent` | `secondary` | — | `bold` |
 | `prompt.extmark.paste` | `selected-foreground` | `warning` | `bold` |
+
+### Zone agent — per-agent rotation colors
+
+The rotation of R39 assigns these elements to agents by visible-agent index;
+their foregrounds paint the agent dot, the user-message left border, the
+assistant mode marker, and the queued chip background (R39, R49).
+
+| Element | fg default | bg default | attributes default |
+|---|---|---|---|
+| `agent.color.one` | `secondary` | — | — |
+| `agent.color.two` | `accent` | — | — |
+| `agent.color.three` | `success` | — | — |
+| `agent.color.four` | `warning` | — | — |
+| `agent.color.five` | `primary` | — | — |
+| `agent.color.six` | `error` | — | — |
+| `agent.color.seven` | `info` | — | — |
 
 ### Zone message — transcript messages per role
 
@@ -596,7 +613,13 @@ element of its own.
 - R36. `thinkingOpacity` multiplies every foreground of the reasoning block, the header included.
 - R37. The reasoning body is rendered with the subtle syntax rules whose foreground alpha is multiplied by `thinkingOpacity`.
 - R38. Pointer hover swaps every channel of an element for its hover counterpart from the tui-theme/catalog: a `.hover` variant, or the `message.tool.body.pending` to `message.tool.body` pair.
-- R39. Agent dot colors stay computed: the rotation over `secondary`, `accent`, `success`, `warning`, `primary`, `error`, `info` cycles by agent index starting at `secondary`, and an agent `color` naming a hexadecimal string or a palette name overrides the rotation.
+- R39. Agent rotation colors:
+- R39.1. The agent color rotation cycles over the elements `agent.color.one` through `agent.color.seven` by visible-agent index, starting at `agent.color.one`.
+- R39.2. Every surface painted with an agent's rotation color — the agent dot, the user-message left border, the assistant mode marker, and the queued chip background (R49) — takes the resolved foreground of that agent's rotation element.
+- R39.3. An agent `color` configuration override naming a hexadecimal string is used literally.
+- R39.4. An agent `color` configuration override naming a tui-theme/element resolves to the resolved foreground of that element.
+- R39.5. An agent `color` configuration override naming a tui-theme/palette name resolves against the palette.
+- R39.6. With the default built-in theme or a migrated v1 theme file, the rendered agent colors are identical to the pre-v2 rotation.
 - R40. Syntax and markdown rendering take the foreground and the attributes of each scope rule from the corresponding `syntax.*` or `markdown.*` element.
 - R41. The scope `default` resolves to `syntax.default`.
 - R42. The TUI theme context exposes a reactive accessor `element(name)` returning the resolved foreground, background, and attribute set of the named element, and reads through it re-evaluate when the theme or the mode changes.
@@ -606,7 +629,7 @@ element of its own.
 - R46. The crash error-component palette and the Knight-Rider spinner trail stay outside the theme and are not addressable by elements.
 - R47. A rejected theme file is dropped at load with its reason surfaced to the user, and the active theme falls back to the default built-in theme.
 - R48. With the default built-in theme, every tui-theme/catalog default and every element-sourced syntax or markdown rule resolves to exactly the foreground, background, and attribute set the same surface rendered under the pre-v2 implementation.
-- R49. The queued message chip takes its attribute set and its resting foreground from `message.queued`. While the computed agent color of R39 is available, the chip paints that color as its background and tui-theme/selected-foreground over it as its foreground.
+- R49. The queued message chip takes its attribute set and its resting foreground from `message.queued`. The chip background is the rotation color of the message's agent (R39). The chip foreground is tui-theme/selected-foreground over that background (R33).
 - R50. While the resolved background of `logo.shadow` is the transparent color, each logo half paints its shadow as the tui-theme/tint blend of the resolved background of `app.background` with the resolved foreground of that half at `logo-shadow-alpha`. A non-transparent resolved background of `logo.shadow` paints both halves.
 
 ## Examples
@@ -635,6 +658,8 @@ element of its own.
 - J12. Why default-theme byte-identity is binding for catalog defaults and element-sourced rules (R48): the element format is a re-addressing of the existing rendering rather than a restyling, so any normalization delta between the pre-v2 hardcoded styles and the catalog is a migration defect rather than a design choice, which extends the R23 losslessness promise from the palette to the rule layer.
 - J13. Why the home footer consumes the `footer.*` zone (Element catalog): the home footer strip renders the same footer surface as the session footer, so reusing the zone keeps one addressable surface with lossless defaults instead of duplicating identical rows.
 - J14. Why the dialog status dots share one `dialog.status.*` trio across dialogs (Element catalog): status dots render the same ok, warn, and error semantics wherever a dialog shows them, so one shared trio keeps the defaults identical to the flat reads it replaces while `sidebar.status.*` stays separate for independent tuning of the sidebar.
+- J15. Why the agent rotation colors are positional `agent.color.*` elements placed between the prompt and message zones (Element catalog, R39.1, R39.2): the set of visible agents is dynamic while the tui-theme/catalog is closed (R17), so per-agent element names cannot exist; seven positional slots reproduce the fixed cycle length byte-identically, the zone sits between its two consumer zones (the prompt dot and the message border, marker, and chip), and an agent needing a stable identity color pins it through the `color` configuration override (R39.3).
+- J16. Why the agent `color` override keeps the palette-name path while gaining the element-name path (R39.3, R39.4, R39.5): palette-name resolution keeps every v1-era configuration working unchanged, and an element name lets a configuration pin an agent to a themed color without duplicating its hex value.
 
 ## Error handling
 
