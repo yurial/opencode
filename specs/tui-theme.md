@@ -22,7 +22,8 @@ accessor, syntax rules sourcing attributes from the theme, the run CLI
 RunTheme, and the plugin API — is fixed in R35–R46. With the default built-in
 theme the catalog defaults and the element-sourced rules are byte-identical to
 the pre-v2 rendering (R48), the agent color rotation is element-sourced (R39),
-and the queued-chip computed override is fixed in R49.
+the queued-chip computed override is fixed in R49, and the discarded-block
+styling with its marker and sidebar elements is fixed in R51 through R54.
 
 ## Scope
 
@@ -30,9 +31,10 @@ In: the v2 theme-file structure (`$schema`/`defs`/`theme`), the color-value
 and attribute grammar, the element catalog and its defaults, format
 discrimination and mixing rules, the v1-to-v2 migration, resolution and error
 semantics, `thinkingOpacity`, the computed derivations
-(tui-theme/selected-foreground, tui-theme/tint, tui-theme/fade), the agent
-color rotation elements (R39), and the consumption surfaces: TUI components,
-the run CLI theme, and the plugin theme API.
+(tui-theme/selected-foreground, tui-theme/tint, tui-theme/fade,
+tui-theme/dimmed-palette), the agent color rotation elements (R39), the
+discarded-block styling elements (R51 through R54), and the consumption
+surfaces: TUI components, the run CLI theme, and the plugin theme API.
 
 Out (non-goals): the opencode/opentui renderer sources; SGR rendering and
 color quantization; theme discovery directories, selection persistence, and
@@ -73,6 +75,9 @@ Definitions used throughout (full IDs, `tui-theme/<term>`):
   foreground over a highlighted surface (R33).
 - `tui-theme/tint` — the base + overlay α blend.
 - `tui-theme/fade` — the run-CLI α fade derivation over a base color.
+- `tui-theme/dimmed-palette` — a computed catalog-default variant: a
+  tui-theme/palette name whose resolved color is multiplied by a fixed alpha
+  scalar.
 - `tui-theme/hover` — pointer hover over an element; the element swaps to
   its hover counterpart (R38).
 - `tui-theme/thinking-opacity` — the `thinkingOpacity` scalar multiplying
@@ -152,21 +157,25 @@ type ThemeFileV2 = {
 | `run-footer-status-tint` | magic shares `0.12`/`0.06` (dark), `0.06`/`0.04` (light), collapse lift `0.7`, accent lift `0.06` (nameless literals) | — | tui-theme/tint parameters of the footer `status`/`statusAccent` derivatives (R44) |
 | `luminance-weights` | magic `0.299`, `0.587`, `0.114` (nameless literals in the contrast helpers) | — | Luminance of tui-theme/selected-foreground and of terminal-mode detection (R33) |
 | `question-hover-number-tint` | magic `0.6` (nameless literal in the question dialog) | — | tui-theme/tint share of `question.option.hover.number` (R34) |
+| `discarded-alpha` | magic `0x96/255` (nameless literal in the TUI discard styling) | — | Alpha multiplier of the tui-theme/dimmed-palette default of `message.discarded.text` (R34, R51.1); at `1` the default equals the plain palette `textMuted` |
 | `knight-rider-trail` | magic — hardcoded trail shades (nameless literals in the spinner) | — | Spinner easter-egg animation; not themeable (R46) |
 
 ## Element catalog
 
-The catalog is closed: exactly the `274` elements listed below, grouped
+The catalog is closed: exactly the `280` elements listed below, grouped
 into `23` zones, are valid tui-theme/element names (R17). Columns are
 per-channel defaults. A `—` cell
 is the transparent color for colors and the empty set for attributes. A
 backticked name is a tui-theme/palette reference. `selected-foreground` is
 the computed rule of R33 evaluated against the element's own resolved
-background (R32). `tint(...)` marks a computed blend (R34). Border elements
+background (R32). `tint(...)` marks a computed blend (R34). `dimmed(...)`
+marks a tui-theme/dimmed-palette default (R34): the palette name's resolved
+color with its alpha multiplied by the Configuration constant named inside
+the parentheses. Border elements
 paint single-color strokes on the `fg` channel. Every default reproduces the
 rendering its surface had under the pre-v2 implementation (R48); where a live
 surface overrides its element with a computed color, the requirements name
-the override (R49, R50). Legacy v1 keys not named in any default cell
+the override (R49, R50, R51). Legacy v1 keys not named in any default cell
 are dropped by migration (R22): `diffHunkHeader`,
 `markdownHorizontalRule`, `markdownListEnumeration`, `markdownImage`,
 `markdownImageText`, `markdownCodeBlock`.
@@ -300,6 +309,10 @@ assistant mode marker, and the queued chip background (R39, R49).
 | `message.tool.status.error` | `error` | — | — |
 | `message.tool.status.done` | `textMuted` | — | — |
 | `message.tool.args.denied` | `text` | — | `strikethrough` |
+| `message.discarded.text` | `dimmed(textMuted, discarded-alpha)` | — | — |
+| `message.discarded.marker` | `textMuted` | — | — |
+| `message.discarded.pending` | `text` | — | — |
+| `message.discarded.error` | `error` | — | — |
 | `message.error.panel` | — | `backgroundPanel` | — |
 | `message.error.border` | `error` | — | — |
 | `message.error.body` | `textMuted` | — | — |
@@ -336,6 +349,8 @@ assistant mode marker, and the queued chip background (R39, R49).
 | `sidebar.status.warn` | `warning` | — | — |
 | `sidebar.status.error` | `error` | — | — |
 | `sidebar.todo.pending` | `warning` | — | — |
+| `sidebar.discard.header` | `text` | — | `bold` |
+| `sidebar.discard.row` | `textMuted` | — | — |
 | `sidebar.getting-started` | — | `backgroundElement` | — |
 | `sidebar.files.added` | `diffAdded` | — | — |
 | `sidebar.files.removed` | `diffRemoved` | — | — |
@@ -608,7 +623,7 @@ element of its own.
 - R31. A `{dark, light}` variant resolves to the arm selected by the active mode.
 - R32. A catalog default citing the computed tui-theme/selected-foreground rule is evaluated against the resolved background of the same element.
 - R33. tui-theme/selected-foreground returns the palette `selectedListItemText` when it is explicitly set; otherwise it returns black or white by the luminance of the given background when the palette `background` is transparent; otherwise it returns the palette `background`.
-- R34. The tui-theme/tint and tui-theme/fade blends stay computed derivations of resolved colors, with their fixed shares recorded in Configuration.
+- R34. The tui-theme/tint and tui-theme/fade blends stay computed derivations of resolved colors, and a tui-theme/dimmed-palette default stays a computed derivation of a resolved palette color, with their fixed shares recorded in Configuration.
 - R35. The application root is painted from the background of `app.background`.
 - R36. `thinkingOpacity` multiplies every foreground of the reasoning block, the header included.
 - R37. The reasoning body is rendered with the subtle syntax rules whose foreground alpha is multiplied by `thinkingOpacity`.
@@ -632,6 +647,13 @@ element of its own.
 - R48. With the default built-in theme, every tui-theme/catalog default and every element-sourced syntax or markdown rule resolves to exactly the foreground, background, and attribute set the same surface rendered under the pre-v2 implementation.
 - R49. The queued message chip takes its attribute set and its resting foreground from `message.queued`. The chip background is the rotation color of the message's agent (R39). The chip foreground is tui-theme/selected-foreground over that background (R33).
 - R50. While the resolved background of `logo.shadow` is the transparent color, each logo half paints its shadow as the tui-theme/tint blend of the resolved background of `app.background` with the resolved foreground of that half at `logo-shadow-alpha`. A non-transparent resolved background of `logo.shadow` paints both halves.
+- R51. Discarded-block styling:
+- R51.1. A TUI transcript block whose part is a core-discard-context/marked-part renders its primary text with the foreground and the attributes of `message.discarded.text`.
+- R51.2. While the resolved background of `message.discarded.text` is the transparent color, a block of R51.1 keeps the background of its normal background element, and a non-transparent resolved background of `message.discarded.text` paints the block background of every block of R51.1.
+- R51.3. A color surface of a block of R51.1 other than the primary text keeps its own element, the `message.tool.status.*` state colors included, and never takes the channels of `message.discarded.text`.
+- R52. With the default built-in theme, the TUI discard marker line in its settled, pending, and failure states and the sidebar discard-statistics header and rows render identically to the rendering of the shared `message.tool.*` element reads and the flat palette reads they replace.
+- R53. The TUI discard marker line renders its settled line and icon with the foreground of `message.discarded.marker`, its pending line with the foreground of `message.discarded.pending`, and its failed line and expanded error text with the foreground of `message.discarded.error`.
+- R54. The sidebar discard-statistics header takes its foreground and its attributes from `sidebar.discard.header`, and every statistics row takes its foreground from `sidebar.discard.row`.
 
 ## Examples
 
@@ -642,6 +664,9 @@ element of its own.
 - A26. `{"fg": "#ff0000"}` on `dialog.title` keeps the background transparent and the attributes `bold`.
 - A27. In a file with `"defs": {"ink": "#101010"}`, the entry `{"fg": "ink"}` resolves `defs` first; `{"bg": "primary"}` resolves the palette; `{"fg": "dialog.title"}` takes the resolved foreground of `dialog.title`.
 - A38. Pointer hover over a tool card swaps `message.tool.card` for `message.tool.card.hover`; the InlineTool foreground pair swaps `message.tool.body.pending` for `message.tool.body`.
+- A51.1. A marked tool card renders its title text with the `message.discarded.text` foreground and attributes over its normal `message.tool.card` background, while an unmarked sibling card renders unchanged.
+- A51.2. A theme entry `{"bg": "#000000c8"}` on `message.discarded.text` repaints the block background of every discarded block, while unmarked blocks keep their own background elements.
+- A53. A settled discard call renders its line and icon with `message.discarded.marker`, a running call renders its pending line with `message.discarded.pending`, and a failed call renders its failed line and expanded error text with `message.discarded.error`.
 
 ## Justification
 
@@ -662,6 +687,8 @@ element of its own.
 - J15. Why the agent rotation colors are positional `agent.color.*` elements placed between the prompt and message zones (Element catalog, R39.1, R39.2): the set of visible agents is dynamic while the tui-theme/catalog is closed (R17), so per-agent element names cannot exist; seven positional slots reproduce the fixed cycle length byte-identically, the zone sits between its two consumer zones (the prompt dot and the message border, marker, and chip), and an agent needing a stable identity color pins it through the `color` configuration override (R39.3).
 - J16. Why the agent `color` override keeps the palette-name path while gaining the element-name path (R39.3, R39.4, R39.5): palette-name resolution keeps every v1-era configuration working unchanged, and an element name lets a configuration pin an agent to a themed color without duplicating its hex value.
 - J17. Why an out-of-domain agent `color` override is a no-override rather than an error (R39.7): the configuration schemas validate the dotted form structurally — the closed tui-theme/catalog is owned by the TUI (R17) — so a grammar-valid dotted name outside the catalog is representable in a configuration, and resolving it to the agent's rotation color keeps every agent-colored surface defined without rejecting a configuration the schema accepted.
+- J18. Why `message.discarded.text` defaults through a tui-theme/dimmed-palette default instead of a static color (R34, R51.1): the discarded foreground must follow the palette `textMuted` of the active theme, including a migrated v1 file that overrides it, and `discarded-alpha` states the exact relation to the undimmed palette color; a static default would fork from every custom palette.
+- J19. Why the marker trio and the sidebar pair default to the values of the shared `message.tool.*` reads and the flat palette reads they replace (R52 through R54): the elements re-address the existing discard rendering without restyling it, so their introduction stays render-neutral under the default built-in theme, extending the R48 losslessness promise to the discard surfaces.
 
 ## Error handling
 
@@ -682,11 +709,17 @@ rejection.
 
 - tui-plugins — the plugin theme API mount point (`api.theme`) that the
   element accessor of R45 extends.
+- core-discard-context — the core-discard-context/marked-part term that the
+  discarded-block styling of R51 consumes.
 
 ## Used by
 
 - tui-architecture — theme resolution and element mapping for the TUI
   runtime (referenced there, not restated).
+- core-discard-context — the transcript visual state of its R10 group and
+  the marker and sidebar surfaces of its R6 and R9 consume the
+  `message.discarded.*` and `sidebar.discard.*` elements and the sentinel
+  rule (R51, R53, R54).
 - config-agents — the agent `color` override value domain and resolution
   (R39.3–R39.5), cited from its R11.
 - config-v1 — the agent `color` override value domain and resolution
