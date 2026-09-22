@@ -7,7 +7,7 @@
 // `collectDiscardedPartIds`. Assertions read the captured span list, where
 // every span carries its resolved fg/bg/attributes.
 import { afterEach, describe, expect, test } from "bun:test"
-import { RGBA } from "@opentui/core"
+import { RGBA, TextAttributes } from "@opentui/core"
 import { testRender, type JSX } from "@opentui/solid"
 import type { AssistantMessage, Part } from "@opencode-ai/sdk/v2"
 import { KVProvider } from "../../src/context/kv"
@@ -308,6 +308,32 @@ describe("discarded-block transcript styling", () => {
     expect(dropped!.fg).toEqual(DISCARDED_FG)
   })
 
+  // The user-reported disappearance: a user message whose only text part is
+  // marked must keep rendering (R10.1) — visible text in the discarded style,
+  // plus the additive marker line; nothing may filter it from the transcript.
+  test("marked user message stays visible with discarded style and marker (R10.1, R10.5)", async () => {
+    const text = textPart("msg_u", "the disappearing prompt")
+    const call = discardCall("msg_a", [text.id])
+    marked = collectDiscardedPartIds([text, call])
+    const spans = await mount((ctx) => (
+      <sessionTranscriptContext.Provider value={ctx}>
+    <UserMessage
+    message={userMessage("msg_u") as never}
+    parts={[text] as Part[]}
+    onMouseUp={() => {}}
+    index={0}
+    />
+    <ToolPart last={true} part={call as never} message={assistant("msg_a")} />
+      </sessionTranscriptContext.Provider>
+    ))
+    const prompt = spans.find((span) => span.text.includes("the disappearing prompt"))
+    expect(prompt).toBeDefined()
+    expect(prompt!.fg).toEqual(DISCARDED_FG)
+    const marker = spans.find((span) => span.text.includes("Discarded 1 context part"))
+    expect(marker).toBeDefined()
+    expect(marker!.fg).toEqual(RGBA.fromInts(0, 255, 0))
+  })
+
   test("marked reasoning body takes the discarded fg; the header keeps its element (R10.1, R51.3)", async () => {
     const part = {
       id: "p-r",
@@ -403,5 +429,73 @@ describe("discarded-block transcript styling", () => {
     const rendered = spans.map((span) => span.text).join("")
     expect(rendered).not.toContain(part.id)
     expect(rendered).not.toContain(call.id)
+  })
+
+  // A hand-rolled span style map in UserMessage forwarded bold/italic/
+  // underline/dim but omitted strikethrough, so the theme's strikethrough
+  // attribute never reached user text spans (R51.1 attribute channel).
+  test("marked user text span carries the strikethrough attribute (R51.1)", async () => {
+    const strikeTheme = {
+      theme: {
+        ...discardTheme.theme,
+        "message.discarded.text": { fg: "#ff0000", attributes: ["strikethrough"] },
+      },
+    }
+    const strikeSource = { discover: async () => ({ "discard-v2": strikeTheme }) }
+    const text = textPart("msg_u", "struck prompt")
+    marked = collectDiscardedPartIds([text, discardCall("msg_a", [text.id])])
+    let probe: ReturnType<typeof useTheme> | undefined
+    function Probe() {
+      probe = useTheme()
+      return (
+        <LocalContext.Provider
+          value={{
+            agent: { color: () => RGBA.fromInts(1, 1, 1) },
+          } as never}
+        >
+          <SyncContext.Provider value={{ data: { permission: {} } } as never}>
+            <LocationProvider location={undefined}>
+              <sessionTranscriptContext.Provider value={ctxValue()}>
+                <UserMessage
+                  message={userMessage("msg_u") as never}
+                  parts={[text] as Part[]}
+                  onMouseUp={() => {}}
+                  index={0}
+                />
+              </sessionTranscriptContext.Provider>
+            </LocationProvider>
+          </SyncContext.Provider>
+        </LocalContext.Provider>
+      )
+    }
+    app = await testRender(
+      () => (
+        <TestTuiContexts>
+          <TuiConfigProvider config={config}>
+            <KVProvider>
+              <ThemeProvider mode="dark" source={strikeSource}>
+                <Probe />
+              </ThemeProvider>
+            </KVProvider>
+          </TuiConfigProvider>
+        </TestTuiContexts>
+      ),
+      { width: 72, height: 20 },
+    )
+    const start = Date.now()
+    for (;;) {
+      await app.renderOnce()
+      if (probe?.ready ?? false) break
+      if (Date.now() - start > 5000) throw new Error("timed out waiting for theme readiness")
+      await Bun.sleep(20)
+    }
+    for (let i = 0; i < 5; i++) {
+      await app.renderOnce()
+      await Bun.sleep(60)
+    }
+    const span = spanList().find((span) => span.text.includes("struck prompt"))
+    expect(span).toBeDefined()
+    expect(span!.fg).toEqual(DISCARDED_FG)
+    expect(span!.attributes & TextAttributes.STRIKETHROUGH).toBe(TextAttributes.STRIKETHROUGH)
   })
 })
