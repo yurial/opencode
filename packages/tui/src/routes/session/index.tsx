@@ -1481,6 +1481,7 @@ export function UserMessage(props: {
                             italic: discardedStyle().attributes.has("italic"),
                             underline: discardedStyle().attributes.has("underline"),
                             dim: discardedStyle().attributes.has("dim"),
+                            strikethrough: discardedStyle().attributes.has("strikethrough"),
                           }}
                         >
                           {part.text}
