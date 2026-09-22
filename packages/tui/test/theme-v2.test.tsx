@@ -65,11 +65,90 @@ function reject(input: unknown, reason: ThemeRejectionReason, mode: "dark" | "li
 }
 
 test("catalog is closed and matches the spec element count", () => {
-  expect(Object.keys(CATALOG).length).toBe(274)
+  expect(Object.keys(CATALOG).length).toBe(280)
   expect(isElementName("dialog.title")).toBe(true)
   expect(isElementName("dialog.titel")).toBe(false)
   expect(isElementName("toString")).toBe(false)
   expect(isElementName("constructor")).toBe(false)
+})
+
+test("catalog discarded-block rows match the spec (R51, R54)", () => {
+  const palette = (name: string) => ({ source: "palette", name }) as const
+  // discarded-alpha (Configuration): the dimmed-palette multiplier.
+  const discardedAlpha = 0x96 / 255
+  expect(CATALOG["message.discarded.text"]).toEqual({
+    fg: { source: "dimmed-palette", name: "textMuted", alpha: discardedAlpha },
+  })
+  expect(CATALOG["message.discarded.marker"]).toEqual({ fg: palette("textMuted") })
+  expect(CATALOG["message.discarded.pending"]).toEqual({ fg: palette("text") })
+  expect(CATALOG["message.discarded.error"]).toEqual({ fg: palette("error") })
+  expect(CATALOG["sidebar.discard.header"]).toEqual({ fg: palette("text"), attributes: ["bold"] })
+  expect(CATALOG["sidebar.discard.row"]).toEqual({ fg: palette("textMuted") })
+  // Zone placement follows the spec tables: the discarded rows sit in the
+  // message zone after the tool rows, the discard sidebar rows before the
+  // getting-started row.
+  const keys = Object.keys(CATALOG)
+  expect(keys.indexOf("message.discarded.text")).toBe(keys.indexOf("message.tool.args.denied") + 1)
+  expect(keys.indexOf("message.error.panel")).toBe(keys.indexOf("message.discarded.error") + 1)
+  expect(keys.indexOf("sidebar.discard.header")).toBe(keys.indexOf("sidebar.todo.pending") + 1)
+  expect(keys.indexOf("sidebar.getting-started")).toBe(keys.indexOf("sidebar.discard.row") + 1)
+})
+
+test("dimmed-palette resolves the palette color with its alpha multiplied (R34, R51.1)", () => {
+  const prepared = prepare(DEFAULT_THEMES.opencode)
+  const flat = prepared.theme
+  const discarded = resolveElement(prepared, "message.discarded.text")
+  // Same RGB as the plain palette textMuted, alpha scaled by 0x96/255.
+  expect(hex(discarded.fg)).toBe(hex(flat.textMuted))
+  expect(discarded.fg.toInts()).toEqual([flat.textMuted.toInts()[0], flat.textMuted.toInts()[1], flat.textMuted.toInts()[2], 0x96])
+  expect(discarded.bg).toEqual(RGBA.fromInts(0, 0, 0, 0))
+  expect(attrs(discarded.attributes)).toEqual([])
+})
+
+test("dimmed-palette with alpha 1 equals the plain palette color", () => {
+  const base = prepare(DEFAULT_THEMES.opencode)
+  // A v2 file cannot express a bare ColorDefault channel, so exercise the
+  // alpha-1 equivalence through the internal prepared form: the same palette
+  // with an alpha-1 dimmed default is the plain palette color. The entry
+  // values are typed loosely — the prepared form is an internal shape.
+  const entries = {
+    "message.discarded.text": { fg: { source: "dimmed-palette", name: "textMuted", alpha: 1 } },
+  } as unknown as PreparedTheme["entries"]
+  const prepared: PreparedTheme = { mode: "dark", theme: base.theme, entries, defs: {} }
+  expect(resolveElement(prepared, "message.discarded.text").fg).toEqual(base.theme.textMuted)
+  // A non-1 scalar multiplies: a custom entry halves the alpha.
+  const halfEntries = {
+    "message.discarded.text": { fg: { source: "dimmed-palette", name: "textMuted", alpha: 0.5 } },
+  } as unknown as PreparedTheme["entries"]
+  const half: PreparedTheme = { mode: "dark", theme: base.theme, entries: halfEntries, defs: {} }
+  const halved = resolveElement(half, "message.discarded.text").fg
+  const [r, g, b] = base.theme.textMuted.toInts()
+  expect(halved.toInts()).toEqual([r, g, b, Math.round(255 * 0.5)])
+})
+
+test("a v2 entry overrides the dimmed-palette default of message.discarded.text", () => {
+  const prepared = prepare({
+    theme: {
+      "message.discarded.text": { fg: "#336699", bg: "#000000c8" },
+      "message.discarded.marker": { fg: "#abcdef" },
+    },
+  })
+  const discarded = resolveElement(prepared, "message.discarded.text")
+  expect(hex(discarded.fg)).toBe("#336699")
+  expect(alpha(discarded.bg)).toBe(0xc8)
+  expect(hex(resolveElement(prepared, "message.discarded.marker").fg)).toBe("#abcdef")
+  // Unrelated rows keep their dimmed-palette defaults.
+  const plain = prepare(DEFAULT_THEMES.opencode)
+  expect(resolveElement(prepared, "sidebar.discard.row").fg).toEqual(plain.theme.textMuted)
+})
+
+test("dimmed-palette follows the theme palette of migrated v1 files", () => {
+  // J18: the discarded foreground follows palette textMuted of the active
+  // theme, including a migrated v1 file that overrides it.
+  const prepared = prepare({ theme: { textMuted: "#112233" } })
+  const discarded = resolveElement(prepared, "message.discarded.text")
+  expect(hex(discarded.fg)).toBe("#112233")
+  expect(discarded.fg.toInts()).toEqual([0x11, 0x22, 0x33, 0x96])
 })
 
 test("catalog agent rotation rows match the spec (R39)", () => {
@@ -580,6 +659,14 @@ test("migrated themes keep catalog defaults aligned with the flat palette", () =
         ["run.block.diff.line-number", "fg", "diffLineNumber"],
         ["run.block.diff.added-line-number-bg", "bg", "diffAddedLineNumberBg"],
         ["run.block.diff.removed-line-number-bg", "bg", "diffRemovedLineNumberBg"],
+        // Discarded-block rows: the marker trio and the sidebar pair resolve
+        // to the flat palette reads they replace (R52); the dimmed row is
+        // asserted separately through the alpha-multiply rule below.
+        ["message.discarded.marker", "fg", "textMuted"],
+        ["message.discarded.pending", "fg", "text"],
+        ["message.discarded.error", "fg", "error"],
+        ["sidebar.discard.header", "fg", "text"],
+        ["sidebar.discard.row", "fg", "textMuted"],
       ]
       for (const [element, channel, paletteName] of table) {
         const resolved = resolveElement(prepared, element)
@@ -606,6 +693,11 @@ test("migrated themes keep catalog defaults aligned with the flat palette", () =
       )
       expect(resolveElement(prepared, "question.option.hover.number").bg).toEqual(
         flat.backgroundElement,
+      )
+      // discarded-alpha (Configuration): dimmed(textMuted, 0x96/255) keeps the
+      // palette RGB and multiplies the fully opaque palette alpha.
+      expect(resolveElement(prepared, "message.discarded.text").fg).toEqual(
+        RGBA.fromValues(flat.textMuted.r, flat.textMuted.g, flat.textMuted.b, flat.textMuted.a * (0x96 / 255)),
       )
       // errata v1.1 attribute changes: markdown.link.label gains underline,
       // syntax.type drops bold

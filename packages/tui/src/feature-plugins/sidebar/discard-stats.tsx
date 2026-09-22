@@ -1,6 +1,7 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { BuiltinTuiPlugin } from "../builtins"
 import { collectDiscardedPartIds, discardedTokenTotal, formatCompactTokens } from "../../util/discard-context"
+import { textAttributes } from "../../theme/catalog"
 import { createMemo, Show } from "solid-js"
 
 const id = "internal:sidebar-discard-stats"
@@ -10,9 +11,12 @@ const id = "internal:sidebar-discard-stats"
 // state — unique marked parts, the discarded-token-total in the compact
 // format (with "~" when a partial share made it estimated, R7.8), and the
 // discard-call count. Marked ids are never rendered, and the block hides
-// while nothing is marked (R9.4).
+// while nothing is marked (R9.4). Colors come from the sidebar.discard.*
+// elements (R54): the header takes its foreground and attributes from
+// sidebar.discard.header, every row its foreground from sidebar.discard.row.
 function View(props: { api: TuiPluginApi; session_id: string }) {
-  const theme = () => props.api.theme.current
+  const header = () => props.api.theme.element("sidebar.discard.header")
+  const row = () => props.api.theme.element("sidebar.discard.row")
   const messages = createMemo(() => props.api.state.session.messages(props.session_id))
   const parts = createMemo(() => messages().flatMap((message) => props.api.state.part(message.id)))
   const markedIds = createMemo(() => collectDiscardedPartIds(parts()))
@@ -25,15 +29,15 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   return (
     <Show when={marked().length > 0}>
       <box>
-        <text fg={theme().text}>
-          <b>Discard</b>
+        <text fg={header().fg} attributes={textAttributes(header().attributes)}>
+          Discard
         </text>
-        <text fg={theme().textMuted}>Discarded: {marked().length} part{marked().length === 1 ? "" : "s"}</text>
-        <text fg={theme().textMuted}>
+        <text fg={row().fg}>Discarded: {marked().length} part{marked().length === 1 ? "" : "s"}</text>
+        <text fg={row().fg}>
           {tokens().estimated ? "~" : ""}
           {formatCompactTokens(tokens().total)} tokens
         </text>
-        <text fg={theme().textMuted}>{calls()} call{calls() === 1 ? "" : "s"}</text>
+        <text fg={row().fg}>{calls()} call{calls() === 1 ? "" : "s"}</text>
       </box>
     </Show>
   )

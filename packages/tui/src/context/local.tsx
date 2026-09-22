@@ -49,7 +49,7 @@ export function recentModels(
     .map((item) => ({ providerID: item.providerID, modelID: item.modelID }))
 }
 
-export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
+export const { context: LocalContext, use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
   init: () => {
     const sync = useSync()

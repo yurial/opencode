@@ -93,7 +93,9 @@ export type ResolvedElement = {
  * palette key; `hex` is a literal `#rrggbb[aa]` string; `selected-foreground`
  * evaluates against the element's own resolved background (R32);
  * `element-foreground` is the resolved foreground of the same element;
- * `tint` blends resolved `base` and `overlay` with the fixed `alpha` share.
+ * `tint` blends resolved `base` and `overlay` with the fixed `alpha` share;
+ * `dimmed-palette` is a tui-theme/dimmed-palette default (R34): the resolved
+ * palette color with its alpha channel multiplied by the fixed `alpha` scalar.
  * A channel with no default entry resolves to the transparent color.
  */
 export type ColorDefault =
@@ -108,6 +110,7 @@ export type ColorDefault =
       readonly overlay: ColorDefault
       readonly alpha: number
     }
+  | { readonly source: "dimmed-palette"; readonly name: string; readonly alpha: number }
 
 /**
  * The catalog default of one element.
@@ -151,6 +154,7 @@ const tintOf = (base: ColorDefault, overlay: ColorDefault, alpha: number): Color
   overlay,
   alpha,
 })
+const dimmedOf = (name: string, alpha: number): ColorDefault => ({ source: "dimmed-palette", name, alpha })
 
 const BACKGROUND: ColorDefault = palette("background")
 const BACKGROUND_PANEL: ColorDefault = palette("backgroundPanel")
@@ -173,6 +177,12 @@ const SELECTED_LIST_ITEM_TEXT: ColorDefault = palette("selectedListItemText")
 // question-hover-number-tint (Configuration): the tint share of the
 // `question.option.hover.number` foreground (R34).
 const QUESTION_HOVER_NUMBER_TINT = 0.6
+
+// discarded-alpha (Configuration): the alpha multiplier of the
+// tui-theme/dimmed-palette default of `message.discarded.text` (R34, R51.1).
+// A module constant, not a theme knob: at `1` the default equals the plain
+// palette `textMuted`, and `0x96` keeps the exact pre-v2 dimming.
+const DISCARDED_ALPHA = 0x96 / 255
 
 const APP = {
   "app.background": { bg: BACKGROUND },
@@ -288,6 +298,10 @@ const MESSAGE = {
   "message.tool.status.error": { fg: ERROR },
   "message.tool.status.done": { fg: TEXT_MUTED },
   "message.tool.args.denied": { fg: TEXT, attributes: ["strikethrough"] },
+  "message.discarded.text": { fg: dimmedOf("textMuted", DISCARDED_ALPHA) },
+  "message.discarded.marker": { fg: TEXT_MUTED },
+  "message.discarded.pending": { fg: TEXT },
+  "message.discarded.error": { fg: ERROR },
   "message.error.panel": { bg: BACKGROUND_PANEL },
   "message.error.border": { fg: ERROR },
   "message.error.body": { fg: TEXT_MUTED },
@@ -320,6 +334,8 @@ const SIDEBAR = {
   "sidebar.status.warn": { fg: WARNING },
   "sidebar.status.error": { fg: ERROR },
   "sidebar.todo.pending": { fg: WARNING },
+  "sidebar.discard.header": { fg: TEXT, attributes: ["bold"] },
+  "sidebar.discard.row": { fg: TEXT_MUTED },
   "sidebar.getting-started": { bg: BACKGROUND_ELEMENT },
   "sidebar.files.added": { fg: palette("diffAdded") },
   "sidebar.files.removed": { fg: palette("diffRemoved") },
