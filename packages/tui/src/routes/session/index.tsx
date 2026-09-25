@@ -34,6 +34,7 @@ import type {
   TextPart as TextPartSDK,
   ReasoningPart as ReasoningPartSDK,
 } from "@opencode-ai/sdk/v2"
+import type { CommandContext } from "@opentui/keymap"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
 import { collectDiscardedPartIds, discardedTokenTotal, formatCompactTokens } from "../../util/discard-context"
@@ -64,7 +65,10 @@ import { useEpilogue } from "../../context/epilogue"
 import { normalizePath } from "../../util/path"
 import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
+import { DialogSessionList } from "../../component/dialog-session-list"
+import { slashCommandArg } from "../../keymap"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
+import type { KeyEvent } from "@opentui/core"
 import * as Model from "../../util/model"
 import { formatTranscript } from "../../util/transcript"
 import { sessionEpilogue } from "../../util/presentation"
@@ -530,6 +534,35 @@ export function Session() {
       },
       run: () => {
         dialog.replace(() => <DialogSessionRename session={route.sessionID} />)
+      },
+    },
+    {
+      title: "Delete session",
+      value: "session.delete",
+      category: "Session",
+      slash: {
+        name: "delete",
+      },
+      run: async (ctx: CommandContext<BoxRenderable, KeyEvent>) => {
+        // "/delete <sessionID>" deletes just that session; "/delete" (no arg)
+        // opens the session list and deletes the current session only after the
+        // user switches to another one.
+        const sessionID = slashCommandArg(ctx)
+        if (sessionID) {
+          dialog.clear()
+          try {
+            const result = await sdk.client.session.delete({ sessionID })
+            if (result.error) throw errorMessage(result.error)
+          } catch (err) {
+            toast.show({
+              variant: "error",
+              title: "Failed to delete session",
+              message: errorMessage(err),
+            })
+          }
+          return
+        }
+        dialog.replace(() => <DialogSessionList deleteCurrentOnSwitch={true} />)
       },
     },
     {

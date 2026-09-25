@@ -51,7 +51,16 @@ import { createFadeIn } from "../../util/signal"
 import { DialogSkill } from "../dialog-skill"
 import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "../../context/args"
-import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useLeaderActive, useOpencodeKeymap } from "../../keymap"
+import {
+  OPENCODE_BASE_MODE,
+  parseSlashCommand,
+  slashCommandByName,
+  useBindings,
+  useCommandShortcut,
+  useLeaderActive,
+  useOpencodeKeymap,
+  type OpenTuiKeymap,
+} from "../../keymap"
 import { useTuiConfig } from "../../config"
 import { usePromptWorkspace } from "./workspace"
 import { usePromptMove } from "./move"
@@ -928,8 +937,7 @@ export function Prompt(props: PromptProps) {
   })
 
   let submitting = false
-  async function submit() {
-    // Prevent overlapping invocations (e.g. a double-pressed Enter, or the
+  async function submit() {    // Prevent overlapping invocations (e.g. a double-pressed Enter, or the
     // input's native onSubmit racing another dispatch). Without this guard,
     // a second call slips past the empty-input check before the first call
     // clears `store.prompt.input`, then awaits its own `session.create` and
@@ -942,6 +950,14 @@ export function Prompt(props: PromptProps) {
     } finally {
       submitting = false
     }
+  }
+
+  // Resolves the palette command behind a typed "/name ..." input, or undefined
+  // when the text does not reference a registered local slash command.
+  function localSlash(text: string, keymapContext: OpenTuiKeymap) {
+    const parsed = parseSlashCommand(text)
+    if (!parsed) return
+    return slashCommandByName(keymapContext, parsed.name)
   }
 
   async function submitInner() {
@@ -1089,6 +1105,15 @@ export function Prompt(props: PromptProps) {
         variant,
         parts: nonTextParts.filter((x) => x.type === "file"),
       })
+    } else if (inputText.startsWith("/") && localSlash(inputText, keymap)) {
+      // Typed local slash command: server commands take precedence (branch
+      // above), the rest is dispatched to the registered palette command with
+      // the typed remainder as its argument payload. Without this branch the
+      // typed text would be sent to the model as a chat message.
+      move.startSubmit()
+      const parsed = parseSlashCommand(inputText)!
+      const command = localSlash(inputText, keymap)!
+      keymap.dispatchCommand(command.name, { payload: parsed.args })
     } else {
       move.startSubmit()
       sdk.client.session

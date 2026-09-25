@@ -50,6 +50,66 @@ function isVisiblePaletteCommand(command: Command) {
   return command.hidden !== true && command.name !== COMMAND_PALETTE_COMMAND
 }
 
+/**
+ * Parses typed prompt text that starts with a local slash command.
+ *
+ * Contract:
+ * - Returns `{ name, args }` where `name` is the command name without the
+ *   leading "/" and `args` is the remainder of the first line (may be "").
+ * - Lines after the first line are joined into `args` with a single space,
+ *   mirroring how the server command branch passes multi-line arguments.
+ * - Returns `undefined` when the text does not start with "/" on the first line
+ *   or the name is empty (a bare "/" or "/" followed by whitespace).
+ */
+export function parseSlashCommand(text: string) {
+  const firstLineEnd = text.indexOf("\n")
+  const firstLine = firstLineEnd === -1 ? text : text.slice(0, firstLineEnd)
+  if (!firstLine.startsWith("/")) return
+  const [name, ...rest] = firstLine.slice(1).split(" ")
+  if (!name) return
+  const nextLine = firstLineEnd === -1 ? "" : text.slice(firstLineEnd + 1)
+  return { name, args: [...rest, ...(nextLine ? [nextLine] : [])].join(" ") }
+}
+
+/**
+ * Finds a palette command by its slash name or slash alias.
+ *
+ * Contract:
+ * - `name` is matched against `command.slashName` and, when present,
+ *   `command.slashAliases`, without the leading "/".
+ * - Only accepts commands registered in the "palette" namespace that are not
+ *   hidden, mirroring what the slash autocomplete offers.
+ * - Returns `undefined` when no command matches.
+ */
+export function slashCommandByName(keymap: OpenTuiKeymap, name: string) {
+  const entries = keymap.getCommandEntries({
+    visibility: "reachable",
+    namespace: "palette",
+    filter: isVisiblePaletteCommand,
+  })
+  return entries.find((entry) => {
+    const command = entry.command
+    if (command.slashName === name) return true
+    return Array.isArray(command.slashAliases) && command.slashAliases.includes(name)
+  })?.command
+}
+
+/**
+ * Extracts an optional string argument passed to a command through
+ * `keymap.dispatchCommand(name, { payload })`.
+ *
+ * Contract:
+ * - Returns the trimmed string when the payload is a non-empty string.
+ * - Returns `undefined` for any other payload (including empty/blank strings),
+ *   meaning the command was invoked without an argument.
+ */
+export function slashCommandArg(ctx: { payload?: unknown } | undefined) {
+  const payload = ctx?.payload
+  if (typeof payload !== "string") return
+  const value = payload.trim()
+  return value || undefined
+}
+
 export function createOpencodeModeStack(keymap: OpenTuiKeymap) {
   keymap.setData(OPENCODE_MODE_KEY, OPENCODE_BASE_MODE)
 

@@ -42,7 +42,42 @@ export function loadDialogSessionList<T>(input: {
   )
 }
 
-export function DialogSessionList() {
+/**
+ * Decides what a session selection means for the "/delete" flow.
+ *
+ * Contract:
+ * - `deleteCurrent` is true when the dialog was opened by "/delete" without an
+ *   argument: the current session is deleted only after the user picks a
+ *   different session to switch to.
+ * - Picking the current session counts as cancelling the deletion ("none"): it
+ *   closes the dialog without deleting anything, matching the expectation that
+ *   only switching to another session confirms the delete.
+ * - Without `deleteCurrent` (plain "/sessions") the selection always means
+ *   plain navigation.
+ * - Returns `{ action: "delete-then-navigate", sessionID, navigateTo }` when the
+ *   current session must be deleted before switching, `{ action: "navigate",
+ *   navigateTo }` for a plain switch, `{ action: "none" }` for a cancel.
+ */
+export function resolveSessionSwitch(input: { deleteCurrent?: boolean; current?: string; selected: string }) {
+  if (input.deleteCurrent && input.current && input.selected !== input.current) {
+    return { action: "delete-then-navigate", sessionID: input.current, navigateTo: input.selected } as const
+  }
+  if (input.selected === input.current) return { action: "none" } as const
+  return { action: "navigate", navigateTo: input.selected } as const
+}
+
+/**
+ * Renders the session switcher dialog.
+ *
+ * Props contract:
+ * - `deleteCurrentOnSwitch` (optional, default false): opened by "/delete"
+ *   without an argument. The first selection of a DIFFERENT session deletes the
+ *   current session first, then navigates to the picked one; a failed delete
+ *   shows an error toast and keeps the dialog open so the user can pick another
+ *   session or cancel. Closing the dialog without a selection never deletes.
+ * - See `resolveSessionSwitch` for the exact decision table.
+ */
+export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {}) {
   const dialog = useDialog()
   const route = useRoute()
   const sync = useSync()
@@ -280,11 +315,37 @@ export function DialogSessionList() {
       onMove={() => {
         setToDelete(undefined)
       }}
-      onSelect={(option) => {
-        route.navigate({
-          type: "session",
-          sessionID: option.value,
+      onSelect={async (option) => {
+        // In "/delete" mode the current session is deleted only when the user
+        // confirms by switching to a different one; picking the current session
+        // is a cancel. Race with the automatic "session.deleted" handler in
+        // app.tsx is safe in every ordering: if the event lands first it
+        // navigates home (then we navigate to the picked session), if it lands
+        // after our navigate the route no longer matches the deleted session
+        // and the handler is a no-op.
+        const plan = resolveSessionSwitch({
+          deleteCurrent: props.deleteCurrentOnSwitch,
+          current: currentSessionID(),
+          selected: option.value,
         })
+        if (plan.action === "delete-then-navigate") {
+          try {
+            const result = await sdk.client.session.delete({ sessionID: plan.sessionID })
+            if (result.error) throw errorMessage(result.error)
+          } catch (err) {
+            toast.show({
+              variant: "error",
+              title: "Failed to delete session",
+              message: errorMessage(err),
+            })
+            // Keep the dialog open: the current session still exists, the user
+            // can pick a different session or cancel.
+            return
+          }
+        }
+        if (plan.action !== "none") {
+          route.navigate({ type: "session", sessionID: plan.navigateTo })
+        }
         dialog.clear()
       }}
       actions={[
