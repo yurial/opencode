@@ -24,7 +24,6 @@ import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { TuiConfigProvider } from "../../src/config"
 import { ToastProvider } from "../../src/ui/toast"
 import { DialogProvider, useDialog } from "../../src/ui/dialog"
-import type { DialogSelectRef } from "../../src/ui/dialog-select"
 import { DialogSessionList } from "../../src/component/dialog-session-list"
 import { createEventSource, createFetch, directory, json } from "../fixture/tui-sdk"
 import { TestTuiContexts } from "../fixture/tui-environment"
@@ -57,6 +56,22 @@ async function stateDir() {
   return state
 }
 
+// A 200 response whose body stays open until released, keeping the DELETE
+// request in flight so a second Enter can race it.
+function pendingResponse() {
+  let release!: () => void
+  const done = new Promise<void>((resolve) => (release = resolve))
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        void done.then(() => controller.close())
+      },
+    }),
+    { status: 200 },
+  )
+  return { response, release }
+}
+
 const current = "ses_current"
 const other = "ses_other"
 
@@ -80,13 +95,21 @@ const config = createTuiResolvedConfig()
 // handles for driving the harness: the dialog context (to observe the open
 // dialog), the route context (to observe navigation), the recorded DELETE
 // requests, and the keymap (to submit the dialog via its "return" binding).
-async function mountDialog(input: { deleteCurrentOnSwitch?: boolean; deleteResponse?: Response }) {
+async function mountDialog(input: {
+  deleteCurrentOnSwitch?: boolean
+  deleteResponse?: Response
+  onDelete?: (id: string) => Response | Promise<Response>
+}) {
   const state = await stateDir()
   const deletes: string[] = []
   const exits: string[] = []
   const events = createEventSource()
+  // "hideCurrent" lets a test drop the current session from the list endpoint,
+  // modeling "the current session disappeared while the dialog was open".
+  let hideCurrent = false
   const calls = createFetch((url) => {
-    if (url.pathname === "/session") return json([session(current, "Current"), session(other, "Other")])
+    if (url.pathname === "/session")
+      return json(hideCurrent ? [session(other, "Other")] : [session(current, "Current"), session(other, "Other")])
     return undefined
   }, events)
   const fetch = (async (req: RequestInfo | URL) => {
@@ -94,14 +117,16 @@ async function mountDialog(input: { deleteCurrentOnSwitch?: boolean; deleteRespo
     if (request.method === "DELETE" && request.url.includes("/session/")) {
       const id = new URL(request.url).pathname.split("/").at(-1)!
       deletes.push(id)
+      if (input.onDelete) return input.onDelete(id)
       return input.deleteResponse ?? new Response(null, { status: 200 })
     }
+    if (request.method === "GET" && request.url.includes("/session?")) return calls.fetch(request)
     return calls.fetch(request)
   }) as unknown as typeof globalThis.fetch
 
-
   let dialogCtx!: ReturnType<typeof useDialog>
   let routeCtx!: ReturnType<typeof useRoute>
+  let syncCtx!: ReturnType<typeof useSync>
   let optionsLength = () => 0
 
   function Harness() {
@@ -148,9 +173,13 @@ async function mountDialog(input: { deleteCurrentOnSwitch?: boolean; deleteRespo
     const sync = useSync()
     dialogCtx = dialog
     routeCtx = route
+    syncCtx = sync
     optionsLength = () => sync.data.session.length
     onMount(() => {
-      setTimeout(() => dialog.replace(() => <DialogSessionList deleteCurrentOnSwitch={input.deleteCurrentOnSwitch} />), 250)
+      setTimeout(
+        () => dialog.replace(() => <DialogSessionList deleteCurrentOnSwitch={input.deleteCurrentOnSwitch} />),
+        250,
+      )
     })
     return <box />
   }
@@ -168,7 +197,20 @@ async function mountDialog(input: { deleteCurrentOnSwitch?: boolean; deleteRespo
   await wait(() => optionsLength() > 0)
   // The open dialog binds "return" to "dialog.select.submit" and the arrows to
   // prev/next; the mock input drives them the same way a keypress would.
-  return { app, dialog: dialogCtx, deletes, exits, route: () => routeCtx, keys: app.mockInput }
+  return {
+    app,
+    dialog: dialogCtx,
+    deletes,
+    exits,
+    events,
+    route: () => routeCtx,
+    sync: () => syncCtx,
+    keys: app.mockInput,
+    // Flips the list endpoint to stop reporting the current session.
+    hideCurrent: () => {
+      hideCurrent = true
+    },
+  }
 }
 
 // Collects the text of every rendered text node so tests can assert which
@@ -191,7 +233,10 @@ test("deleting via selection removes the current session then switches", async (
     harness.keys.pressEnter()
     await wait(() => harness.deletes.length > 0)
     expect(harness.deletes).toEqual([current])
-    await wait(() => harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other)
+    await wait(
+      () =>
+        harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other,
+    )
     expect(harness.dialog.stack.length).toBe(0)
   } finally {
     harness.app.renderer.destroy()
@@ -213,7 +258,9 @@ test("a failed delete keeps the dialog open and does not switch", async () => {
     await Bun.sleep(50)
     expect(harness.deletes).toEqual([current])
     // Still on the current session, dialog stays open for another pick or cancel.
-    expect(harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === current).toBe(true)
+    expect(
+      harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === current,
+    ).toBe(true)
     expect(harness.dialog.stack.length).toBe(1)
   } finally {
     harness.app.renderer.destroy()
@@ -246,7 +293,9 @@ test("plain session switching never deletes", async () => {
     harness.keys.pressEnter()
     await Bun.sleep(50)
     expect(harness.deletes).toEqual([])
-    expect(harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other).toBe(true)
+    expect(
+      harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other,
+    ).toBe(true)
   } finally {
     harness.app.renderer.destroy()
   }
@@ -322,7 +371,9 @@ test("a failed delete from New keeps the dialog open without navigating or exiti
     await Bun.sleep(50)
     expect(harness.deletes).toEqual([current])
     // Still on the current session, dialog stays open, the app did not exit.
-    expect(harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === current).toBe(true)
+    expect(
+      harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === current,
+    ).toBe(true)
     expect(harness.dialog.stack.length).toBe(1)
     expect(harness.exits).toEqual([])
   } finally {
@@ -347,7 +398,130 @@ test("plain /sessions offers neither New nor Delete and exit", async () => {
     await Bun.sleep(50)
     expect(harness.deletes).toEqual([])
     expect(harness.exits).toEqual([])
-    expect(harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other).toBe(true)
+    expect(
+      harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other,
+    ).toBe(true)
+  } finally {
+    harness.app.renderer.destroy()
+  }
+})
+
+test("New and Delete and exit still work when the current session is gone", async () => {
+  // The current session disappears (deleted elsewhere) while the /delete
+  // dialog stays open: both action entries must degrade to their plain
+  // purpose instead of navigating to the sentinel value as a session ID.
+  const harness = await mountDialog({ deleteCurrentOnSwitch: true })
+  try {
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    // Model the session disappearing while the dialog stays open: the list
+    // endpoint stops reporting the session and the "session.deleted" event
+    // fires, so the dialog resolves with no current session.
+    harness.hideCurrent()
+    await Bun.sleep(100)
+    await harness
+      .sync()
+      .session.refresh()
+      .catch(() => {})
+    expect(harness.sync().data.session.some((item: { id: string }) => item.id === current)).toBe(false)
+    harness.events.emit({
+      id: "evt-1",
+      directory,
+      payload: {
+        id: "evt-1",
+        type: "session.deleted",
+        properties: { sessionID: current, info: session(current, "Current") },
+      },
+    } as never)
+    // The app-level "session.deleted" handler navigates home when the current
+    // session is deleted; mirror that so the dialog's current session is gone.
+    harness.route().navigate({ type: "home" })
+    await Bun.sleep(100)
+    // With no current-session row the initial selection may not sit on "New";
+    // wrap to the top explicitly (home binding) before submitting.
+    harness.keys.pressKey("home", {})
+    await Bun.sleep(50)
+    harness.keys.pressEnter()
+    await Bun.sleep(200)
+    expect(harness.deletes).toEqual([])
+    expect(harness.exits).toEqual([])
+    expect(harness.dialog.stack.length).toBe(0)
+
+    // Reopen for "Delete and exit": it must exit without any DELETE.
+    harness.dialog.replace(() => <DialogSessionList deleteCurrentOnSwitch={true} />)
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    harness.keys.pressKey("home", {})
+    await Bun.sleep(50)
+    harness.keys.pressArrow("down")
+    await Bun.sleep(50)
+    harness.keys.pressEnter()
+    await wait(() => harness.exits.length > 0)
+    expect(harness.deletes).toEqual([])
+    expect(harness.exits).toEqual(["exit"])
+  } finally {
+    harness.app.renderer.destroy()
+  }
+})
+
+test("a second Enter while the delete request is in flight fires no second DELETE", async () => {
+  const gate = pendingResponse()
+  const harness = await mountDialog({
+    deleteCurrentOnSwitch: true,
+    onDelete: () => gate.response,
+  })
+  try {
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    harness.keys.pressArrow("down")
+    await Bun.sleep(30)
+    // Double-Enter: the second press lands while the first DELETE is still
+    // waiting on the (held-open) response.
+    harness.keys.pressEnter()
+    await wait(() => harness.deletes.length > 0)
+    harness.keys.pressEnter()
+    await Bun.sleep(50)
+    expect(harness.deletes).toEqual([current])
+
+    gate.release()
+    await wait(
+      () =>
+        harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other,
+    )
+    // The guard reset after success, but the dialog is closed and no further
+    // request was queued while it was in flight.
+    expect(harness.deletes).toEqual([current])
+    expect(harness.dialog.stack.length).toBe(0)
+  } finally {
+    harness.app.renderer.destroy()
+  }
+})
+
+test("after a failed delete a retry is still possible", async () => {
+  let attempts = 0
+  const harness = await mountDialog({
+    deleteCurrentOnSwitch: true,
+    onDelete: () => {
+      attempts++
+      return json({ message: "workspace busy" }, { status: 400 })
+    },
+  })
+  try {
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    harness.keys.pressArrow("down")
+    await Bun.sleep(30)
+    harness.keys.pressEnter()
+    await Bun.sleep(50)
+    expect(harness.deletes).toEqual([current])
+    expect(harness.dialog.stack.length).toBe(1)
+
+    // The in-flight guard reset on failure: a second pick of the same session
+    // reaches the server again.
+    harness.keys.pressEnter()
+    await Bun.sleep(50)
+    expect(harness.deletes).toEqual([current, current])
+    expect(attempts).toBe(2)
   } finally {
     harness.app.renderer.destroy()
   }

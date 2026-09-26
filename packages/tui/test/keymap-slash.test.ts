@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { parseSlashCommand, slashCommandArg } from "../src/keymap"
+import { parseSlashCommand, slashCommandArg, slashCommandToken } from "../src/keymap"
 
 describe("parseSlashCommand", () => {
   test("parses a bare slash command without arguments", () => {
@@ -34,5 +34,21 @@ describe("slashCommandArg", () => {
     expect(slashCommandArg({ payload: 42 })).toBeUndefined()
     expect(slashCommandArg({})).toBeUndefined()
     expect(slashCommandArg(undefined)).toBeUndefined()
+  })
+})
+
+describe("slashCommandToken", () => {
+  test("takes only the first whitespace-separated token", () => {
+    expect(slashCommandToken({ payload: "ses_123 extra words" })).toBe("ses_123")
+    expect(slashCommandToken({ payload: "  ses_1\tsecond  " })).toBe("ses_1")
+  })
+
+  test("passes a single-token argument through", () => {
+    expect(slashCommandToken({ payload: "ses_123" })).toBe("ses_123")
+  })
+
+  test("returns undefined for blank or non-string payloads", () => {
+    expect(slashCommandToken({ payload: "   " })).toBeUndefined()
+    expect(slashCommandToken(undefined)).toBeUndefined()
   })
 })

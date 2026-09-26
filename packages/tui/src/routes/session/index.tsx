@@ -66,7 +66,7 @@ import { normalizePath } from "../../util/path"
 import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
 import { DialogSessionList } from "../../component/dialog-session-list"
-import { slashCommandArg } from "../../keymap"
+import { slashCommandToken } from "../../keymap"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import type { KeyEvent } from "@opentui/core"
 import * as Model from "../../util/model"
@@ -546,8 +546,9 @@ export function Session() {
       run: async (ctx: CommandContext<BoxRenderable, KeyEvent>) => {
         // "/delete <sessionID>" deletes just that session; "/delete" (no arg)
         // opens the session list and deletes the current session only after the
-        // user switches to another one.
-        const sessionID = slashCommandArg(ctx)
+        // user switches to another one. Only the first payload token is the
+        // session ID — anything after it is ignored.
+        const sessionID = slashCommandToken(ctx)
         if (sessionID) {
           dialog.clear()
           try {

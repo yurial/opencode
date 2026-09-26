@@ -56,8 +56,10 @@ function isVisiblePaletteCommand(command: Command) {
  * Contract:
  * - Returns `{ name, args }` where `name` is the command name without the
  *   leading "/" and `args` is the remainder of the first line (may be "").
- * - Lines after the first line are joined into `args` with a single space,
- *   mirroring how the server command branch passes multi-line arguments.
+ * - Lines after the first line are joined into `args` with a single space.
+ *   Note the difference from the server command branch, which keeps a "\n"
+ *   before the trailing lines, so multi-line payloads differ between the two
+ *   dispatch paths.
  * - Returns `undefined` when the text does not start with "/" on the first line
  *   or the name is empty (a bare "/" or "/" followed by whitespace).
  */
@@ -108,6 +110,15 @@ export function slashCommandArg(ctx: { payload?: unknown } | undefined) {
   if (typeof payload !== "string") return
   const value = payload.trim()
   return value || undefined
+}
+
+/**
+ * Extracts a single-token argument (the first whitespace-separated word of
+ * `slashCommandArg`) — for commands like "/delete <sessionID>" where anything
+ * after the first token is not part of the ID.
+ */
+export function slashCommandToken(ctx: { payload?: unknown } | undefined) {
+  return slashCommandArg(ctx)?.split(/\s+/)[0]
 }
 
 export function createOpencodeModeStack(keymap: OpenTuiKeymap) {

@@ -92,10 +92,11 @@ describe("resolveSessionSwitch", () => {
       action: "navigate",
       navigateTo: SESSION_LIST_NEW,
     })
-    expect(resolveSessionSwitch({ deleteCurrent: true, selected: SESSION_LIST_EXIT })).toEqual({
-      action: "navigate",
-      navigateTo: SESSION_LIST_EXIT,
-    })
+  })
+
+  test("keeps the action entries purposeful when the current session is gone", () => {
+    expect(resolveSessionSwitch({ deleteCurrent: true, selected: SESSION_LIST_NEW })).toEqual({ action: "home" })
+    expect(resolveSessionSwitch({ deleteCurrent: true, selected: SESSION_LIST_EXIT })).toEqual({ action: "exit" })
   })
 
   test("navigates without deleting when the dialog is opened by /sessions", () => {

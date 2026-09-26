@@ -59,10 +59,11 @@ export const SESSION_LIST_EXIT = "exit"
  *   closes the dialog without deleting anything, matching the expectation that
  *   only switching to another session confirms the delete.
  * - The `SESSION_LIST_NEW` and `SESSION_LIST_EXIT` sentinels stand for the
- *   action entries above the list in the "/delete" dialog: both delete the
- *   current session, then "delete-then-home" navigates home (like "new") and
- *   "delete-then-exit" exits the app (like "exit"). They are special only
- *   while a current session exists to delete.
+ *   action entries above the list in the "/delete" dialog. With a current
+ *   session they delete it first ("delete-then-home" / "delete-then-exit");
+ *   without one they still work by purpose but skip the delete ("home" /
+ *   "exit"), since there is nothing left to delete. They are special only in
+ *   the "/delete" dialog.
  * - Without `deleteCurrent` (plain "/sessions") the selection always means
  *   plain navigation, sentinels included.
  * - Returns `{ action: "delete-then-navigate", sessionID, navigateTo }` when the
@@ -76,6 +77,11 @@ export function resolveSessionSwitch(input: { deleteCurrent?: boolean; current?:
     if (input.selected !== input.current)
       return { action: "delete-then-navigate", sessionID: input.current, navigateTo: input.selected } as const
   }
+  // The current session may disappear while the dialog is open (e.g. it was
+  // deleted elsewhere); the action entries must not degrade into navigating
+  // to their sentinel value as if it were a session ID.
+  if (input.deleteCurrent && input.selected === SESSION_LIST_NEW) return { action: "home" } as const
+  if (input.deleteCurrent && input.selected === SESSION_LIST_EXIT) return { action: "exit" } as const
   if (input.selected === input.current) return { action: "none" } as const
   return { action: "navigate", navigateTo: input.selected } as const
 }
@@ -93,7 +99,8 @@ export function resolveSessionSwitch(input: { deleteCurrent?: boolean; current?:
  *   deletes the current session and navigates home (like the "new" command),
  *   "Delete and exit" deletes it and exits the app (like the "exit" command);
  *   both also keep the dialog open on a failed delete, without navigating or
- *   exiting. Neither entry exists in plain "/sessions".
+ *   exiting. When the current session is already gone, they skip the delete
+ *   and go home / exit directly. Neither entry exists in plain "/sessions".
  * - See `resolveSessionSwitch` for the exact decision table.
  */
 export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {}) {
@@ -109,6 +116,9 @@ export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {
   const exit = useExit()
   const [toDelete, setToDelete] = createSignal<string>()
   const [deleted, setDeleted] = createSignal(new Set<string>())
+  // In-flight guard for the "delete current session" request: a second submit
+  // while the DELETE is running is ignored instead of hitting the server again.
+  let deleting = false
   const [search, setSearch] = createDebouncedSignal("", 150)
   const deleteHint = useCommandShortcut("session.delete")
   const quickSwitch1 = useCommandShortcut("session.quick_switch.1")
@@ -378,6 +388,22 @@ export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {
           dialog.clear()
           return
         }
+        if (plan.action === "home") {
+          // "New" with no current session left to delete.
+          route.navigate({ type: "home" })
+          dialog.clear()
+          return
+        }
+        if (plan.action === "exit") {
+          // "Delete and exit" with no current session left to delete.
+          exit()
+          return
+        }
+        // A double-pressed Enter must not fire a second DELETE while the
+        // first is in flight; the flag resets on failure so a retry stays
+        // possible.
+        if (deleting) return
+        deleting = true
         try {
           const result = await sdk.client.session.delete({ sessionID: plan.sessionID })
           if (result.error) throw errorMessage(result.error)
@@ -390,6 +416,8 @@ export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {
           // Keep the dialog open: the current session still exists, the user
           // can pick a different action or cancel.
           return
+        } finally {
+          deleting = false
         }
         if (plan.action === "delete-then-exit") {
           // Same exit path as the "exit" command.
