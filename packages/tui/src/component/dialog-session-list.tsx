@@ -9,6 +9,7 @@ import { useProject } from "../context/project"
 import { useTheme } from "../context/theme"
 import { useSDK } from "../context/sdk"
 import { useLocal } from "../context/local"
+import { useExit } from "../context/exit"
 import { DialogSessionRename } from "./dialog-session-rename"
 import { createDebouncedSignal } from "../util/signal"
 import { useToast } from "../ui/toast"
@@ -42,6 +43,11 @@ export function loadDialogSessionList<T>(input: {
   )
 }
 
+// Option values for the action entries shown above the session list when the
+// dialog is opened by "/delete"; they are not real session IDs.
+export const SESSION_LIST_NEW = "new"
+export const SESSION_LIST_EXIT = "exit"
+
 /**
  * Decides what a session selection means for the "/delete" flow.
  *
@@ -52,15 +58,23 @@ export function loadDialogSessionList<T>(input: {
  * - Picking the current session counts as cancelling the deletion ("none"): it
  *   closes the dialog without deleting anything, matching the expectation that
  *   only switching to another session confirms the delete.
+ * - The `SESSION_LIST_NEW` and `SESSION_LIST_EXIT` sentinels stand for the
+ *   action entries above the list in the "/delete" dialog: both delete the
+ *   current session, then "delete-then-home" navigates home (like "new") and
+ *   "delete-then-exit" exits the app (like "exit"). They are special only
+ *   while a current session exists to delete.
  * - Without `deleteCurrent` (plain "/sessions") the selection always means
- *   plain navigation.
+ *   plain navigation, sentinels included.
  * - Returns `{ action: "delete-then-navigate", sessionID, navigateTo }` when the
  *   current session must be deleted before switching, `{ action: "navigate",
  *   navigateTo }` for a plain switch, `{ action: "none" }` for a cancel.
  */
 export function resolveSessionSwitch(input: { deleteCurrent?: boolean; current?: string; selected: string }) {
-  if (input.deleteCurrent && input.current && input.selected !== input.current) {
-    return { action: "delete-then-navigate", sessionID: input.current, navigateTo: input.selected } as const
+  if (input.deleteCurrent && input.current) {
+    if (input.selected === SESSION_LIST_NEW) return { action: "delete-then-home", sessionID: input.current } as const
+    if (input.selected === SESSION_LIST_EXIT) return { action: "delete-then-exit", sessionID: input.current } as const
+    if (input.selected !== input.current)
+      return { action: "delete-then-navigate", sessionID: input.current, navigateTo: input.selected } as const
   }
   if (input.selected === input.current) return { action: "none" } as const
   return { action: "navigate", navigateTo: input.selected } as const
@@ -75,6 +89,11 @@ export function resolveSessionSwitch(input: { deleteCurrent?: boolean; current?:
  *   current session first, then navigates to the picked one; a failed delete
  *   shows an error toast and keeps the dialog open so the user can pick another
  *   session or cancel. Closing the dialog without a selection never deletes.
+ *   In this mode two action entries are shown above the session list: "New"
+ *   deletes the current session and navigates home (like the "new" command),
+ *   "Delete and exit" deletes it and exits the app (like the "exit" command);
+ *   both also keep the dialog open on a failed delete, without navigating or
+ *   exiting. Neither entry exists in plain "/sessions".
  * - See `resolveSessionSwitch` for the exact decision table.
  */
 export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {}) {
@@ -87,6 +106,7 @@ export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {
   const event = useEvent()
   const local = useLocal()
   const toast = useToast()
+  const exit = useExit()
   const [toDelete, setToDelete] = createSignal<string>()
   const [deleted, setDeleted] = createSignal(new Set<string>())
   const [search, setSearch] = createDebouncedSignal("", 150)
@@ -297,7 +317,27 @@ export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {
       })
       .filter((x) => x !== undefined)
 
-    return [...pinned.map((id) => buildOption(id, "Pinned")).filter((x) => x !== undefined), ...remaining]
+    // Only the "/delete" dialog offers these actions; plain "/sessions"
+    // lists sessions only.
+    const deleteActions = props.deleteCurrentOnSwitch
+      ? [
+          { title: "New", bg: undefined, value: SESSION_LIST_NEW, category: "Actions", footer: "", gutter: undefined },
+          {
+            title: "Delete and exit",
+            bg: undefined,
+            value: SESSION_LIST_EXIT,
+            category: "Actions",
+            footer: "",
+            gutter: undefined,
+          },
+        ]
+      : []
+
+    return [
+      ...deleteActions,
+      ...pinned.map((id) => buildOption(id, "Pinned")).filter((x) => x !== undefined),
+      ...remaining,
+    ]
   })
 
   onMount(() => {
@@ -317,35 +357,52 @@ export function DialogSessionList(props: { deleteCurrentOnSwitch?: boolean } = {
       }}
       onSelect={async (option) => {
         // In "/delete" mode the current session is deleted only when the user
-        // confirms by switching to a different one; picking the current session
-        // is a cancel. Race with the automatic "session.deleted" handler in
-        // app.tsx is safe in every ordering: if the event lands first it
-        // navigates home (then we navigate to the picked session), if it lands
-        // after our navigate the route no longer matches the deleted session
-        // and the handler is a no-op.
+        // confirms by switching to a different session or by picking "New" /
+        // "Delete and exit"; picking the current session is a cancel. Race
+        // with the automatic "session.deleted" handler in app.tsx is safe in
+        // every ordering: if the event lands first it navigates home (then we
+        // navigate to the picked session or home again), if it lands after our
+        // navigation the route no longer matches the deleted session and the
+        // handler is a no-op; "delete-then-exit" tears the app down either way.
         const plan = resolveSessionSwitch({
           deleteCurrent: props.deleteCurrentOnSwitch,
           current: currentSessionID(),
           selected: option.value,
         })
-        if (plan.action === "delete-then-navigate") {
-          try {
-            const result = await sdk.client.session.delete({ sessionID: plan.sessionID })
-            if (result.error) throw errorMessage(result.error)
-          } catch (err) {
-            toast.show({
-              variant: "error",
-              title: "Failed to delete session",
-              message: errorMessage(err),
-            })
-            // Keep the dialog open: the current session still exists, the user
-            // can pick a different session or cancel.
-            return
-          }
+        if (plan.action === "none") {
+          dialog.clear()
+          return
         }
-        if (plan.action !== "none") {
+        if (plan.action === "navigate") {
           route.navigate({ type: "session", sessionID: plan.navigateTo })
+          dialog.clear()
+          return
         }
+        try {
+          const result = await sdk.client.session.delete({ sessionID: plan.sessionID })
+          if (result.error) throw errorMessage(result.error)
+        } catch (err) {
+          toast.show({
+            variant: "error",
+            title: "Failed to delete session",
+            message: errorMessage(err),
+          })
+          // Keep the dialog open: the current session still exists, the user
+          // can pick a different action or cancel.
+          return
+        }
+        if (plan.action === "delete-then-exit") {
+          // Same exit path as the "exit" command.
+          exit()
+          return
+        }
+        if (plan.action === "delete-then-home") {
+          // Same destination as the "new" command.
+          route.navigate({ type: "home" })
+          dialog.clear()
+          return
+        }
+        route.navigate({ type: "session", sessionID: plan.navigateTo })
         dialog.clear()
       }}
       actions={[

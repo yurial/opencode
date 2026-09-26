@@ -83,6 +83,7 @@ const config = createTuiResolvedConfig()
 async function mountDialog(input: { deleteCurrentOnSwitch?: boolean; deleteResponse?: Response }) {
   const state = await stateDir()
   const deletes: string[] = []
+  const exits: string[] = []
   const events = createEventSource()
   const calls = createFetch((url) => {
     if (url.pathname === "/session") return json([session(current, "Current"), session(other, "Other")])
@@ -118,7 +119,7 @@ async function mountDialog(input: { deleteCurrentOnSwitch?: boolean; deleteRespo
                   <SDKProvider url="http://test" directory={directory} fetch={fetch} events={events.source}>
                     <PermissionProvider>
                       <ProjectProvider>
-                        <ExitProvider exit={() => {}}>
+                        <ExitProvider exit={() => exits.push("exit")}>
                           <SyncProvider>
                             <ThemeProvider mode="dark">
                               <LocalProvider>
@@ -167,7 +168,16 @@ async function mountDialog(input: { deleteCurrentOnSwitch?: boolean; deleteRespo
   await wait(() => optionsLength() > 0)
   // The open dialog binds "return" to "dialog.select.submit" and the arrows to
   // prev/next; the mock input drives them the same way a keypress would.
-  return { app, dialog: dialogCtx, deletes, route: () => routeCtx, keys: app.mockInput }
+  return { app, dialog: dialogCtx, deletes, exits, route: () => routeCtx, keys: app.mockInput }
+}
+
+// Collects the text of every rendered text node so tests can assert which
+// rows the open dialog actually shows.
+function frameText(node: unknown): string {
+  const renderable = node as { getChildren?: () => unknown[]; plainText?: unknown }
+  const children = renderable.getChildren?.() ?? []
+  const own = typeof renderable.plainText === "string" ? `${renderable.plainText}\n` : ""
+  return own + children.map(frameText).join("")
 }
 
 test("deleting via selection removes the current session then switches", async () => {
@@ -236,6 +246,107 @@ test("plain session switching never deletes", async () => {
     harness.keys.pressEnter()
     await Bun.sleep(50)
     expect(harness.deletes).toEqual([])
+    expect(harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other).toBe(true)
+  } finally {
+    harness.app.renderer.destroy()
+  }
+})
+
+test("the /delete dialog offers New and Delete and exit above the session list", async () => {
+  const harness = await mountDialog({ deleteCurrentOnSwitch: true })
+  try {
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    const text = frameText(harness.app.renderer.root)
+    expect(text).toContain("New")
+    expect(text).toContain("Delete and exit")
+  } finally {
+    harness.app.renderer.destroy()
+  }
+})
+
+test("New deletes the current session and navigates home", async () => {
+  const harness = await mountDialog({ deleteCurrentOnSwitch: true })
+  try {
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    // From the preselected current-session row, two steps up land on "New"
+    // (the first of the two action entries above the list).
+    harness.keys.pressArrow("up")
+    await Bun.sleep(30)
+    harness.keys.pressArrow("up")
+    await Bun.sleep(30)
+    harness.keys.pressEnter()
+    await wait(() => harness.deletes.length > 0)
+    expect(harness.deletes).toEqual([current])
+    await wait(() => harness.route().data.type === "home")
+    expect(harness.dialog.stack.length).toBe(0)
+    expect(harness.exits).toEqual([])
+  } finally {
+    harness.app.renderer.destroy()
+  }
+})
+
+test("Delete and exit deletes the current session and exits the app", async () => {
+  const harness = await mountDialog({ deleteCurrentOnSwitch: true })
+  try {
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    // One step up from the preselected current-session row lands on
+    // "Delete and exit", the second action entry.
+    harness.keys.pressArrow("up")
+    await Bun.sleep(30)
+    harness.keys.pressEnter()
+    await wait(() => harness.deletes.length > 0)
+    expect(harness.deletes).toEqual([current])
+    await wait(() => harness.exits.length > 0)
+  } finally {
+    harness.app.renderer.destroy()
+  }
+})
+
+test("a failed delete from New keeps the dialog open without navigating or exiting", async () => {
+  const harness = await mountDialog({
+    deleteCurrentOnSwitch: true,
+    deleteResponse: json({ message: "workspace busy" }, { status: 400 }),
+  })
+  try {
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    harness.keys.pressArrow("up")
+    await Bun.sleep(30)
+    harness.keys.pressArrow("up")
+    await Bun.sleep(30)
+    harness.keys.pressEnter()
+    await wait(() => harness.deletes.length > 0)
+    await Bun.sleep(50)
+    expect(harness.deletes).toEqual([current])
+    // Still on the current session, dialog stays open, the app did not exit.
+    expect(harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === current).toBe(true)
+    expect(harness.dialog.stack.length).toBe(1)
+    expect(harness.exits).toEqual([])
+  } finally {
+    harness.app.renderer.destroy()
+  }
+})
+
+test("plain /sessions offers neither New nor Delete and exit", async () => {
+  const harness = await mountDialog({})
+  try {
+    await wait(() => harness.dialog.stack.length > 0)
+    await Bun.sleep(100)
+    const text = frameText(harness.app.renderer.root)
+    expect(text).toContain("Current")
+    expect(text).not.toContain("New")
+    expect(text).not.toContain("Delete and exit")
+    // From the current row, one step down lands on the row right after it;
+    // in plain mode that is a regular session, never an action entry.
+    harness.keys.pressArrow("down")
+    await Bun.sleep(30)
+    harness.keys.pressEnter()
+    await Bun.sleep(50)
+    expect(harness.deletes).toEqual([])
+    expect(harness.exits).toEqual([])
     expect(harness.route().data.type === "session" && (harness.route().data as { sessionID: string }).sessionID === other).toBe(true)
   } finally {
     harness.app.renderer.destroy()
