@@ -51,7 +51,16 @@ import { createFadeIn } from "../../util/signal"
 import { DialogSkill } from "../dialog-skill"
 import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "../../context/args"
-import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useLeaderActive, useOpencodeKeymap } from "../../keymap"
+import {
+  OPENCODE_BASE_MODE,
+  parseSlashCommand,
+  slashCommandByName,
+  useBindings,
+  useCommandShortcut,
+  useLeaderActive,
+  useOpencodeKeymap,
+  type OpenTuiKeymap,
+} from "../../keymap"
 import { useTuiConfig } from "../../config"
 import { usePromptWorkspace } from "./workspace"
 import { usePromptMove } from "./move"
@@ -944,6 +953,14 @@ export function Prompt(props: PromptProps) {
     }
   }
 
+  // Resolves the palette command behind a typed "/name ..." input, or undefined
+  // when the text does not reference a registered local slash command.
+  function localSlash(text: string, keymapContext: OpenTuiKeymap) {
+    const parsed = parseSlashCommand(text)
+    if (!parsed) return
+    return slashCommandByName(keymapContext, parsed.name)
+  }
+
   async function submitInner() {
     workspace.clearNotice()
 
@@ -987,6 +1004,47 @@ export function Prompt(props: PromptProps) {
     }
 
     const variant = local.model.variant.current()
+
+    const inputText = expandTrackedPastedText(
+      store.prompt.input,
+      input.extmarks.getAllForTypeId(promptPartTypeId).flatMap((extmark) => {
+        const partIndex = store.extmarkToPartIndex.get(extmark.id)
+        const part = partIndex === undefined ? undefined : store.prompt.parts[partIndex]
+        if (part?.type !== "text") return []
+        return [{ start: extmark.start, end: extmark.end, text: part.text }]
+      }),
+    )
+
+    // Resolve the dispatch target before the session-create block below.
+    // Server commands take precedence; a typed local slash command (e.g.
+    // "/new" or "/sessions" from the home prompt) runs entirely in the TUI,
+    // so it must neither create a session nor trigger the deferred navigate
+    // at the bottom — otherwise an orphan session would be created and
+    // adopted right after the command did its own navigation.
+    const serverCommand =
+      inputText.startsWith("/") &&
+      sync.data.command.some((x) => x.name === inputText.split("\n")[0].split(" ")[0].slice(1))
+    const localCommand = inputText.startsWith("/") && !serverCommand ? localSlash(inputText, keymap) : undefined
+    // Early exit for local dispatch: everything below needs a session ID.
+    if (localCommand) {
+      move.startSubmit()
+      const parsed = parseSlashCommand(inputText)!
+      keymap.dispatchCommand(localCommand.name, { payload: parsed.args })
+      history.append({
+        ...store.prompt,
+        mode: store.mode,
+      })
+      input.extmarks.clear()
+      setStore("prompt", {
+        input: "",
+        parts: [],
+      })
+      setStore("extmarkToPartIndex", new Map())
+      props.onSubmit?.()
+      input.clear()
+      return true
+    }
+
     let sessionID = props.sessionID
     let finishMoveProgress = false
     if (sessionID == null) {
@@ -1023,16 +1081,6 @@ export function Prompt(props: PromptProps) {
       sessionID = res.data.id
     }
 
-    const inputText = expandTrackedPastedText(
-      store.prompt.input,
-      input.extmarks.getAllForTypeId(promptPartTypeId).flatMap((extmark) => {
-        const partIndex = store.extmarkToPartIndex.get(extmark.id)
-        const part = partIndex === undefined ? undefined : store.prompt.parts[partIndex]
-        if (part?.type !== "text") return []
-        return [{ start: extmark.start, end: extmark.end, text: part.text }]
-      }),
-    )
-
     // Filter out text parts (pasted content) since they're now expanded inline
     const nonTextParts = store.prompt.parts.filter((part) => part.type !== "text")
 
@@ -1068,10 +1116,7 @@ export function Prompt(props: PromptProps) {
         command: inputText,
       })
       setStore("mode", "normal")
-    } else if (
-      inputText.startsWith("/") &&
-      sync.data.command.some((x) => x.name === inputText.split("\n")[0].split(" ")[0].slice(1))
-    ) {
+    } else if (serverCommand) {
       move.startSubmit()
       // Parse command from first line, preserve multi-line content in arguments
       const firstLineEnd = inputText.indexOf("\n")
