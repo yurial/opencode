@@ -1,6 +1,12 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { Schema } from "effect"
-import { ConfigProviderV1 } from "@opencode-ai/core/v1/config/provider"
+import {
+  ConfigProviderV1,
+  isPrimeTimeEnforced,
+  primeTimeActive,
+  primeTimeWindowEnd,
+  setPrimeTimeEnforced,
+} from "@opencode-ai/core/v1/config/provider"
 
 const decode = Schema.decodeUnknownSync(ConfigProviderV1.Model)
 const decodeInfo = Schema.decodeUnknownSync(ConfigProviderV1.Info)
@@ -89,5 +95,47 @@ describe("ConfigProviderV1 prime-time model schema", () => {
     expect(
       decodeInfo({ models: { m1: { primeTimeStart: "09:00Z", primeTimeEnd: "18:00Z" } } }).models?.m1?.primeTimeStart,
     ).toBe("09:00Z")
+  })
+})
+
+describe("ConfigProviderV1 prime-time enforcement toggle", () => {
+  // 2026-08-24 is a Monday; Z-suffixed bounds keep every case independent of
+  // the process timezone.
+  const now = new Date(Date.UTC(2026, 7, 24, 12))
+  const primeWindow = { primeTimeStart: "00:00:00Z", primeTimeEnd: "23:59:59Z", primeTimeDay: ["mon"] }
+  // The listed Monday span covers the whole UTC day, so the window ends at the
+  // next midnight.
+  const windowEnd = Date.UTC(2026, 7, 25)
+
+  beforeEach(() => {
+    setPrimeTimeEnforced(true)
+  })
+
+  // The toggle is module-level process state; restore the default after every
+  // test so the file cannot leak a disabled toggle into other test files.
+  afterEach(() => {
+    setPrimeTimeEnforced(true)
+  })
+
+  test("reports no active window when enforcement is disabled", () => {
+    expect(primeTimeActive(primeWindow, now)).toBe(true)
+    setPrimeTimeEnforced(false)
+    expect(isPrimeTimeEnforced()).toBe(false)
+    expect(primeTimeActive(primeWindow, now)).toBe(false)
+  })
+
+  test("re-enabling restores enforcement", () => {
+    setPrimeTimeEnforced(false)
+    expect(primeTimeActive(primeWindow, now)).toBe(false)
+    setPrimeTimeEnforced(true)
+    expect(isPrimeTimeEnforced()).toBe(true)
+    expect(primeTimeActive(primeWindow, now)).toBe(true)
+  })
+
+  test("primeTimeWindowEnd reports no end while enforcement is disabled", () => {
+    expect(primeTimeWindowEnd(primeWindow, now)).toBe(windowEnd)
+    setPrimeTimeEnforced(false)
+    expect(primeTimeWindowEnd(primeWindow, now)).toBeUndefined()
+    expect(primeTimeActive(primeWindow, now)).toBe(false)
   })
 })

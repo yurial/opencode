@@ -47,6 +47,14 @@ export const ConsoleSwitchPayload = Schema.Struct({
   orgID: OrgID,
 })
 
+export const PrimeTimeState = Schema.Struct({
+  enabled: Schema.Boolean,
+}).annotate({ identifier: "ExperimentalPrimeTimeState" })
+
+export const PrimeTimeSwitchPayload = Schema.Struct({
+  enabled: Schema.Boolean,
+})
+
 const ToolIDs = Schema.Array(Schema.String).annotate({ identifier: "ToolIDs" })
 const ToolListItem = Schema.Struct({
   id: Schema.String,
@@ -92,6 +100,8 @@ export const ExperimentalPaths = {
   console: "/experimental/console",
   consoleOrgs: "/experimental/console/orgs",
   consoleSwitch: "/experimental/console/switch",
+  primeTime: "/experimental/prime-time",
+  primeTimeSwitch: "/experimental/prime-time/switch",
   tool: "/experimental/tool",
   toolIDs: "/experimental/tool/ids",
   worktree: "/experimental/worktree",
@@ -147,6 +157,29 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "experimental.console.switchOrg",
             summary: "Switch active Console org",
             description: "Persist a new active Console account/org selection for the current local OpenCode state.",
+          }),
+        ),
+        HttpApiEndpoint.get("primeTime", ExperimentalPaths.primeTime, {
+          query: WorkspaceRoutingQuery,
+          success: described(PrimeTimeState, "Prime-time enforcement state"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.primeTime.get",
+            summary: "Get prime-time enforcement state",
+            description: "Get whether prime-time enforcement is currently enabled for this OpenCode server process.",
+          }),
+        ),
+        HttpApiEndpoint.post("primeTimeSwitch", ExperimentalPaths.primeTimeSwitch, {
+          query: WorkspaceRoutingQuery,
+          payload: PrimeTimeSwitchPayload,
+          success: described(PrimeTimeState, "New prime-time enforcement state"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.primeTime.switch",
+            summary: "Switch prime-time enforcement",
+            description:
+              "Enable or disable prime-time enforcement for this OpenCode server process and return the new state.",
           }),
         ),
         HttpApiEndpoint.get("tool", ExperimentalPaths.tool, {

@@ -272,6 +272,46 @@ function parseTimeOfDay(value: string): PrimeTimeBound | null {
 }
 
 /**
+ * Process-wide prime-time enforcement state.
+ *
+ * Used to disable prime-time blocking for the whole process (e.g. by the
+ * `experimental.primeTimeSwitch` HTTP handler in packages/opencode or by test
+ * setup) without editing configuration: while enforcement is disabled,
+ * `primeTimeActive` reports no active window and
+ * `primeTimeWindowEnd` reports no end, regardless of the configured bounds.
+ */
+let primeTimeEnforced = true
+
+/**
+ * Enables or disables prime-time enforcement for the whole process.
+ *
+ * Called by the `experimental.primeTimeSwitch` HTTP handler in
+ * packages/opencode and by tests to turn prime-time blocking off at runtime
+ * and to restore it.
+ *
+ * Contract:
+ * - `true` (the initial state) enforces the configured windows;
+ *   `false` makes `primeTimeActive` return `false` and `primeTimeWindowEnd`
+ *   return `undefined` for every window until the next call.
+ * - The state is module-level, so the last call wins, is not per-config, and
+ *   persists until the next call; configured windows themselves stay intact
+ *   and take effect again after re-enabling.
+ */
+export function setPrimeTimeEnforced(enabled: boolean): void {
+  primeTimeEnforced = enabled
+}
+
+/**
+ * Reports whether prime-time enforcement is currently enabled process-wide.
+ *
+ * Used to inspect the toggle set by `setPrimeTimeEnforced`, e.g. to capture
+ * and restore the previous state around a scoped disable.
+ */
+export function isPrimeTimeEnforced(): boolean {
+  return primeTimeEnforced
+}
+
+/**
  * Reports whether `now` falls inside the configured prime-time window,
  * evaluated in the window's timezone.
  *
@@ -285,6 +325,9 @@ function parseTimeOfDay(value: string): PrimeTimeBound | null {
  *   schema rejects malformed bounds and zone-inconsistent pairs at load time;
  *   this predicate additionally treats them as "no window" (fail-open backstop
  *   for values that bypass the schema).
+ * - Process-wide enforcement disabled via `setPrimeTimeEnforced(false)`
+ *   overrides any window: the predicate reports "no window" for as long as the
+ *   toggle is off.
  * - The window timezone is the shared explicit offset of both bounds, or the
  *   process timezone when neither bound has a suffix. Both the weekday and the
  *   seconds-of-day of `now` are computed in that timezone: the instant is
@@ -299,6 +342,7 @@ function parseTimeOfDay(value: string): PrimeTimeBound | null {
  *   timezone).
  */
 export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date()): boolean {
+  if (!primeTimeEnforced) return false
   const start = window.primeTimeStart
   const end = window.primeTimeEnd
   const days = window.primeTimeDay
@@ -325,14 +369,17 @@ export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date())
 /**
  * Returns the epoch-millisecond instant of the configured window's end: the
  * first instant at which `primeTimeActive` no longer matches, or `undefined`
- * when the window is inactive, unconfigured, malformed, or never ends (a span
+ * when the window is inactive, unconfigured, malformed, never ends (a span
  * covering every second of listed days, such as 00:00:00–23:59:59 on all
- * weekdays).
+ * weekdays), or process-wide enforcement is disabled via
+ * `setPrimeTimeEnforced(false)` — the same "window not active" outcome as
+ * `primeTimeActive`.
  *
  * Used to schedule a prime-time-blocked retry for `primeTimeRetry` models: the
  * delay is the time remaining until this instant.
  */
 export function primeTimeWindowEnd(window: PrimeTimeWindow, now: Date = new Date()): number | undefined {
+  if (!primeTimeEnforced) return undefined
   const start = window.primeTimeStart
   const end = window.primeTimeEnd
   const days = window.primeTimeDay

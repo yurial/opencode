@@ -450,6 +450,15 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   const [pasteSummaryEnabled, setPasteSummaryEnabled] = createSignal(
     kv.get("paste_summary_enabled", !sync.data.config.experimental?.disable_paste_summary),
   )
+  const [primeTimeEnforced, setPrimeTimeEnforced] = createSignal(true)
+  onMount(() => {
+    sdk.client.experimental.primeTime
+      .get()
+      .then((result) => {
+        if (result.data) setPrimeTimeEnforced(result.data.enabled)
+      })
+      .catch(() => {})
+  })
 
   // Update terminal window title based on current route and session
   createEffect(() => {
@@ -942,6 +951,29 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         run: async () => {
           kv.set("session_directory_filter_enabled", !kv.get("session_directory_filter_enabled", true))
           await sync.session.refresh()
+          dialog.clear()
+        },
+      },
+      {
+        name: "app.toggle.prime_time",
+        title: primeTimeEnforced()
+          ? "Prime time: on — toggle model time restrictions"
+          : "Prime time: off — toggle model time restrictions",
+        category: "System",
+        run: async () => {
+          const state = await sdk.client.experimental.primeTime.get()
+          const result = await sdk.client.experimental.primeTime.switch({
+            enabled: !(state.data?.enabled ?? primeTimeEnforced()),
+          })
+          if (result.error || result.data === undefined) {
+            toast.show({ variant: "error", message: "Failed to toggle prime time", duration: 5000 })
+            return
+          }
+          setPrimeTimeEnforced(result.data.enabled)
+          toast.show({
+            variant: "info",
+            message: `Prime time enforcement ${result.data.enabled ? "enabled" : "disabled"}`,
+          })
           dialog.clear()
         },
       },

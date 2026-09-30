@@ -1712,9 +1712,9 @@ export type AgentConfig = {
     [key: string]: unknown
   }
   /**
-   * Hex color code (e.g., #FF5733) or theme color (e.g., primary)
+   * Hex color code (e.g., #FF5733), theme color (e.g., primary), or theme element (e.g., agent.color.one)
    */
-  color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+  color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info" | string
   steps?: number
   maxSteps?: number
   permission?: PermissionConfig
@@ -1740,6 +1740,7 @@ export type AgentConfig = {
     | "warning"
     | "error"
     | "info"
+    | string
     | number
     | PermissionConfig
     | undefined
@@ -1771,7 +1772,7 @@ export type ProviderConfig = {
      */
     chunkTimeout?: number | false
     retries?: number
-    [key: string]: unknown | string | boolean | number | false | number | false | number | number | undefined
+    [key: string]: unknown | string | boolean | number | false | number | false | number | false | number | undefined
   }
   models?: {
     [key: string]: {
@@ -1944,6 +1945,7 @@ export type Config = {
     ignore?: Array<string>
   }
   snapshot?: boolean
+  discard_context?: boolean
   plugin?: Array<
     | string
     | [
@@ -2174,6 +2176,10 @@ export type ConsoleState = {
 
 export type EffectHttpApiErrorInternalServerError = {
   _tag: "InternalServerError"
+}
+
+export type ExperimentalPrimeTimeState = {
+  enabled: boolean
 }
 
 export type ToolListItem = {
@@ -3089,6 +3095,7 @@ export type PromptSource = {
 }
 
 export type PromptFileAttachment = {
+  id?: string
   uri: string
   mime: string
   name?: string
@@ -7661,6 +7668,67 @@ export type ExperimentalConsoleSwitchOrgResponses = {
 
 export type ExperimentalConsoleSwitchOrgResponse =
   ExperimentalConsoleSwitchOrgResponses[keyof ExperimentalConsoleSwitchOrgResponses]
+
+export type ExperimentalPrimeTimeGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/prime-time"
+}
+
+export type ExperimentalPrimeTimeGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ExperimentalPrimeTimeGetError = ExperimentalPrimeTimeGetErrors[keyof ExperimentalPrimeTimeGetErrors]
+
+export type ExperimentalPrimeTimeGetResponses = {
+  /**
+   * Prime-time enforcement state
+   */
+  200: ExperimentalPrimeTimeState
+}
+
+export type ExperimentalPrimeTimeGetResponse =
+  ExperimentalPrimeTimeGetResponses[keyof ExperimentalPrimeTimeGetResponses]
+
+export type ExperimentalPrimeTimeSwitchData = {
+  body?: {
+    enabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/prime-time/switch"
+}
+
+export type ExperimentalPrimeTimeSwitchErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type ExperimentalPrimeTimeSwitchError =
+  ExperimentalPrimeTimeSwitchErrors[keyof ExperimentalPrimeTimeSwitchErrors]
+
+export type ExperimentalPrimeTimeSwitchResponses = {
+  /**
+   * New prime-time enforcement state
+   */
+  200: ExperimentalPrimeTimeState
+}
+
+export type ExperimentalPrimeTimeSwitchResponse =
+  ExperimentalPrimeTimeSwitchResponses[keyof ExperimentalPrimeTimeSwitchResponses]
 
 export type ToolListData = {
   body?: never

@@ -11,11 +11,18 @@ import type { SessionID } from "@/session/schema"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
 import { Worktree } from "@/worktree"
+import { isPrimeTimeEnforced, setPrimeTimeEnforced } from "@opencode-ai/core/v1/config/provider"
 import { Effect, Option } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
+import {
+  ConsoleSwitchPayload,
+  PrimeTimeSwitchPayload,
+  SessionListQuery,
+  ToolListQuery,
+  WorktreeApiError,
+} from "../groups/experimental"
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
   return self.pipe(
@@ -89,6 +96,17 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
         .use(ctx.payload.accountID, Option.some(ctx.payload.orgID))
         .pipe(Effect.catch(() => Effect.fail(new HttpApiError.BadRequest({}))))
       return true
+    })
+
+    const primeTime = Effect.fn("ExperimentalHttpApi.primeTime")(function* () {
+      return { enabled: isPrimeTimeEnforced() }
+    })
+
+    const primeTimeSwitch = Effect.fn("ExperimentalHttpApi.primeTimeSwitch")(function* (ctx: {
+      payload: typeof PrimeTimeSwitchPayload.Type
+    }) {
+      setPrimeTimeEnforced(ctx.payload.enabled)
+      return { enabled: isPrimeTimeEnforced() }
     })
 
     const tool = Effect.fn("ExperimentalHttpApi.tool")(function* (ctx: { query: typeof ToolListQuery.Type }) {
@@ -180,6 +198,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("console", getConsole)
       .handle("consoleOrgs", listConsoleOrgs)
       .handle("consoleSwitch", switchConsole)
+      .handle("primeTime", primeTime)
+      .handle("primeTimeSwitch", primeTimeSwitch)
       .handle("tool", tool)
       .handle("toolIDs", toolIDs)
       .handle("worktree", worktree)

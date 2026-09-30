@@ -38,6 +38,10 @@ import type {
   ExperimentalConsoleSwitchOrgResponses,
   ExperimentalControlPlaneMoveSessionErrors,
   ExperimentalControlPlaneMoveSessionResponses,
+  ExperimentalPrimeTimeGetErrors,
+  ExperimentalPrimeTimeGetResponses,
+  ExperimentalPrimeTimeSwitchErrors,
+  ExperimentalPrimeTimeSwitchResponses,
   ExperimentalProjectCopyGenerateNameErrors,
   ExperimentalProjectCopyGenerateNameResponses,
   ExperimentalResourceListErrors,
@@ -802,6 +806,83 @@ export class Console extends HeyApiClient {
   }
 }
 
+export class PrimeTime extends HeyApiClient {
+  /**
+   * Get prime-time enforcement state
+   *
+   * Get whether prime-time enforcement is currently enabled for this OpenCode server process.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ExperimentalPrimeTimeGetResponses,
+      ExperimentalPrimeTimeGetErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/prime-time",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Switch prime-time enforcement
+   *
+   * Enable or disable prime-time enforcement for this OpenCode server process and return the new state.
+   */
+  public switch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      enabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ExperimentalPrimeTimeSwitchResponses,
+      ExperimentalPrimeTimeSwitchErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/prime-time/switch",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session extends HeyApiClient {
   /**
    * List sessions
@@ -1254,6 +1335,11 @@ export class Experimental extends HeyApiClient {
   private _console?: Console
   get console(): Console {
     return (this._console ??= new Console({ client: this.client }))
+  }
+
+  private _primeTime?: PrimeTime
+  get primeTime(): PrimeTime {
+    return (this._primeTime ??= new PrimeTime({ client: this.client }))
   }
 
   private _session?: Session

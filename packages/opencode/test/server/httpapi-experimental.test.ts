@@ -10,6 +10,7 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
 import { Database } from "@opencode-ai/core/database/database"
 import { AccountV2 } from "@opencode-ai/core/account"
 import { AccountTable } from "@opencode-ai/core/account/sql"
+import { setPrimeTimeEnforced } from "@opencode-ai/core/v1/config/provider"
 import { Worktree } from "../../src/worktree"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
@@ -229,6 +230,42 @@ describe("experimental HttpApi", () => {
         expect(switched.status).toBe(200)
         expect(yield* json(switched)).toBe(true)
       }),
+    { config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
+    "reads and switches prime-time enforcement through the default server app",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* TestInstance
+        const initial = yield* request(ExperimentalPaths.primeTime, tmp.directory)
+        expect(initial.status).toBe(200)
+        expect(yield* json<{ enabled: boolean }>(initial)).toEqual({ enabled: true })
+
+        const switched = yield* request(ExperimentalPaths.primeTimeSwitch, tmp.directory, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: false }),
+        })
+        expect(switched.status).toBe(200)
+        expect(yield* json<{ enabled: boolean }>(switched)).toEqual({ enabled: false })
+
+        const afterSwitch = yield* request(ExperimentalPaths.primeTime, tmp.directory)
+        expect(afterSwitch.status).toBe(200)
+        expect(yield* json<{ enabled: boolean }>(afterSwitch)).toEqual({ enabled: false })
+
+        const reEnabled = yield* request(ExperimentalPaths.primeTimeSwitch, tmp.directory, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        })
+        expect(reEnabled.status).toBe(200)
+        expect(yield* json<{ enabled: boolean }>(reEnabled)).toEqual({ enabled: true })
+      }).pipe(
+        // The toggle is process-global module state; restore the default so the
+        // switch cannot leak into unrelated tests in the same run.
+        Effect.ensuring(Effect.sync(() => setPrimeTimeEnforced(true))),
+      ),
     { config: { formatter: false, lsp: false } },
   )
 
