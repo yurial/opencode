@@ -956,14 +956,11 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
       },
       {
         name: "app.toggle.prime_time",
-        title: primeTimeEnforced()
-          ? "Prime time: on — toggle model time restrictions"
-          : "Prime time: off — toggle model time restrictions",
+        title: primeTimeEnforced() ? "Disable prime-time limitations" : "Enable prime-time limitations",
         category: "System",
         run: async () => {
-          const state = await sdk.client.experimental.primeTime.get()
           const result = await sdk.client.experimental.primeTime.switch({
-            enabled: !(state.data?.enabled ?? primeTimeEnforced()),
+            enabled: !primeTimeEnforced(),
           })
           if (result.error || result.data === undefined) {
             toast.show({ variant: "error", message: "Failed to toggle prime time", duration: 5000 })
