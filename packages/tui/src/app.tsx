@@ -959,9 +959,23 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         title: primeTimeEnforced() ? "Disable prime-time limitations" : "Enable prime-time limitations",
         category: "System",
         run: async () => {
-          const result = await sdk.client.experimental.primeTime.switch({
-            enabled: !primeTimeEnforced(),
-          })
+          // A rejected call must surface as a toast: servers without the
+          // prime-time routes answer the SPA fallback with text/html and the
+          // SDK client throws, while the keymap swallows async command
+          // errors silently.
+          const result = await sdk.client.experimental.primeTime
+            .switch({
+              enabled: !primeTimeEnforced(),
+            })
+            .catch((error: unknown) => {
+              toast.show({
+                variant: "error",
+                message: error instanceof Error && error.message ? error.message : "Failed to toggle prime time",
+                duration: 5000,
+              })
+              return undefined
+            })
+          if (!result) return
           if (result.error || result.data === undefined) {
             toast.show({ variant: "error", message: "Failed to toggle prime time", duration: 5000 })
             return
