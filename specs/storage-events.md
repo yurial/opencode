@@ -466,7 +466,10 @@ the passive WAL checkpoint are qualitative startup pragmas (R2).
 
 ## Used by
 
-None. No other spec currently cites this reference.
+- scheduler — schedule-table ownership and column conventions (R11, R12,
+  R14), migration registration (R10), the durable publish transaction for
+  fired events (R15–R18); its single delivery loop assumes the
+  single-writer constraint of Constraints.
 
 ## Verification
 

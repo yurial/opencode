@@ -31,6 +31,16 @@
 | event-retention/watermark | The per-aggregate value inside a posted map: a non-negative integer declaring the highest event seq the replica already possesses for that aggregate | event-retention |
 | event-retention/watermark-map | The complete record a replica posts as the /sync/history request payload, mapping aggregate IDs to watermark values | event-retention |
 | event-retention/window | The server's in-memory bounded collection of the most recently posted maps, each stamped with receipt time; bounded by SYNC_WATERMARK_WINDOW_SIZE and SYNC_WATERMARK_TTL | event-retention (R2) |
+| scheduler/catch-up-fire | A fire delivered after its scheduled fire time because the due time passed while the process was down or an earlier delivery attempt failed; carries the catch-up marker and discharges every skipped occurrence of a recurring schedule at once | scheduler (R7.1) |
+| scheduler/cron-spec | The standard five-field cron expression that is the canonical stored firing rule of a recurring schedule; the only spec form stored, echoed, and fired, including schedules created from an interval | scheduler (R3.3) |
+| scheduler/fire | The delivery of a schedule message into its owning session at a reached due time: the durable publish plus the prompt admission of the fired message | scheduler (R6.2) |
+| scheduler/fired-message | The message text delivered by a fire, following the fixed grammar of the scheduler spec's Interface section, with the catch-up marker appended for a catch-up fire | scheduler (R6.6) |
+| scheduler/next-due-time | The stored UTC timestamp at which a schedule is next to fire | scheduler (R6.2) |
+| scheduler/one-shot | A schedule created from a datetime that fires exactly once at that time and is removed by its fire | scheduler (R6.9) |
+| scheduler/recurring | A schedule whose firing rule is a cron-spec; it fires at every match and survives each fire until removed | scheduler (R6.8) |
+| scheduler/schedule | A persisted record binding a firing rule and a message text to the session whose tool call created it, identified by a `sch_`-prefixed id | scheduler (R2.1) |
+| scheduler/scheduled-fire-time | The UTC time of the occurrence a fire discharges; equal to the next-due-time when the fire is initiated | scheduler (R6.6) |
+| scheduler/service | The process-global service node that owns schedule rows and the single delivery loop of one process | scheduler (R8.1) |
 | tool-interactive/auto-feed-cycle | The runtime-driven alternation in which every settled interactive tool result (bounded new output + status) is followed by an automatic continuation provider turn; the model initiates each exchange with start/write/wait and the runtime never starts a turn for background output | tool-interactive (R15) |
 | tool-interactive/delivery-cursor | The monotonically advancing byte offset of a job's spooled combined output up to which output has been embedded in tool results; bytes elided by chunk-cap truncation are never re-embedded | tool-interactive (R25) |
 | tool-interactive/exchange | One auto-fed provider turn: the durable settlement of one interactive start/write/wait result followed by the automatic continuation turn; counted against the job's exchange budget, distinct from the agent step budget that it also consumes | tool-interactive (R18, R21) |

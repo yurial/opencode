@@ -490,3 +490,10 @@ A `workdir` outside the instance always adds the `external_directory` ask.
 | `flags.bashDefaultTimeoutMs` | ms | 120000 | Default bash timeout |
 | `OPENCODE_WEBSEARCH_PROVIDER` | `exa` \| `parallel` | — | Overrides websearch provider selection |
 | `EXA_API_KEY` / `PARALLEL_API_KEY` | string | — | Websearch endpoint auth |
+
+## Used by
+
+- scheduler — the `scheduler` built-in registers through the V1 tool
+  contract and registry (T2, T3), gates add and remove through the
+  `ctx.ask` session-invocation flow (T5), and follows the permission-matrix
+  row pattern (P4) under the permission key `scheduler`.

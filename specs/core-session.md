@@ -726,3 +726,8 @@ These represent invariant violations, not operator-recoverable conditions.
 - core-discard-context — discard-part filtering step inserted between history
   loading and lowering/compaction in the provider-turn section above,
   specified there.
+- scheduler — schedule fires ride the durable admission and serialized-drain
+  path (§3–§4), publish `SessionEvent.ContextUpdated` without advancing a
+  context epoch (§6.2, §8.2), and accept the epoch-scoped visibility of fired
+  system messages (§8.3); V1-served sessions get the V1 boundary delivery
+  of §10.
