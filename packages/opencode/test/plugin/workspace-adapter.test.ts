@@ -18,6 +18,7 @@ import { AccountTest } from "../fake/account"
 import { AuthTest } from "../fake/auth"
 import { NpmTest } from "../fake/npm"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 
 const noopBootstrapLayer = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
@@ -28,6 +29,9 @@ const it = testEffect(
     [Npm.node, NpmTest.noop],
     [InstanceStore.bootstrapNode, noopBootstrapLayer],
     [RuntimeFlags.node, RuntimeFlags.layer({ disableDefaultPlugins: true, experimentalWorkspaces: true })],
+    // The workspace graph pulls in the scheduler, whose SessionExecution
+    // dependency is unbound; these tests drain nothing.
+    [SessionExecution.node, SessionExecution.noopLayer],
   ]),
 )
 

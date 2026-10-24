@@ -3,6 +3,9 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Layer, Stream } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
+import { SessionExecutionLocal } from "@opencode-ai/core/session/execution/local"
+import { SessionStore } from "@opencode-ai/core/session/store"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { registerAdapter } from "../../src/control-plane/adapters"
@@ -26,8 +29,22 @@ import { httpApiLayer, requestInDirectory } from "./httpapi-layer"
 
 const originalWorkspaces = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
 const appLayer = AppNodeBuilder.build(
-  LayerNode.group([Project.node, Session.node, Workspace.node, InstanceStore.node, Database.node, Ripgrep.node]),
-  [[InstanceStore.bootstrapNode, InstanceBootstrap.node]],
+  LayerNode.group([
+    Project.node,
+    Session.node,
+    Workspace.node,
+    InstanceStore.node,
+    Database.node,
+    SessionStore.node,
+    Ripgrep.node,
+  ]),
+  [
+    [InstanceStore.bootstrapNode, InstanceBootstrap.node],
+    // The workspace graph pulls in the scheduler, whose SessionExecution
+    // dependency is unbound; bind a real local execution so the merge does
+    // not hand the served routes a no-op wake.
+    [SessionExecution.node, SessionExecutionLocal.node],
+  ],
 )
 const it = testEffect(Layer.mergeAll(appLayer, httpApiLayer))
 

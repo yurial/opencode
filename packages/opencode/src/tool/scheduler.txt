@@ -1,0 +1,7 @@
+Schedule future events for the current session and manage existing ones.
+
+- add: schedule `message` to fire into this session. Pass exactly one firing rule: `every` (interval like `30m`, `1h`, `1d`; converted to cron and stored in cron form), `cron` (standard five-field cron expression, UTC), or `at` (one-shot ISO 8601 datetime; naive resolves in the local timezone, zoned resolves to its offset; must be in the future).
+- remove: delete a schedule of this session by `id`.
+- list: show this session's schedules with id, firing rule, next due time (UTC), and message.
+
+Fires are not tool calls: at each due time a fired message is delivered into the session and you should act on it. All schedules are bound to the current session and are removed with it. Recurring fires evaluate in UTC; a recurring schedule survives each fire until removed, a one-shot fires exactly once.

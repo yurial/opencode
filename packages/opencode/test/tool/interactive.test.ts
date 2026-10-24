@@ -1,4 +1,6 @@
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
 import { InteractiveTool } from "@opencode-ai/core/tool/interactive"
 import { InteractiveProcess } from "@opencode-ai/core/tool/interactive/runtime"
@@ -31,10 +33,13 @@ const configLayer = TestConfig.layer()
 // The same bridge the server uses: the V1 registry graph gets a
 // LocationServiceMap whose location graph runs the fake interactive runtime.
 const it = testEffect(
-  LayerNode.compile(LayerNode.group([ToolRegistry.node, Agent.node]), [
+  AppNodeBuilder.build(LayerNode.group([ToolRegistry.node, Agent.node]), [
     [Config.node, configLayer],
     [RuntimeFlags.node, RuntimeFlags.layer()],
     [LocationServiceMap.node, buildLocationServiceMap([[InteractiveProcess.node, fake.layer]])],
+    // The registry graph pulls in the scheduler, whose SessionExecution
+    // dependency is unbound; these tests drain nothing.
+    [SessionExecution.node, SessionExecution.noopLayer],
   ]),
 )
 

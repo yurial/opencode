@@ -1,6 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
+import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { PlanExitTool } from "./plan"
 import { DiscardContextTool } from "./discard-context"
 import { Session } from "@/session/session"
@@ -13,6 +14,7 @@ import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { Database } from "@opencode-ai/core/database/database"
 import { TodoWriteTool } from "./todo"
+import { SchedulerTool } from "./scheduler"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
@@ -111,6 +113,7 @@ const layer = Layer.effect(
     const read = yield* ReadTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
+    const schedulerTool = yield* SchedulerTool
     const lsptool = yield* LspTool
     const plan = yield* PlanExitTool
     const discard = yield* DiscardContextTool
@@ -234,6 +237,7 @@ const layer = Layer.effect(
           task: Tool.init(task),
           fetch: Tool.init(webfetch),
           todo: Tool.init(todo),
+          scheduler: Tool.init(schedulerTool),
           search: Tool.init(websearch),
           skill: Tool.init(skilltool),
           patch: Tool.init(patchtool),
@@ -261,6 +265,7 @@ const layer = Layer.effect(
             tool.task,
             tool.fetch,
             tool.todo,
+            tool.scheduler,
             tool.search,
             tool.skill,
             tool.patch,
@@ -477,6 +482,7 @@ export const node = LayerNode.make({
     RuntimeFlags.node,
     MCP.node,
     Database.node,
+    Scheduler.node,
     Ripgrep.node,
     // bridges the interactive tool family to the Location-scoped V2 job store
     locationServiceMapNode,

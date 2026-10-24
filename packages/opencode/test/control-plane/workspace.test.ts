@@ -31,6 +31,7 @@ import { InstanceBootstrap } from "@/project/bootstrap"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 
 const originalEnv = {
@@ -53,10 +54,10 @@ const workspaceLayer = (experimentalWorkspaces: boolean) =>
     ]),
     [
       [RuntimeFlags.node, RuntimeFlags.layer({ experimentalWorkspaces })],
-      [
-        InstanceStore.bootstrapNode,
-        Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void })),
-      ],
+      [InstanceStore.bootstrapNode, Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))],
+      // The workspace graph pulls in the scheduler, whose SessionExecution
+      // dependency is unbound; these tests drain nothing.
+      [SessionExecution.node, SessionExecution.noopLayer],
     ],
   )
 

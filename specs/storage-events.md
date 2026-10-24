@@ -266,7 +266,7 @@ the passive WAL checkpoint are qualitative startup pragmas (R2).
   `account_state`, `account`, `control_account`, `credential`, `event_sequence`,
   `event`, `permission`, `project_directory`, `project`, `message`, `part`,
   `session_context_epoch`, `session_input`, `session_message`, `session`, `todo`,
-  `session_share`, with foreign keys cascading on delete from their owners (except
+  `session_share`, `schedule`, with foreign keys cascading on delete from their owners (except
   `account_state.active_account_id`, which clears). Data backfills ride the same
   migration pipeline as DDL (for example `20260510033149_session_usage.ts`).
 

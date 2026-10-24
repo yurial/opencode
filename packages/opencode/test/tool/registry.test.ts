@@ -13,6 +13,14 @@ import { Config } from "@/config/config"
 import { Plugin } from "@/plugin"
 import { Agent } from "@/agent/agent"
 import { InstanceState } from "@/effect/instance-state"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
+
+// The registry graph now transitively contains the scheduler service, whose
+// SessionExecution dependency is unbound by design and needs a host
+// replacement. The registry tests exercise no firing or draining, so the
+// no-op session execution keeps that edge inert.
+const schedulerReplacements = [[SessionExecution.node, SessionExecution.noopLayer]] as const
 
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MessageID, SessionID } from "@/session/schema"
@@ -73,11 +81,12 @@ const replacements = [
   [RuntimeFlags.node, RuntimeFlags.layer()],
 ] as const
 
-const it = testEffect(LayerNode.compile(root, replacements))
+const it = testEffect(AppNodeBuilder.build(root, [...replacements, ...schedulerReplacements]))
 const withCodeMode = testEffect(
-  LayerNode.compile(root, [
+  AppNodeBuilder.build(root, [
     [Config.node, configLayer],
     [RuntimeFlags.node, RuntimeFlags.layer({ experimentalCodeMode: true })],
+    ...schedulerReplacements,
     [
       MCP.node,
       Layer.mock(MCP.Service, {
@@ -98,9 +107,10 @@ const withCodeMode = testEffect(
   ]),
 )
 const withEmptyCodeMode = testEffect(
-  LayerNode.compile(root, [
+  AppNodeBuilder.build(root, [
     [Config.node, configLayer],
     [RuntimeFlags.node, RuntimeFlags.layer({ experimentalCodeMode: true })],
+    ...schedulerReplacements,
     [
       MCP.node,
       Layer.mock(MCP.Service, {
@@ -110,26 +120,29 @@ const withEmptyCodeMode = testEffect(
     ],
   ]),
 )
-const withBrokenPlugin = testEffect(LayerNode.compile(root, [...replacements, [Plugin.node, brokenPluginLayer]]))
+const withBrokenPlugin = testEffect(AppNodeBuilder.build(root, [...replacements, ...schedulerReplacements, [Plugin.node, brokenPluginLayer]]))
 
 const withDiscard = testEffect(
-  LayerNode.compile(root, [
+  AppNodeBuilder.build(root, [
     [Config.node, discardConfigLayer],
     [RuntimeFlags.node, RuntimeFlags.layer()],
+    ...schedulerReplacements,
   ] as const),
 )
 
 const withDiscardOff = testEffect(
-  LayerNode.compile(root, [
+  AppNodeBuilder.build(root, [
     [Config.node, discardOffConfigLayer],
     [RuntimeFlags.node, RuntimeFlags.layer()],
+    ...schedulerReplacements,
   ] as const),
 )
 
 const withDiscardToggle = testEffect(
-  LayerNode.compile(root, [
+  AppNodeBuilder.build(root, [
     [Config.node, discardToggleConfigLayer],
     [RuntimeFlags.node, RuntimeFlags.layer()],
+    ...schedulerReplacements,
   ] as const),
 )
 
@@ -138,6 +151,15 @@ afterEach(async () => {
 })
 
 describe("tool.registry", () => {
+  it.instance("exposes the scheduler tool as a builtin", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).toContain("scheduler")
+    }),
+  )
+
   it.instance("does not expose task_status", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

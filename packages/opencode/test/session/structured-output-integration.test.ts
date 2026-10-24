@@ -3,6 +3,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Effect } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Session } from "@/session/session"
 import { SessionPrompt } from "../../src/session/prompt"
@@ -11,7 +12,13 @@ import { testEffect } from "../lib/effect"
 
 // Skip tests if no API key is available
 const hasApiKey = !!process.env.ANTHROPIC_API_KEY
-const it = testEffect(AppNodeBuilder.build(LayerNode.group([SessionPrompt.node, Session.node, Ripgrep.node])))
+const it = testEffect(
+  AppNodeBuilder.build(LayerNode.group([SessionPrompt.node, Session.node, Ripgrep.node]), [
+    // The session graph pulls in the scheduler (via the tool registry), whose
+    // SessionExecution dependency is unbound; this test drives the V1 loop.
+    [SessionExecution.node, SessionExecution.noopLayer],
+  ]),
+)
 const live = hasApiKey ? it.instance : it.instance.skip
 
 describe("StructuredOutput Integration", () => {

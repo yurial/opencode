@@ -66,6 +66,8 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
+import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
+import { SchedulerV1PromptLocal } from "@/scheduler/v1-prompt"
 import { lazy } from "@/util/lazy"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@opencode-ai/server/cors"
 import { serveUIEffect } from "@/server/shared/ui"
@@ -266,6 +268,8 @@ const app = LayerNode.group([
   ProjectV2.node,
   ProjectCopy.node,
   PtyTicket.node,
+  Scheduler.node,
+  SchedulerV1PromptLocal.node,
 ])
 
 export function createRoutes(
@@ -301,9 +305,20 @@ export function createRoutes(
         [SessionExecution.node, SessionExecutionLocal.node],
       ]),
     ),
+    Layer.provide(
+      AppNodeBuilderV1.build(Scheduler.node, [
+        [LocationServiceMap.node, locationServiceMapV2],
+        [SessionExecution.node, SessionExecutionLocal.node],
+      ]),
+    ),
     Layer.provide(locationServiceMapV2),
 
-    Layer.provide(AppNodeBuilderV1.build(app)),
+    Layer.provide(
+      AppNodeBuilderV1.build(app, [
+        [SessionExecution.node, SessionExecutionLocal.node],
+        [LocationServiceMap.node, locationServiceMapV2],
+      ]),
+    ),
     // Must stay last: layers provided later in this pipe build beneath earlier ones,
     // so Observability must come after every service graph. Otherwise eagerly forked
     // fibers (e.g. the ModelsDev background refresh) capture Effect's default stdout

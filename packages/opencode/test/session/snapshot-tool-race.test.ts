@@ -13,7 +13,9 @@
  */
 import { expect } from "bun:test"
 import { Effect, Layer } from "effect"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 import fs from "fs/promises"
 import path from "path"
 import { Session } from "@/session/session"
@@ -87,10 +89,13 @@ const root = LayerNode.group([
   LayerNode.make({ service: TestLLMServer, layer: TestLLMServer.layer, deps: [] }),
 ])
 const it = testEffect(
-  LayerNode.compile(root, [
+  AppNodeBuilder.build(root, [
     [MCP.node, mcp],
     [LSP.node, lsp],
     [RuntimeFlags.node, RuntimeFlags.layer({ experimentalEventSystem: true })],
+    // The session graph pulls in the scheduler (via the tool registry), whose
+    // SessionExecution dependency is unbound; this test drives the V1 loop.
+    [SessionExecution.node, SessionExecution.noopLayer],
   ]),
 )
 
