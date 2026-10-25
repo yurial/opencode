@@ -1,6 +1,6 @@
 # Scheduler Tool
 
-Status: draft
+Status: stable
 Reference: scheduler
 Spec source of truth for: the AI-facing scheduler — the `scheduler` tool (actions add, remove, list), session-bound persisted schedules, the interval, cron, and one-shot time-spec inputs, fire delivery into sessions served by the V2 and the V1 runtime, missed-fire catch-up, permission gating, and the process-global scheduler service with its single delivery loop.
 
@@ -200,7 +200,7 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - I3. The schedule table lives with the core storage tables, carries a cascading foreign key to the session table, an index on `next_fire_at` for the due-time scan, and an index on `session_id` for list and cascade.
 - I4. The scheduler/service depends on the database, the durable event publish path, the session execution service, the session store, and the V1 prompt admission path; hosts bind it in the application-services graph like the other process-global service nodes.
 - I5. The V2 admission of a fire uses the admit-only form of the session prompt interface, and the delivery loop issues the execution wake itself after the event publish.
-- I6. The delivery loop is the sole writer of schedule rows: it applies tool add and remove requests, and a fire publishes, admits, and only then advances or removes the row.
+- I6. The delivery loop is the sole writer of schedule rows: serialization through the loop (R8.3) is the ordering of fire deliveries and the mutual exclusion of schedule-row mutations and fire bookkeeping under the loop's single write permit. The write permit is never held across an external model turn. The V1 admission of a fire runs permit-free between the fire's start and finish phases. The finish phase advances or removes the row after the admission.
 - I7. At fire time the scheduler/service resolves the owning runtime of the session and routes the delivery to the V2 or the V1 path.
 
 ## Examples
