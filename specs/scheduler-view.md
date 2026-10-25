@@ -19,7 +19,7 @@ Out (non-goals): any schedule mutation surface — HTTP writes, schedule managem
 ## Definitions
 
 - **scheduler-view/annotator**: the always-on builtin host plugin that appends scheduler-view/annotation-line entries, each with a scheduler-view/eta and the absolute UTC time, to the output text of completed scheduler tool results.
-- **scheduler-view/annotation-line**: the single line the annotator appends to a completed scheduler tool result for one mentioned schedule, carrying the `sch_`-prefixed schedule id, the scheduler-view/eta, and the absolute UTC time, per the grammar of the Interface section.
+- **scheduler-view/annotation-line**: the single line the annotator appends to a completed scheduler tool result for the scheduler/schedule named in the same output line as the first `next due <instant>` fragment of that line, carrying the `sch_`-prefixed schedule id, the scheduler-view/eta, and the absolute UTC time, per the grammar of the Interface section.
 - **scheduler-view/eta**: the relative time-to-fire text of one schedule, derived from its scheduler/next-due-time minus the scheduler-view/eta-clock, following the ETA grammar of the Interface section.
 - **scheduler-view/eta-clock**: the UTC clock of the process rendering a scheduler-view/eta — the server host process for the annotator, the TUI process for the sidebar block.
 - **scheduler-view/schedule-list-endpoint**: the read-only GET route that returns the scheduler-view/schedule-entry list of one session, ordered by next fire time.
@@ -38,7 +38,7 @@ Out (non-goals): any schedule mutation surface — HTTP writes, schedule managem
 eta <id>: <eta> (<absolute>)
 ```
 
-- `<id>`: the `sch_`-prefixed schedule id named in the same line as the annotated `next due` fragment.
+- `<id>`: the `sch_`-prefixed schedule id named in the same line as the first `next due` fragment of that line.
 - `<eta>`: the scheduler-view/eta of that schedule at annotation time.
 - `<absolute>`: the scheduler/next-due-time in the ISO 8601 UTC form of second precision (`YYYY-MM-DDTHH:MM:SSZ`).
 
@@ -86,7 +86,7 @@ eta <id>: <eta> (<absolute>)
 
 - `<eta>` and `<absolute>`: the same productions as the annotation line; the scheduler-view/eta-clock is the UTC clock of the TUI process.
 - `<spec>`: the cron string of a scheduler/recurring schedule, or the absolute UTC time of a scheduler/one-shot.
-- `<message>`: the shortened message — whitespace runs collapsed to single spaces, truncated to SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX characters with an ellipsis character appended when truncation occurs.
+- `<message>`: the shortened message — whitespace runs collapsed to single spaces, truncated to SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX UTF-16 code units with an ellipsis character appended when truncation occurs.
 
 ## Configuration
 
@@ -94,14 +94,14 @@ eta <id>: <eta> (<absolute>)
 |---|---|---|---|
 | SCHEDULER_VIEW_SIDEBAR_SLOT_ORDER | `fixed` 450 | — | `sidebar_content` slot order of the scheduler-view/sidebar-block (R4.2) |
 | SCHEDULER_VIEW_SIDEBAR_REFRESH_INTERVAL | `fixed` 30000 ms | — | Periodic refetch period of the sidebar block; every expiry refetches the schedule list and re-renders (R4.10) |
-| SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX | `fixed` 60 characters | — | Length bound of the shortened message of a sidebar entry line (R4.6) |
+| SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX | `fixed` 60 UTF-16 code units | — | Length bound of the shortened message of a sidebar entry line, counted and cut in UTF-16 code units (R4.6) |
 
 ## Requirements
 
 - R1. Annotator:
 - R1.1. The scheduler-view/annotator is a builtin host plugin that registers with the internal plugins of the server host process and enables and disables together with the other internal plugins.
 - R1.2. The annotator runs its annotation pass on every completed call of the scheduler tool, over the add, list, and remove actions alike.
-- R1.3. For every `next due <instant>` fragment that the output text of a completed scheduler tool result carries, the annotator appends exactly one scheduler-view/annotation-line for the scheduler/schedule named in the same line.
+- R1.3. For every line of the output text of a completed scheduler tool result that carries a `next due <instant>` fragment, the annotator appends exactly one scheduler-view/annotation-line, derived from the first such fragment of that line. A `next due <instant>` fragment other than the first of its line names no schedule and receives no annotation.
 - R1.4. The annotator appends the scheduler-view/annotation-line entries after the tool's own output text, in the order their schedules appear in that text.
 - R1.5. The annotator changes no line of the tool's own output text and leaves the result title and the result metadata unchanged.
 - R1.6. The scheduler-view/eta-clock of the annotator is the UTC clock of the server host process at annotation time.
@@ -128,7 +128,7 @@ eta <id>: <eta> (<absolute>)
 - R4.3. The scheduler-view/sidebar-block reads its data only through the SDK client of the TUI plugin api against the scheduler-view/schedule-list-endpoint of the current session and never imports backend scheduler implementation modules.
 - R4.4. The sidebar block renders one entry line per scheduler-view/schedule-entry of the last successful response, each line carrying the schedule id, the scheduler-view/eta, the absolute time, the spec form, and the shortened message.
 - R4.5. The spec form of an entry line is the cron string of a scheduler/recurring schedule and the absolute time of a scheduler/one-shot.
-- R4.6. The shortened message of an entry line collapses every whitespace run to a single space and truncates the text to SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX characters, appending an ellipsis character when truncation occurs.
+- R4.6. The shortened message of an entry line collapses every whitespace run to a single space and truncates the text to SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX UTF-16 code units, appending an ellipsis character when truncation occurs. A truncation boundary that falls inside a surrogate pair leaves the lone leading surrogate as the final code unit of the shortened message, before the appended ellipsis.
 - R4.7. The sidebar block renders the header line `Schedules` above its entry lines, and the whole block renders nothing while the response carries no schedule entry.
 - R4.8. The sidebar block refetches the schedule list when the current session changes.
 - R4.9. The sidebar block refetches the schedule list when a scheduler tool part is observed in the current session.
@@ -141,7 +141,7 @@ eta <id>: <eta> (<absolute>)
 ## Implementation
 
 - I1. The annotator implements its pass as a `tool.execute.after` hook of the host-plugin contract, filters on the tool name `scheduler`, and appends to the output text of the passed result object in place.
-- I2. The annotator extracts, from every line of the output text that carries the fragment `next due`, the schedule id as the first `sch_`-prefixed token of the line and the due instant as the token that follows the fragment.
+- I2. The annotator extracts, from every line of the output text that carries the fragment `next due`, the schedule id as the first `sch_`-prefixed token of the line and the due instant as the token that follows the first such fragment of the line.
 - I3. The schedule-list endpoint lists the schedules of the path session through the scheduler/service of the hosting process and maps every entry to the response fields of the Interface.
 - I4. The schedule-list route resolves the request Location from the session row through the session-location middleware of the server stack, so the path session id alone addresses the route.
 - I5. The sidebar block runs its periodic refetch on an interval timer of the TUI process and clears the timer through the disposal callback of the TUI plugin lifecycle.
@@ -151,7 +151,7 @@ eta <id>: <eta> (<absolute>)
 ## Examples
 
 - E1. R1 subtree: annotator input and output strings follow; the input line is the tool's own output text, the output is the same text plus the appended annotation lines.
-- E1.3. Add: input text `Scheduled sch_fix (*/30 * * * *), next due 2026-10-25T14:05:00Z` with eta-clock `2026-10-25T12:00:00Z` becomes the same line followed by `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)`.
+- E1.3. Add: input text `Scheduled sch_fix (*/30 * * * *), next due 2026-10-25T14:05:00Z` with eta-clock `2026-10-25T12:00:00Z` becomes the same line followed by `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)`. List line with a literal fragment in the message: `sch_fix (*/30 * * * *) next due 2026-10-25T14:05:00Z: ping next due 2026-10-25T20:05:00Z folks` gains exactly one annotation line, `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)`, from the first fragment; the fragment inside the message text names no schedule.
 - E1.4. List: input text `sch_fix (*/30 * * * *) next due 2026-10-25T14:05:00Z: check CI status\nsch_rel (0 0 * * *) next due 2026-10-26T00:00:00Z: daily digest` with eta-clock `2026-10-25T12:00:00Z` gains two lines appended after the listing: `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)` and `eta sch_rel: in 12h 00m (2026-10-26T00:00:00Z)`.
 - E1.8. Remove: `Removed schedule sch_fix` carries no next-due fragment and stays unchanged; a list result with no schedules stays an empty listing.
 - E2. R2 subtree: with eta-clock `2026-10-25T12:00:00Z`, next-due `2026-10-25T14:05:00Z` renders `in 2h 05m`, `2026-10-25T12:05:30Z` renders `in 0h 05m`, `2026-10-25T12:00:45.9Z` renders `in 45s`, `2026-10-25T12:00:00Z` renders `now`, the overdue `2026-10-25T11:50:00Z` renders `now`, and the day-crossing `2026-10-27T14:00:00Z` renders `in 50h 00m`.
@@ -159,7 +159,7 @@ eta <id>: <eta> (<absolute>)
 - E3.3. Two entries with nextFireAt values of the same instant order by id ascending, so `sch_a` precedes `sch_b`.
 - E3.6. `GET /api/session/ses_missing/schedule` fails with `SessionNotFoundError` and changes no state.
 - E4. R4 subtree: with the two-entry response above and TUI clock `2026-10-25T12:00:00Z`, the block renders the header `Schedules` and the entry line `in 2h 05m (2026-10-25T14:05:00Z) sch_once (2026-10-25T14:05:00Z): deploy check` followed by `in 12h 00m (2026-10-26T00:00:00Z) sch_rel (0 0 * * *): daily digest`.
-- E4.6. A message of one hundred characters renders as its first sixty characters followed by the ellipsis character; a message containing a newline renders the newline as a single space.
+- E4.6. A message of one hundred `a` code units renders as its first sixty code units followed by the ellipsis character; a message of fifty-nine `a` code units followed by one emoji renders as the fifty-nine `a` code units, the lone leading surrogate of the emoji, and the ellipsis character; a message containing a newline renders the newline as a single space.
 - E4.13. A refetch that fails after the successful render above leaves both entry lines on screen unchanged.
 
 ## Tests
