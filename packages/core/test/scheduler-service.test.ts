@@ -411,8 +411,12 @@ describe("Scheduler service", () => {
       const session = yield* SessionV2.Service
       const messages = yield* session.messages({ sessionID })
       const text = messages[0]!.type === "system" ? messages[0]!.text : ""
-      expect(text).toContain("0 0 * * *")
-      expect(text).not.toContain("1d")
+      // The spec slot of the fired text is exactly the stored cron form, never
+      // the relative `every 1d` phrasing. Matching the exact id-spec-message
+      // segment keeps the check deterministic: the random bytes of the
+      // schedule id can contain any short substring, so a whole-text
+      // not.toContain("1d") flakes whenever the id happens to hold "1d".
+      expect(text).toContain(`fired schedule id ${added.id} 0 0 * * *: standup`)
 
       const rows = yield* scheduleRows
       expect(rows).toHaveLength(1)
