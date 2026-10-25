@@ -1,5 +1,4 @@
 import { Clock, Effect, Schema } from "effect"
-import type { Scheduler as CoreScheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { ScheduleID } from "@opencode-ai/core/scheduler/schema"
 import { SchedulerMessage } from "@opencode-ai/core/scheduler/message"
@@ -165,7 +164,7 @@ const resolveSpec = Effect.fn("SchedulerTool.resolveSpec")(function* (params: {
  * handling). A denied ask fails with `permission-denied` and leaves state
  * untouched (R5.2).
  */
-export const SchedulerTool = Tool.define<typeof Parameters, Metadata, CoreScheduler.Service>(
+export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.Service>(
   "scheduler",
   Effect.gen(function* () {
     const scheduler = yield* Scheduler.Service

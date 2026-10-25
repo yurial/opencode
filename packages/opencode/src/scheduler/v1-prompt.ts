@@ -1,7 +1,7 @@
 export * as SchedulerV1PromptLocal from "./v1-prompt"
 
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
-import { Effect, Layer } from "effect"
+import { Cause, Effect, Layer, Scope } from "effect"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { SchedulerV1Prompt } from "@opencode-ai/core/scheduler/v1-prompt"
@@ -16,11 +16,17 @@ import { InstanceStore } from "@/project/instance-store"
  * instance-scoped, so admission resolves the owning session's location
  * through the session store (like SessionExecutionLocal) and re-enters the
  * V1 runtime with that instance's ambient context via the instance store.
- * The capability is attached to the scheduler service at build time (see
- * Scheduler.attachV1Prompt for why this is an attach, not a dependency edge).
- * A missing session row fails — the delivery loop resolves dead sessions
- * before routing (R6.10), so this is the mid-delivery disappearance guard,
- * reported as a retryable delivery failure (R8.5).
+ *
+ * Admission and the model turn are detached: `prompt` returns once the
+ * synthetic user part is durably admitted (the SchedulerV1Prompt.Interface
+ * contract — "the model turn it starts may still be running"), and the turn
+ * runs in a fiber forked into the layer scope. The scheduler's delivery loop
+ * must never wait for the turn: the fired turn can call the scheduler tool,
+ * whose mutations serialize on the delivery loop's write permit, so a turn
+ * awaited by the loop would deadlock it. A missing session row fails — the
+ * delivery loop resolves dead sessions before routing (R6.10), so this is
+ * the mid-delivery disappearance guard, reported as a retryable delivery
+ * failure (R8.5).
  */
 const layer = Layer.effect(
   SchedulerV1Prompt.Service,
@@ -29,6 +35,7 @@ const layer = Layer.effect(
     const instances = yield* InstanceStore.Service
     const prompt = yield* SessionPrompt.Service
     const scheduler = yield* Scheduler.Service
+    const scope = yield* Scope.Scope
 
     const v1Prompt = SchedulerV1Prompt.Service.of({
       prompt: (input) =>
@@ -41,9 +48,23 @@ const layer = Layer.effect(
           return instances
             .provide(
               { directory: session.location.directory },
-              prompt.prompt({
-                sessionID: input.sessionID,
-                parts: [{ type: "text", synthetic: true, text: input.text }],
+              Effect.gen(function* () {
+                // Admission only: the synthetic part becomes a durable user
+                // message; the loop call below runs the model turn.
+                yield* prompt.prompt({
+                  sessionID: input.sessionID,
+                  parts: [{ type: "text", synthetic: true, text: input.text }],
+                  noReply: true,
+                })
+                yield* prompt.loop({ sessionID: input.sessionID }).pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("Scheduler-fired V1 turn failed", {
+                      "session.id": input.sessionID,
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                  Effect.forkIn(scope, { startImmediately: true }),
+                )
               }),
             )
             .pipe(

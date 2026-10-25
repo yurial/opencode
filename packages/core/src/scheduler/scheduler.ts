@@ -1,6 +1,6 @@
 export * as Scheduler from "./scheduler"
 
-import { Clock, Context, DateTime, Effect, Exit, Layer, Schema, Semaphore } from "effect"
+import { Cause, Clock, Context, DateTime, Effect, Exit, Layer, Schema, Semaphore } from "effect"
 import { and, asc, eq, lte } from "drizzle-orm"
 import { LayerNode } from "../effect/layer-node"
 import { makeGlobalNode } from "../effect/app-node"
@@ -13,7 +13,6 @@ import { SessionV2 } from "../session"
 import { SessionInputTable, SessionMessageTable } from "../session/sql"
 import { SessionExecution } from "../session/execution"
 import { SessionStore } from "../session/store"
-import { Cause } from "effect"
 import { ScheduleID } from "./schema"
 import { ScheduleTable } from "./sql"
 import { SchedulerCron } from "./cron"
@@ -103,12 +102,16 @@ export class NotFound extends Schema.TaggedErrorClass<NotFound>()("Scheduler.Not
  *   dependency because the V1 prompt path depends on the tool registry,
  *   which registers the scheduler tool — a dependency edge would close a
  *   layer cycle.
- * - All mutations and fire deliveries serialize through the single delivery
- *   loop (R8.3, I6): at init the loop loads every persisted schedule, arms
- *   its timer at the earliest stored next-due-time, re-arms on every add,
- *   remove, fire, and reload (R8.4, R8.2), and delivers a fire when the
- *   current time reaches the next-due-time (R6.2) — publishing, admitting,
- *   and only then advancing or removing the row (I6). A failed delivery
+ * - All schedule-row mutations and fire bookkeeping serialize through the
+ *   single delivery loop (R8.3, I6): at init the loop loads every persisted
+ *   schedule, arms its timer at the earliest stored next-due-time, re-arms on
+ *   every add, remove, fire, and reload (R8.4, R8.2), and delivers a fire
+ *   when the current time reaches the next-due-time (R6.2) — publishing,
+ *   admitting, and only then advancing or removing the row (I6). The V1
+ *   model turn a fire triggers runs outside the loop's write permit — only
+ *   its durable admission and the row advance/removal serialize — so a
+ *   scheduler tool call from inside that turn cannot self-deadlock the loop.
+ *   A failed delivery
  *   retries after RETRY_DELAY_MILLIS and leaves the schedule neither
  *   advanced nor removed until a delivery succeeds (R8.5); a fire whose
  *   owning session no longer exists removes the schedule and delivers
@@ -211,7 +214,64 @@ const layer = Layer.effect(
       return message !== undefined
     })
 
-    const deliver = Effect.fn("Scheduler.deliver")(function* (row: Row, now: number) {
+    /**
+     * The serialized final phase of a fire (I6): advance or remove only after
+     * publish and admission succeeded.
+     */
+    const finishFire = Effect.fn("Scheduler.finishFire")(function* (input: {
+      readonly row: Row
+      readonly catchUp: boolean
+      readonly deliveredAt: number
+    }) {
+      failedDeliveries.delete(input.row.id)
+
+      if (input.row.cron !== null) {
+        // R6.8 / R7.4: a normal fire advances from the discharged time, a
+        // catch-up fire from the delivery completion time — a delivery slower
+        // than the interval must not produce an immediate unmarked extra fire.
+        const advanceFrom = input.catchUp ? input.deliveredAt : input.row.next_fire_at
+        const expression = SchedulerCron.parse(input.row.cron)
+        const next = expression === undefined ? undefined : SchedulerCron.next(expression, advanceFrom)
+        if (next === undefined) {
+          yield* db.delete(ScheduleTable).where(eq(ScheduleTable.id, input.row.id)).run().pipe(Effect.orDie)
+          yield* Effect.logWarning("Scheduler removed a schedule whose cron has no future match").pipe(
+            Effect.annotateLogs({ scheduleID: input.row.id, cron: input.row.cron }),
+          )
+          return
+        }
+        yield* db
+          .update(ScheduleTable)
+          .set({ next_fire_at: next })
+          .where(eq(ScheduleTable.id, input.row.id))
+          .run()
+          .pipe(Effect.orDie)
+        return
+      }
+      // R6.9: a one-shot is removed after its delivered fire.
+      yield* db.delete(ScheduleTable).where(eq(ScheduleTable.id, input.row.id)).run().pipe(Effect.orDie)
+    })
+
+    /**
+     * The serialized first phase of a fire (R8.3, I6): resolves the owning
+     * session, drops the schedule of a dead session (R6.10), builds the fired
+     * text, and delivers a V2-routed fire completely — publish, admit-only
+     * admission, wake, and row advance/removal all under one permit hold, as
+     * before. A V1-routed fire cannot finish here: its admission may carry a
+     * full host model turn (see `deliver`), so this phase returns the
+     * admission inputs instead. Returns `undefined` when the fire finished
+     * under the hold or the schedule was dropped.
+     */
+    const startFire = Effect.fn("Scheduler.startFire")(function* (row: Row) {
+      // The due scan runs without the permit, so the row may have been
+      // removed since; a removed schedule never fires.
+      const present = yield* db
+        .select({ id: ScheduleTable.id })
+        .from(ScheduleTable)
+        .where(eq(ScheduleTable.id, row.id))
+        .get()
+        .pipe(Effect.orDie)
+      if (present === undefined) return undefined
+
       const session = yield* store.get(row.session_id)
       if (session === undefined) {
         // R6.10: a fire whose owning session no longer exists removes the
@@ -221,7 +281,7 @@ const layer = Layer.effect(
         yield* Effect.logWarning("Scheduler dropped a schedule whose session no longer exists").pipe(
           Effect.annotateLogs({ scheduleID: row.id, sessionID: row.session_id }),
         )
-        return
+        return undefined
       }
 
       const catchUp = row.next_fire_at < loadedAt || failedDeliveries.has(row.id)
@@ -247,41 +307,35 @@ const layer = Layer.effect(
         // execution wake itself after the publish.
         yield* sessions.prompt({ sessionID: row.session_id, prompt: { text }, resume: false })
         yield* execution.wake(row.session_id)
-      } else {
-        // R6.5: one synthetic user text part through the V1 prompt path.
-        if (v1Prompt === undefined) {
-          return yield* Effect.fail(
-            new SchedulerV1Prompt.Error({ detail: "no V1 prompt admission is attached to the scheduler" }),
-          )
-        }
-        yield* v1Prompt.prompt({ sessionID: row.session_id, text })
+        yield* finishFire({ row, catchUp, deliveredAt: yield* Clock.currentTimeMillis })
+        return undefined
       }
-      failedDeliveries.delete(row.id)
 
-      // I6: advance or remove only after publish and admission succeeded.
-      if (row.cron !== null) {
-        // R6.8 / R7.4: a normal fire advances from the discharged time, a
-        // catch-up fire from the delivery time.
-        const advanceFrom = catchUp ? now : row.next_fire_at
-        const expression = SchedulerCron.parse(row.cron)
-        const next = expression === undefined ? undefined : SchedulerCron.next(expression, advanceFrom)
-        if (next === undefined) {
-          yield* db.delete(ScheduleTable).where(eq(ScheduleTable.id, row.id)).run().pipe(Effect.orDie)
-          yield* Effect.logWarning("Scheduler removed a schedule whose cron has no future match").pipe(
-            Effect.annotateLogs({ scheduleID: row.id, cron: row.cron }),
-          )
-          return
-        }
-        yield* db
-          .update(ScheduleTable)
-          .set({ next_fire_at: next })
-          .where(eq(ScheduleTable.id, row.id))
-          .run()
-          .pipe(Effect.orDie)
-        return
+      // R6.5: one synthetic user text part through the V1 prompt path.
+      if (v1Prompt === undefined) {
+        return yield* new SchedulerV1Prompt.Error({
+          detail: "no V1 prompt admission is attached to the scheduler",
+        })
       }
-      // R6.9: a one-shot is removed after its delivered fire.
-      yield* db.delete(ScheduleTable).where(eq(ScheduleTable.id, row.id)).run().pipe(Effect.orDie)
+      return { text, catchUp, prompt: v1Prompt } as const
+    })
+
+    /**
+     * Delivers one due schedule row. The serialized phases of the fire hold
+     * the write permit (R8.3, I6); the V1 admission between them does not:
+     * it may carry a full host model turn (SessionPrompt.prompt runs the turn
+     * including tool execution), and a scheduler tool call inside that turn
+     * re-enters `add`/`remove`, which wait for the same permit — holding the
+     * permit across the turn would self-deadlock the delivery loop.
+     */
+    const deliver = Effect.fn("Scheduler.deliver")(function* (row: Row) {
+      const started = yield* writes.withPermits(1)(startFire(row))
+      if (started === undefined) return
+      yield* started.prompt.prompt({ sessionID: row.session_id, text: started.text })
+      // The delivery completes with the admission; the model turn it started
+      // may still be running.
+      const deliveredAt = yield* Clock.currentTimeMillis
+      yield* writes.withPermits(1)(finishFire({ row, catchUp: started.catchUp, deliveredAt }))
     })
 
     const deliverDue = Effect.fn("Scheduler.deliverDue")(function* () {
@@ -295,7 +349,7 @@ const layer = Layer.effect(
         .pipe(Effect.orDie)
       let failed = false
       for (const row of due) {
-        const attempt = yield* deliver(row, now).pipe(Effect.exit)
+        const attempt = yield* deliver(row).pipe(Effect.exit)
         if (Exit.isSuccess(attempt)) continue
         // R8.5: the schedule is neither advanced nor removed; the retry is a
         // catch-up fire (R7.1).
@@ -314,7 +368,7 @@ const layer = Layer.effect(
         const next = yield* earliest()
         if (next === undefined) yield* wake.take(1)
         else yield* Effect.race(wake.take(1), Effect.sleep(Math.max(0, next - now)))
-        const failed = yield* writes.withPermits(1)(deliverDue())
+        const failed = yield* deliverDue()
         if (failed) yield* Effect.sleep(RETRY_DELAY_MILLIS)
       }),
     )

@@ -44,7 +44,15 @@ const execution = Layer.succeed(
 
 type V1Call = { readonly sessionID: SessionV2.ID; readonly text: string }
 const v1Calls: V1Call[] = []
-const v1Behavior = { failuresLeft: 0 }
+const v1Behavior = {
+  failuresLeft: 0,
+  // When set, the fake admission performs this add synchronously inside the
+  // prompt call and records the created id — the old host behavior of running
+  // the whole model turn (its tools included) inside the admission. The
+  // delivery loop must survive it.
+  reentrantAdd: undefined as { readonly sessionID: SessionV2.ID; readonly message: string } | undefined,
+  reentrantAdds: [] as string[],
+}
 // When set, the fake V1 admission blocks until released — the serialization
 // probe of the single delivery loop.
 let v1Gate: Deferred.Deferred<void> | undefined
@@ -66,7 +74,22 @@ const v1promptNode = LayerNode.make({
               return Effect.fail(new SchedulerV1Prompt.Error({ detail: "injected delivery failure" }))
             }
             const gate = v1Gate
-            return gate ? Effect.asVoid(Deferred.await(gate)) : Effect.void
+            const admitted = gate ? Effect.asVoid(Deferred.await(gate)) : Effect.void
+            const reentrant = v1Behavior.reentrantAdd
+            if (!reentrant) return admitted
+            return Effect.gen(function* () {
+              // The fake never holds enough schedules to reach the cap; a
+              // CapReached here would be a test bug, not a delivery failure.
+              const added = yield* scheduler
+                .add({
+                  sessionID: reentrant.sessionID,
+                  message: reentrant.message,
+                  spec: { cron: "* * * * *" },
+                })
+                .pipe(Effect.orDie)
+              v1Behavior.reentrantAdds.push(added.id)
+              yield* admitted
+            })
           }),
       })
       yield* scheduler.attachV1Prompt(v1Prompt)
@@ -194,6 +217,8 @@ const resetRecordings = Effect.sync(() => {
   wakeCalls.length = 0
   v1Calls.length = 0
   v1Behavior.failuresLeft = 0
+  v1Behavior.reentrantAdd = undefined
+  v1Behavior.reentrantAdds.length = 0
   v1Gate = undefined
 })
 
@@ -509,7 +534,8 @@ describe("Scheduler service", () => {
       expect(v1Calls[0]!.text).toContain("first")
 
       // While the first delivery is in flight, the second due schedule is not
-      // picked up, and a concurrent add waits for the loop.
+      // picked up, and a concurrent add proceeds without waiting for the
+      // in-flight V1 admission — the loop permit is released across it.
       const addFiber = yield* scheduler
         .add({ sessionID, message: "third", spec: { cron: "* * * * *" } })
         .pipe(Effect.forkScoped)
@@ -525,6 +551,78 @@ describe("Scheduler service", () => {
       const third = yield* Fiber.join(addFiber)
       expect(third.message).toBe("third")
       expect(second.id).not.toBe(first.id)
+    }),
+  )
+
+  it.effect("completes a scheduler mutation made from inside a V1 turn", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_v1_reentrant")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+
+      // Regression: the fake admission replays the old host behavior — the
+      // model turn reacting to the fired message runs inside the admission
+      // and calls scheduler.add. The old loop held its write permit across
+      // the admission, so the add waited for the permit the loop waited on:
+      // self-deadlock. Both the fire and the turn's add must complete.
+      v1Behavior.reentrantAdd = { sessionID, message: "from the turn" }
+      const added = yield* scheduler.add({ sessionID, message: "fires", spec: { cron: "* * * * *" } })
+      yield* advance(added.nextFireAt + 1)
+      yield* settled
+
+      expect(v1Calls).toHaveLength(1)
+      expect(v1Calls[0]!.text).toContain("fires")
+      expect(v1Behavior.reentrantAdds).toHaveLength(1)
+
+      const rows = yield* scheduleRows
+      expect(rows).toHaveLength(2)
+      const fired = rows.find((row) => row.message === "fires")
+      const fromTurn = rows.find((row) => row.message === "from the turn")
+      expect(fired).toBeDefined()
+      expect(fromTurn).toBeDefined()
+      // The fired schedule advanced past the current time.
+      expect(fired!.next_fire_at).toBeGreaterThan(yield* now)
+    }),
+  )
+
+  it.effect("advances a catch-up fire from the delivery completion time", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_slow_delivery")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+
+      // The first delivery fails; the retry is a catch-up fire whose
+      // admission blocks until it is released.
+      v1Behavior.failuresLeft = 1
+      v1Gate = yield* Deferred.make<void>()
+      const added = yield* scheduler.add({ sessionID, message: "slow", spec: { cron: "0 * * * *" } })
+      const due = added.nextFireAt
+      yield* advance(due + 1)
+      yield* settled
+      expect(v1Calls).toHaveLength(1)
+
+      // The retry delivery takes longer than the remaining interval: the
+      // clock moves past the next occurrence while the admission is in
+      // flight.
+      yield* advance(61 * 60_000)
+      yield* Deferred.succeed(v1Gate!, undefined)
+      yield* settled
+
+      // The catch-up advance starts at the delivery completion time (R7.4):
+      // a full hour after the completion, not the already-past hour after
+      // the retry attempt began.
+      const rows = yield* scheduleRows
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.next_fire_at).toBe(due + 2 * 3_600_000)
+      expect(v1Calls).toHaveLength(2)
+      expect(v1Calls[1]!.text).toContain("catch-up")
+
+      // No immediate extra fire: the timer re-armed on the advanced time.
+      yield* advance(30 * 60_000)
+      yield* settled
+      expect(v1Calls).toHaveLength(2)
     }),
   )
 
