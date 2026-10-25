@@ -185,3 +185,10 @@ was changed (docs-only task).
 - **`thinkingOpacity` вне 0–1** принимается как есть (мягкая обработка зафиксирована в
   Configuration спеки); при желании можно усилить валидацией — но список кодов отказа
   в Interface закрыт, потребовался бы новый код.
+
+## TUI: BEL должен отключаться через конфиг (backlog)
+
+- Звонок терминала (BEL) в TUI должен отключаться параметром конфига
+  (tui.json / конфиг-схема, по аналогии с другими tui-опциями), по умолчанию —
+  текущее поведение. Ориентиры: `packages/tui/src/attention.ts` (bell/уведомления),
+  конвенция tui-конфига — `packages/tui/src/config/index.tsx` + `packages/opencode/src/config/tui.ts`.
