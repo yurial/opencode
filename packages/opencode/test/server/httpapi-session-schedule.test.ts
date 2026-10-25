@@ -88,7 +88,7 @@ const listSchedules = (sessionID: string, headers: Record<string, string>) =>
   Effect.gen(function* () {
     const response = yield* request(schedulePath(sessionID), { headers })
     expect(response.status).toBe(200)
-    return (yield* responseJson(response)) as { data: ScheduleEntry[] }
+    return (yield* responseJson(response)) as { data: { schedules: ScheduleEntry[] } }
   })
 
 afterEach(async () => {
@@ -104,7 +104,7 @@ describe("session schedule HttpApi", () => {
         const test = yield* TestInstance
         const session = yield* Session.use.create({ title: "schedule empty" })
         const body = yield* listSchedules(session.id, { "x-opencode-directory": test.directory })
-        expect(body).toEqual({ data: [] })
+        expect(body).toEqual({ data: { schedules: [] } })
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )
@@ -149,7 +149,7 @@ describe("session schedule HttpApi", () => {
         })
 
         const body = yield* listSchedules(session.id, headers)
-        expect(body.data.map((entry) => entry.id)).toEqual([
+        expect(body.data.schedules.map((entry) => entry.id)).toEqual([
           earliest.id,
           middle.id,
           latest.id,
@@ -178,17 +178,17 @@ describe("session schedule HttpApi", () => {
         })
 
         const body = yield* listSchedules(session.id, headers)
-        expect(body.data).toHaveLength(2)
-        expect(body.data[1]).toEqual({
+        expect(body.data.schedules).toHaveLength(2)
+        expect(body.data.schedules[1]).toEqual({
           id: oneShot.id,
           spec: { at: due },
           message: "deploy check",
           nextFireAt: due,
         })
-        expect(body.data[1]!.id).toMatch(/^sch_/)
-        expect(Object.keys(body.data[1]!).sort()).toEqual(["id", "message", "nextFireAt", "spec"])
+        expect(body.data.schedules[1]!.id).toMatch(/^sch_/)
+        expect(Object.keys(body.data.schedules[1]!).sort()).toEqual(["id", "message", "nextFireAt", "spec"])
 
-        const cronEntry = body.data[0]!
+        const cronEntry = body.data.schedules[0]!
         expect(cronEntry).toEqual({
           id: recurring.id,
           spec: { cron: "0 0 * * *" },
@@ -220,7 +220,7 @@ describe("session schedule HttpApi", () => {
         const first = yield* listSchedules(session.id, headers)
         const second = yield* listSchedules(session.id, headers)
         expect(second).toEqual(first)
-        expect(first.data).toHaveLength(2)
+        expect(first.data.schedules).toHaveLength(2)
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )

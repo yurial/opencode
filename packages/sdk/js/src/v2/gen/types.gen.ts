@@ -2840,7 +2840,9 @@ export type SessionSchedule = {
 }
 
 export type SessionScheduleList = {
-  data: Array<SessionSchedule>
+  data: {
+    schedules: Array<SessionSchedule>
+  }
 }
 
 export type SessionMessagesResponse = {

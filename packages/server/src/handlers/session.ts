@@ -404,17 +404,21 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
             }),
           )
           return {
-            // specs/scheduler-view.md R3.3 (I3): the scheduler's own list
-            // orders by id only; the response re-orders by nextFireAt
-            // ascending with the id ascending as the tiebreak.
-            data: [...entries]
-              .sort((a, b) => a.nextFireAt - b.nextFireAt || (a.id < b.id ? -1 : 1))
-              .map((entry) => ({
-                id: entry.id,
-                spec: entry.spec,
-                message: entry.message,
-                nextFireAt: entry.nextFireAt,
-              })),
+            // specs/scheduler-view.md Interface (E3): the response carries the
+            // entries inside the {data: {schedules: [...]}} envelope. R3.3
+            // (I3): the scheduler's own list orders by id only; the entries
+            // re-order by nextFireAt ascending with the id ascending as the
+            // tiebreak.
+            data: {
+              schedules: [...entries]
+                .sort((a, b) => a.nextFireAt - b.nextFireAt || (a.id < b.id ? -1 : 1))
+                .map((entry) => ({
+                  id: entry.id,
+                  spec: entry.spec,
+                  message: entry.message,
+                  nextFireAt: entry.nextFireAt,
+                })),
+            },
           }
         }),
       )

@@ -1765,12 +1765,14 @@ export type SessionsMessageOutput = {
 export type SessionsListSchedulesInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
 
 export type SessionsListSchedulesOutput = {
-  readonly data: ReadonlyArray<{
-    readonly id: string
-    readonly spec: { readonly cron: string } | { readonly at: number }
-    readonly message: string
-    readonly nextFireAt: number
-  }>
+  readonly data: {
+    readonly schedules: ReadonlyArray<{
+      readonly id: string
+      readonly spec: { readonly cron: string } | { readonly at: number }
+      readonly message: string
+      readonly nextFireAt: number
+    }>
+  }
 }["data"]
 
 export type MessagesListInput = {

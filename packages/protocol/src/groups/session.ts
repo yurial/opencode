@@ -401,9 +401,10 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
       /**
        * The read-only schedule-list endpoint of specs/scheduler-view.md
        * (R3.1-R3.7, I3, I4). Returns every schedule bound to the path session
-       * as SessionSchedule entries ordered by nextFireAt ascending, ties by id
-       * ascending (R3.3). The endpoint mutates no schedule and asks no
-       * permission (R3.5); the request carries no query parameters and no
+       * inside the {data: {schedules: [...]}} envelope of the Interface, one
+       * SessionSchedule entry per schedule, ordered by nextFireAt ascending,
+       * ties by id ascending (R3.3). The endpoint mutates no schedule and asks
+       * no permission (R3.5); the request carries no query parameters and no
        * payload. Errors (the complete set): an undecodable path session id or
        * a malformed request fails with InvalidRequestError (400, R3.7); a
        * request the server auth rejects fails with UnauthorizedError (401);
@@ -415,7 +416,9 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
        */
       HttpApiEndpoint.get("session.schedule.list", "/api/session/:sessionID/schedule", {
         params: { sessionID: Session.ID },
-        success: Schema.Struct({ data: Schema.Array(SessionSchedule) }).annotate({
+        success: Schema.Struct({
+          data: Schema.Struct({ schedules: Schema.Array(SessionSchedule) }),
+        }).annotate({
           identifier: "SessionScheduleList",
         }),
         error: [SessionNotFoundError, UnknownError],
