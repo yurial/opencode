@@ -1150,6 +1150,43 @@ const scenarios: Scenario[] = [
     }))
     .status(404, undefined, "status"),
   http.protected
+    .get("/api/session/{sessionID}/schedule", "v2.session.schedule.list")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Schedule list owner" })
+        const schedules = yield* ctx.schedules(session.id, [
+          { spec: { at: Date.now() + 60_000 }, message: "deploy check" },
+          { spec: { cron: "0 0 * * *" }, message: "daily digest" },
+        ])
+        return { session, schedules }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/schedule", { sessionID: ctx.state.session.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body, ctx) => {
+      object(body)
+      object(body.data)
+      array(body.data.schedules)
+      // R3.3 (I3): the endpoint re-orders the scheduler's id-ordered list by
+      // nextFireAt ascending with the id ascending as the tiebreak.
+      const expected = [...ctx.state.schedules]
+        .sort((a, b) => a.nextFireAt - b.nextFireAt || (a.id < b.id ? -1 : 1))
+        .map((entry) => ({ id: entry.id, spec: entry.spec, message: entry.message, nextFireAt: entry.nextFireAt }))
+      check(
+        stable(body.data.schedules) === stable(expected),
+        "schedules should match the seeded schedules ordered by next fire time",
+      )
+    }),
+  http.protected
+    .get("/api/session/{sessionID}/schedule", "v2.session.schedule.list.missing")
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/schedule", { sessionID: "ses_httpapi_missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(404, object, "status"),
+  http.protected
     .get("/session", "session.list")
     .seeded((ctx) => ctx.session({ title: "List me" }))
     .at((ctx) => ({ path: "/session?roots=true", headers: ctx.headers() }))
