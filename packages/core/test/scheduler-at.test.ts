@@ -71,3 +71,55 @@ describe("SchedulerAt.parse", () => {
     }
   })
 })
+
+describe("SchedulerAt.relativeParse", () => {
+  test("parses the now+<integer><unit> form for every unit", () => {
+    expect(SchedulerAt.relativeParse("now+90s")).toBe(90_000)
+    expect(SchedulerAt.relativeParse("now+5m")).toBe(5 * 60_000)
+    expect(SchedulerAt.relativeParse("now+2h")).toBe(2 * 3_600_000)
+    expect(SchedulerAt.relativeParse("now+1d")).toBe(86_400_000)
+    expect(SchedulerAt.relativeParse("now+120m")).toBe(120 * 60_000)
+  })
+
+  test("parses the now+HH:MM:SS form with hours first", () => {
+    expect(SchedulerAt.relativeParse("now+01:30:25")).toBe(3_600_000 + 30 * 60_000 + 25_000)
+    expect(SchedulerAt.relativeParse("now+00:00:01")).toBe(1_000)
+    expect(SchedulerAt.relativeParse("now+25:00:00")).toBe(25 * 3_600_000)
+    expect(SchedulerAt.relativeParse("now+99:59:59")).toBe(99 * 3_600_000 + 59 * 60_000 + 59_000)
+  })
+
+  test("rejects malformed relative values", () => {
+    for (const value of [
+      "",
+      "now",
+      "now+",
+      "now+5",
+      "now-5m",
+      "now+ 5m",
+      "now+5 m",
+      "now+5x",
+      "now+0m",
+      "now+0s",
+      "now+0h",
+      "now+0d",
+      "now++5m",
+      "now+5mm",
+      "now+1.5h",
+      "NOW+5m",
+      "now+1:2:3",
+      "now+25:60:00",
+      "now+00:60:00",
+      "now+00:00:60",
+      "now+01:30",
+      "now+01:30:25:00",
+      "now+0x:30:25",
+      "now+1:30:25",
+      "now+100:00:00",
+      " now+5m",
+      "now+5m ",
+      "now+01:30:25 ",
+    ]) {
+      expect(SchedulerAt.relativeParse(value)).toBeUndefined()
+    }
+  })
+})

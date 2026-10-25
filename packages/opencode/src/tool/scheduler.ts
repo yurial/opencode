@@ -22,7 +22,8 @@ export const Parameters = Schema.Struct({
     description: "Standard five-field cron expression, evaluated in UTC (add only)",
   }),
   at: Schema.optional(Schema.String).annotate({
-    description: "One-shot ISO 8601 datetime in the future; naive resolves in the local timezone (add only)",
+    description:
+      "One-shot firing rule in the future (add only): an ISO 8601 datetime (naive resolves in the local timezone) or a relative offset from now — now+<integer><unit> with unit s, m, h, or d (for example now+5m, now+90s), or now+HH:MM:SS (for example now+01:30:25); prefer the relative form over computing timestamps",
   }),
   id: Schema.optional(Schema.String).annotate({
     description: "The schedule id to remove (remove only)",
@@ -133,12 +134,16 @@ const resolveSpec = Effect.fn("SchedulerTool.resolveSpec")(function* (params: {
     }
     return { cron: params.cron }
   }
-  const at = SchedulerAt.parse(params.at!, localOffsetAt)
+  // A relative `now+…` value resolves against the same clock instant the
+  // absolute form is validated against (R3.7); only the absolute UTC epoch
+  // is stored or echoed.
+  const relative = SchedulerAt.relativeParse(params.at!)
+  const at = relative !== undefined ? now + relative : SchedulerAt.parse(params.at!, localOffsetAt)
   if (at === undefined) {
     return yield* Effect.die(
       new SchedulerToolError({
         code: "invalid-at",
-        detail: `${params.at} is not an ISO 8601 datetime`,
+        detail: `${params.at} is not an ISO 8601 datetime or a relative now+<offset> form`,
       }),
     )
   }

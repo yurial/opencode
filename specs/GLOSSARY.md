@@ -38,6 +38,7 @@
 | scheduler/next-due-time | The stored UTC timestamp at which a schedule is next to fire | scheduler (R6.2) |
 | scheduler/one-shot | A schedule created from a datetime that fires exactly once at that time and is removed by its fire | scheduler (R6.9) |
 | scheduler/recurring | A schedule whose firing rule is a cron-spec; it fires at every match and survives each fire until removed | scheduler (R6.8) |
+| scheduler/relative-at | An `at` input form — the unit form `now+<positive integer><unit letter>` or the clock form `now+HH:MM:SS` — naming a positive offset from the current time; accepted only by `at` and converted at add time into the absolute UTC due time of a one-shot | scheduler (R3.10) |
 | scheduler/schedule | A persisted record binding a firing rule and a message text to the session whose tool call created it, identified by a `sch_`-prefixed id | scheduler (R2.1) |
 | scheduler/scheduled-fire-time | The UTC time of the occurrence a fire discharges; equal to the next-due-time when the fire is initiated | scheduler (R6.6) |
 | scheduler/service | The process-global service node that owns schedule rows and the single delivery loop of one process | scheduler (R8.1) |

@@ -1,6 +1,6 @@
 Schedule future events for the current session and manage existing ones.
 
-- add: schedule `message` to fire into this session. Pass exactly one firing rule: `every` (interval like `30m`, `1h`, `1d`; converted to cron and stored in cron form), `cron` (standard five-field cron expression, UTC), or `at` (one-shot ISO 8601 datetime; naive resolves in the local timezone, zoned resolves to its offset; must be in the future).
+- add: schedule `message` to fire into this session. Pass exactly one firing rule: `every` (interval like `30m`, `1h`, `1d`; converted to cron and stored in cron form), `cron` (standard five-field cron expression, UTC), or `at` (one-shot; must be in the future). For `at`, prefer a relative offset from now over computing a timestamp: `now+<positive integer><unit>` with unit `s`, `m`, `h`, or `d` (for example `now+5m`, `now+90s`, `now+2h`, `now+1d`), or the clock form `now+HH:MM:SS` of three two-digit groups, hours first (00-99, may exceed 24), minutes and seconds 00-59 (for example `now+01:30:25` is 1 hour 30 minutes 25 seconds from now). `at` also accepts an absolute ISO 8601 datetime (naive resolves in the local timezone, zoned resolves to its offset). A relative offset resolves to its absolute UTC instant at add time; only the absolute instant is stored and echoed.
 - remove: delete a schedule of this session by `id`.
 - list: show this session's schedules with id, firing rule, next due time (UTC), and message.
 

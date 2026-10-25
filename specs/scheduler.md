@@ -17,7 +17,7 @@ Fired messages are transient nudges, not durable state. The schedule row is the 
 In:
 
 - The `scheduler` tool surface: actions add, remove, list; argument domains; success and error result contracts.
-- Schedule spec inputs: interval (`every`), cron expression (`cron`), one-shot datetime (`at`); conversion, validation, and storage rules.
+- Schedule spec inputs: interval (`every`), cron expression (`cron`), one-shot datetime or scheduler/relative-at (`at`); conversion, validation, and storage rules.
 - Session binding of schedules and cascade removal on session deletion.
 - Fire delivery into sessions served by the V2 runtime and by the V1 runtime; the fired-message grammar.
 - Missed-fire catch-up semantics for recurring and one-shot schedules.
@@ -38,6 +38,7 @@ Out (non-goals):
 - **scheduler/schedule**: a persisted record binding a firing rule and a message text to the session whose tool call created it; identified by a `sch_`-prefixed id.
 - **scheduler/cron-spec**: the standard five-field cron expression that is the canonical stored firing rule of a recurring scheduler/schedule.
 - **scheduler/one-shot**: a scheduler/schedule created from a datetime that fires exactly once at that time and is removed by its fire.
+- **scheduler/relative-at**: an `at` input form consisting of the prefix `now+` followed either by a positive integer and one unit letter of SCHEDULER_RELATIVE_AT_UNITS or by the clock form of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE; it names a positive offset from the current time.
 - **scheduler/recurring**: a scheduler/schedule whose firing rule is a scheduler/cron-spec; it fires at every match and survives each fire until removed.
 - **scheduler/next-due-time**: the stored UTC timestamp at which a scheduler/schedule is next to fire (the `next_fire_at` column).
 - **scheduler/fire**: the delivery of a scheduler/schedule message into its owning session at a reached due time: the durable publish plus the prompt admission of the scheduler/fired-message.
@@ -60,10 +61,10 @@ Arguments:
 | `message` | add | non-empty string, at most SCHEDULER_MAX_MESSAGE_LENGTH characters |
 | `every` | add, optional | positive integer followed by one of the unit letters `m`, `h`, `d` (for example `30m`, `1h`, `1d`) |
 | `cron` | add, optional | standard five-field cron expression |
-| `at` | add, optional | ISO 8601 datetime, naive or zoned |
+| `at` | add, optional | ISO 8601 datetime, naive or zoned, or a scheduler/relative-at: the unit form `now+<positive integer><unit letter>` with the unit letters of SCHEDULER_RELATIVE_AT_UNITS, or the clock form `now+HH:MM:SS` with the shape and bounds of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE (for example `now+5m`, `now+01:30:25`) |
 | `id` | remove | schedule id |
 
-`every`, `cron`, and `at` are mutually exclusive; an add carries exactly one of them. `list` takes no further arguments.
+`every`, `cron`, and `at` are mutually exclusive; an add carries exactly one of them. The scheduler/relative-at forms are accepted only by `at` and never by `every` or `cron`. `list` takes no further arguments.
 
 Success results (model-facing text):
 
@@ -80,7 +81,7 @@ Error results (the complete set; semantics in Error handling):
 | `invalid-interval` | `every` is malformed (R3.2) |
 | `invalid-cron` | `cron` is malformed (R3.4) |
 | `cron-without-future-match` | `cron` has no future match (R3.5) |
-| `invalid-at` | `at` is unparseable as an ISO 8601 datetime (R3.6) |
+| `invalid-at` | `at` is unparseable as an ISO 8601 datetime or a scheduler/relative-at (R3.6, R3.10) |
 | `at-in-past` | `at` resolves to a time not after the current time (R3.8) |
 | `message-too-long` | `message` is longer than SCHEDULER_MAX_MESSAGE_LENGTH (R3.9) |
 | `schedule-cap-reached` | the calling session already holds SCHEDULER_MAX_SCHEDULES_PER_SESSION schedules (R2.4) |
@@ -130,6 +131,8 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 | SCHEDULER_MAX_SCHEDULES_PER_SESSION | `fixed` 50 schedules | — | Per-session add cap; an add that would exceed it returns `schedule-cap-reached` (R2.4) |
 | SCHEDULER_MAX_MESSAGE_LENGTH | `fixed` 4096 characters | — | Message length bound; a longer `message` returns `message-too-long` (R3.9) |
 | SCHEDULER_CATCH_UP_MARKER | `fixed` the literal ` [catch-up: delivered after the scheduled fire time]` | — | Text appended to the scheduler/fired-message of a scheduler/catch-up-fire (R7.2) |
+| SCHEDULER_RELATIVE_AT_UNITS | `fixed` unit letters `s`, `m`, `h`, `d` | — | Unit letters accepted after the positive integer of a scheduler/relative-at; any other unit letter or shape returns `invalid-at` (R3.10) |
+| SCHEDULER_RELATIVE_AT_CLOCK_SHAPE | `fixed` the clock form `HH:MM:SS` — hours `00`-`99`, minutes `00`-`59`, seconds `00`-`59`, three colon-separated two-digit groups | — | Clock form accepted after the `now+` prefix of a scheduler/relative-at; the offset is its hours plus its minutes plus its seconds, and hours may reach past a full day; any other shape returns `invalid-at` (R3.10) |
 
 ## Requirements
 
@@ -151,10 +154,13 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - R3.3. An `every` value converts at add time into the stored scheduler/cron-spec, and only the cron-spec is stored, echoed, and fired.
 - R3.4. A `cron` value is a standard five-field cron expression; a malformed expression returns `invalid-cron`.
 - R3.5. A `cron` value with no future match returns `cron-without-future-match`.
-- R3.6. An `at` value is an ISO 8601 datetime; an unparseable value returns `invalid-at`.
+- R3.6. An `at` value is an ISO 8601 datetime or a scheduler/relative-at; a value that is neither returns `invalid-at`.
 - R3.7. A naive `at` resolves in the process timezone at add time into UTC, and a zoned `at` resolves into the UTC equivalent of its offset.
 - R3.8. An `at` that resolves to a time not after the current time returns `at-in-past`.
 - R3.9. A `message` longer than SCHEDULER_MAX_MESSAGE_LENGTH returns `message-too-long`.
+- R3.10. A scheduler/relative-at is the prefix `now+` followed either by a positive integer and one unit letter of SCHEDULER_RELATIVE_AT_UNITS or by the clock form of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE, with no other characters; a value of any other shape returns `invalid-at`.
+- R3.11. A scheduler/relative-at resolves at add time into the UTC due time equal to the current time plus its offset.
+- R3.12. Only the absolute UTC due time of a scheduler/relative-at is stored, echoed, and fired; the relative form itself never appears in a stored row, a tool result, or a scheduler/fired-message.
 - R4. Persistence:
 - R4.1. Scheduler/schedule state persists in the schedule table with snake_case columns under the table-ownership rules of storage-events.
 - R4.2. Deleting a session row deletes every scheduler/schedule bound to it through the cascading foreign key.
@@ -212,6 +218,9 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - E3.4. `cron: "0 0 30 2 *"` (minute zero, hour zero, day thirty, February) has no future match and returns `cron-without-future-match`.
 - E3.7. In a process running at offset `+03:00`, a naive `at: "2026-11-02T09:00:00"` and a zoned `at: "2026-11-02T09:00:00+03:00"` both store the due time `2026-11-02T06:00:00Z`.
 - E3.8. `at: "2020-01-01T00:00:00Z"` returns `at-in-past`.
+- E3.10. `at: "now+90s"` and `at: "now+36:00:00"` are accepted; `at: "now+5"`, `at: "now-5m"`, `at: "now+ 5m"`, `at: "now+5x"`, `at: "now+5 m"`, `at: "now+1:2:3"`, `at: "now+25:60:00"`, `at: "now+01:30"`, `at: "now+01:30:25:00"`, and `at: "now+0x:30:25"` each return `invalid-at`.
+- E3.11. An add of `at: "now+5m"` when the clock reads `2026-10-25T12:00:00Z` resolves the due time `2026-10-25T12:05:00Z`; `at: "now+2h"` at the same moment resolves `2026-10-25T14:00:00Z`; `at: "now+01:30:25"` at the same moment resolves `2026-10-25T13:30:25Z`.
+- E3.12. An add of `at: "now+5m"` echoes the spec form `2026-10-25T12:05:00Z` and never `now+5m`; list lines and the scheduler/fired-message at the due time carry the same absolute form.
 - E4. R4 subtree: after a full process restart, list still shows the schedule; deleting the session makes it disappear from the table.
 - E5. R5 subtree: a denied add returns `permission-denied` and no row appears in list; a list runs without any ask.
 - E6. R6 subtree: fired-message examples follow.
@@ -243,6 +252,11 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - T3.6. at-zoned-resolves-offset (R3.7)
 - T3.7. at-in-past-rejected (R3.8)
 - T3.8. message-over-cap-rejected (R3.9)
+- T3.9. relative-at-unit-and-clock-grammar-accepted (R3.10)
+- T3.10. relative-at-covers-each-unit (R3.10, R3.11)
+- T3.11. relative-at-converts-against-current-clock (R3.11)
+- T3.12. relative-at-stored-and-echoed-absolute-only (R3.12)
+- T3.13. relative-at-unit-and-clock-malformed-rejected (R3.10)
 - T4. Persistence:
 - T4.1. schedule-table-owns-rows-with-cascade (R4.1, R4.2, I3)
 - T4.2. migration-registers-table (R4.3)
@@ -285,6 +299,7 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - J5. Why an `at` in the past is rejected instead of firing immediately (R3.8): an add whose due time already passed would race the tool response with a fire the model never saw scheduled; a typed error result hands the model a correctable mistake.
 - J6. Why the per-session cap and the message length bound are baked constants instead of config keys (see Configuration): the scheduler is an initial surface with no demonstrated tuning need, and fixed bounds keep the add path total on bounded input and bounded table growth.
 - J7. Why the fired-message timestamp is the scheduled fire time rather than the publish time (R6.6): the timestamp identifies the discharged occurrence, stays stable across delivery retries, and makes a duplicate from the crash window of Error handling recognizable.
+- J8. Why `at` accepts a scheduler/relative-at alongside ISO 8601 datetimes (R3.10-R3.12): the model cannot be trusted to know the current wall-clock time, so an authored absolute datetime can silently land in the past or far from intent; the offset form derives the due time from the process clock at add time and removes the hallucinated-timestamp failure mode.
 
 ## Error handling
 

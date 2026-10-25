@@ -266,6 +266,21 @@ describe("scheduler tool", () => {
         "cron-without-future-match",
       )
       expect(yield* fail({ action: "add", message: "m", at: "not-a-date" }, sessionID)).toContain("invalid-at")
+      for (const at of [
+        "now+5",
+        "now-5m",
+        "now+ 5m",
+        "now+0m",
+        "now+5x",
+        "now++5m",
+        "now+1:2:3",
+        "now+25:60:00",
+        "now+01:30",
+        "now+01:30:25:00",
+        "now+0x:30:25",
+      ]) {
+        expect(yield* fail({ action: "add", message: "m", at }, sessionID)).toContain("invalid-at")
+      }
       expect(
         yield* fail(
           { action: "add", every: "1h", message: "x".repeat(Scheduler.MAX_MESSAGE_LENGTH + 1) },
@@ -293,6 +308,39 @@ describe("scheduler tool", () => {
       const rows = yield* rowsFor(sessionID)
       expect(rows).toHaveLength(1)
       expect(rows[0]!.at).toBe(Date.UTC(2030, 0, 1, 6, 0, 0))
+    }),
+  )
+
+  it.instance("resolves relative now+ at values to absolute due times", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      const sessionID = nextSession()
+      yield* makeSession(sessionID)
+
+      const durationBefore = yield* Clock.currentTimeMillis
+      const duration = yield* run({ action: "add", message: "soon", at: "now+5m" }, sessionID)
+      const durationAfter = yield* Clock.currentTimeMillis
+      // A now+ offset inherits the current sub-second part, so the absolute
+      // echo may keep its milliseconds.
+      expect(duration.output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z/)
+      expect(duration.output).not.toContain("now+")
+      const durationRows = yield* rowsFor(sessionID)
+      expect(durationRows).toHaveLength(1)
+      expect(durationRows[0]!.cron).toBeNull()
+      expect(durationRows[0]!.at).toBeGreaterThanOrEqual(durationBefore + 5 * 60_000)
+      expect(durationRows[0]!.at).toBeLessThanOrEqual(durationAfter + 5 * 60_000)
+
+      yield* freshSchedules
+      const clockBefore = yield* Clock.currentTimeMillis
+      const clock = yield* run({ action: "add", message: "clock form", at: "now+01:30:25" }, sessionID)
+      const clockAfter = yield* Clock.currentTimeMillis
+      expect(clock.output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z/)
+      expect(clock.output).not.toContain("now+")
+      const clockRows = yield* rowsFor(sessionID)
+      expect(clockRows).toHaveLength(1)
+      expect(clockRows[0]!.cron).toBeNull()
+      expect(clockRows[0]!.at).toBeGreaterThanOrEqual(clockBefore + 5_425_000)
+      expect(clockRows[0]!.at).toBeLessThanOrEqual(clockAfter + 5_425_000)
     }),
   )
 
