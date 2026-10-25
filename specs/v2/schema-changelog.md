@@ -1,5 +1,26 @@
 # V2 Schema Changelog
 
+## 2026-10-26: Read-Only Session Schedule List Endpoint
+
+Affected schema:
+
+- New `GET /api/session/:sessionID/schedule` endpoint (`session.schedule.list`, OpenAPI `v2.session.schedule.list`) in the `server.session` group, with the `SessionSchedule`, `SessionScheduleSpec`, and `SessionScheduleList` response components.
+
+Change:
+
+- Return every schedule bound to the path session as `{data: schedules}` entries carrying exactly `id`, `spec` (`{cron}` or `{at}`), `message`, and `nextFireAt`, ordered by `nextFireAt` ascending with ties ordered by id ascending.
+- Type `nextFireAt` and the one-shot `at` as integer UTC epoch milliseconds, matching the stored schedule-record columns.
+- Resolve the request location from the session row through the session-location middleware; unknown sessions fail `SessionNotFoundError`, undecodable ids fail `InvalidRequestError`, unexpected defects fail `UnknownError` with a correlating ref.
+- Add no mutation and no permission ask; schedule management stays on the scheduler tool.
+
+Reason:
+
+- specs/scheduler-view.md R3.1-R3.7: clients (the TUI sidebar schedules block among them) need a read-only, session-scoped view of stored schedules; no HTTP surface exposed schedules before.
+
+Compatibility:
+
+- Additive read-only endpoint; no database migration, durable-event version, or existing response shape changes. Regenerated the private client (`packages/client/src/generated*`) and the legacy SDK `src/v2/gen` surface.
+
 ## 2026-09-20: Addressable V2 User File Attachments
 
 Affected schema:

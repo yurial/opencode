@@ -1,4 +1,5 @@
 import { SessionV2 } from "@opencode-ai/core/session"
+import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
@@ -19,6 +20,7 @@ const DefaultSessionHistoryLimit = 50
 export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* SessionV2.Service
+    const scheduler = yield* Scheduler.Service
 
     return handlers
       .handle(
@@ -379,6 +381,41 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
             messageID: ctx.params.messageID,
             message: `Message not found: ${ctx.params.messageID}`,
           })
+        }),
+      )
+      .handle(
+        "session.schedule.list",
+        Effect.fn(function* (ctx) {
+          const entries = yield* scheduler.list(ctx.params.sessionID).pipe(
+            // The scheduler's read has no typed failure channel; a storage
+            // defect is the one failure mode left, surfaced as the declared
+            // UnknownError with a correlating ref (specs/scheduler-view.md
+            // Error handling).
+            Effect.catchDefect((defect) => {
+              const ref = `err_${crypto.randomUUID().slice(0, 8)}`
+              return Effect.logError("failed to list session schedules").pipe(
+                Effect.annotateLogs({ ref, sessionID: ctx.params.sessionID, cause: defect }),
+                Effect.andThen(
+                  Effect.fail(
+                    new UnknownError({ message: "Unexpected server error. Check server logs for details.", ref }),
+                  ),
+                ),
+              )
+            }),
+          )
+          return {
+            // specs/scheduler-view.md R3.3 (I3): the scheduler's own list
+            // orders by id only; the response re-orders by nextFireAt
+            // ascending with the id ascending as the tiebreak.
+            data: [...entries]
+              .sort((a, b) => a.nextFireAt - b.nextFireAt || (a.id < b.id ? -1 : 1))
+              .map((entry) => ({
+                id: entry.id,
+                spec: entry.spec,
+                message: entry.message,
+                nextFireAt: entry.nextFireAt,
+              })),
+          }
         }),
       )
   }),

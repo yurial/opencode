@@ -207,6 +207,14 @@ const Endpoint3_16 = (raw: RawClient["server.session"]) => (input: Endpoint3_16I
     Effect.map((value) => value.data),
   )
 
+type Endpoint3_17Request = Parameters<RawClient["server.session"]["session.schedule.list"]>[0]
+type Endpoint3_17Input = { readonly sessionID: Endpoint3_17Request["params"]["sessionID"] }
+const Endpoint3_17 = (raw: RawClient["server.session"]) => (input: Endpoint3_17Input) =>
+  raw["session.schedule.list"]({ params: { sessionID: input["sessionID"] } }).pipe(
+    Effect.mapError(mapClientError),
+    Effect.map((value) => value.data),
+  )
+
 const adaptGroup3 = (raw: RawClient["server.session"]) => ({
   list: Endpoint3_0(raw),
   create: Endpoint3_1(raw),
@@ -225,6 +233,7 @@ const adaptGroup3 = (raw: RawClient["server.session"]) => ({
   events: Endpoint3_14(raw),
   interrupt: Endpoint3_15(raw),
   message: Endpoint3_16(raw),
+  listSchedules: Endpoint3_17(raw),
 })
 
 type Endpoint4_0Request = Parameters<RawClient["server.message"]["session.messages"]>[0]

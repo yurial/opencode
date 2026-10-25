@@ -2815,6 +2815,34 @@ export type SessionHistory = {
 
 export type SessionDurableEventStream = string
 
+export type SessionScheduleSpec =
+  | {
+      cron: string
+    }
+  | {
+      at: number
+    }
+
+export type SessionSchedule = {
+  /**
+   * The sch_-prefixed schedule id.
+   */
+  id: string
+  spec: SessionScheduleSpec
+  /**
+   * The stored message text delivered on fire.
+   */
+  message: string
+  /**
+   * The stored next-due-time as integer UTC epoch milliseconds.
+   */
+  nextFireAt: number
+}
+
+export type SessionScheduleList = {
+  data: Array<SessionSchedule>
+}
+
 export type SessionMessagesResponse = {
   data: Array<SessionMessage>
   cursor: {
@@ -12092,6 +12120,45 @@ export type V2SessionMessageResponses = {
 }
 
 export type V2SessionMessageResponse = V2SessionMessageResponses[keyof V2SessionMessageResponses]
+
+export type V2SessionScheduleListData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/schedule"
+}
+
+export type V2SessionScheduleListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * UnknownError
+   */
+  500: UnknownError1
+}
+
+export type V2SessionScheduleListError = V2SessionScheduleListErrors[keyof V2SessionScheduleListErrors]
+
+export type V2SessionScheduleListResponses = {
+  /**
+   * SessionScheduleList
+   */
+  200: SessionScheduleList
+}
+
+export type V2SessionScheduleListResponse = V2SessionScheduleListResponses[keyof V2SessionScheduleListResponses]
 
 export type V2SessionMessagesData = {
   body?: never

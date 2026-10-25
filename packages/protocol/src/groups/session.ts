@@ -84,6 +84,32 @@ const SessionActive = Schema.Struct({
   type: Schema.Literal("running"),
 }).annotate({ identifier: "SessionActive" })
 
+/**
+ * One schedule of a session as the schedule-list endpoint returns it
+ * (specs/scheduler-view.md Interface, R3.2): exactly the `sch_`-prefixed
+ * schedule id, the stored spec variant, the stored message text, and the
+ * stored next-due-time. `nextFireAt` and the one-shot `at` are integer UTC
+ * epoch milliseconds (R3.4). Exactly one spec variant is present per entry,
+ * mirroring the schedule-record invariant of specs/scheduler.md.
+ */
+export const SessionSchedule = Schema.Struct({
+  id: Schema.String.annotate({ description: "The sch_-prefixed schedule id." }),
+  spec: Schema.Union([
+    Schema.Struct({ cron: Schema.String }).annotate({
+      description: "The stored five-field cron spec of a recurring schedule.",
+    }),
+    Schema.Struct({ at: Schema.Int }).annotate({
+      description: "The due time of a one-shot schedule as integer UTC epoch milliseconds.",
+    }),
+  ]).annotate({
+    identifier: "SessionScheduleSpec",
+    description: "The stored firing rule: a cron spec for a recurring schedule or a one-shot due time.",
+  }),
+  message: Schema.String.annotate({ description: "The stored message text delivered on fire." }),
+  nextFireAt: Schema.Int.annotate({ description: "The stored next-due-time as integer UTC epoch milliseconds." }),
+}).annotate({ identifier: "SessionSchedule" })
+export type SessionSchedule = typeof SessionSchedule.Type
+
 const SessionHistoryLimit = PositiveInt.check(Schema.isLessThanOrEqualTo(100))
 
 export const SessionHistoryQuery = Schema.Struct({
@@ -368,6 +394,39 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
             identifier: "v2.session.message",
             summary: "Get session message",
             description: "Retrieve one projected message owned by the Session.",
+          }),
+        ),
+    )
+    .add(
+      /**
+       * The read-only schedule-list endpoint of specs/scheduler-view.md
+       * (R3.1-R3.7, I3, I4). Returns every schedule bound to the path session
+       * as SessionSchedule entries ordered by nextFireAt ascending, ties by id
+       * ascending (R3.3). The endpoint mutates no schedule and asks no
+       * permission (R3.5); the request carries no query parameters and no
+       * payload. Errors (the complete set): an undecodable path session id or
+       * a malformed request fails with InvalidRequestError (400, R3.7); a
+       * request the server auth rejects fails with UnauthorizedError (401);
+       * a path session id with no stored session row fails with
+       * SessionNotFoundError (404, R3.6); an unexpected defect reaching the
+       * handler fails with UnknownError (500) after logging with a
+       * correlating ref. Every error is a final result of one request; the
+       * route retries nothing and a client may reissue the GET.
+       */
+      HttpApiEndpoint.get("session.schedule.list", "/api/session/:sessionID/schedule", {
+        params: { sessionID: Session.ID },
+        success: Schema.Struct({ data: Schema.Array(SessionSchedule) }).annotate({
+          identifier: "SessionScheduleList",
+        }),
+        error: [SessionNotFoundError, UnknownError],
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.schedule.list",
+            summary: "List session schedules",
+            description:
+              "Retrieve the schedules bound to a session, ordered by next fire time with ties ordered by id. Read-only: the endpoint mutates nothing and performs no permission ask.",
           }),
         ),
     )
