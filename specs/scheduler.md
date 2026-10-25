@@ -8,7 +8,7 @@ Spec source of truth for: the AI-facing scheduler — the `scheduler` tool (acti
 
 The scheduler lets the model running inside a session schedule future events for itself. A scheduler/schedule carries a firing rule and a message text; at each due time the scheduler/service delivers a scheduler/fired-message into the owning session, and the model sees it and continues work (R6). Schedules are created and managed through the `scheduler` tool (R1), are bound to the creating session (R2), and persist in the schedule table across process restarts (R4). Adding and removing asks the `scheduler` permission through the V1 ask flow (R5); firing itself is not a tool call and asks nothing.
 
-The scheduler ships no HTTP surface: no protocol group, no handler, and no SDK regeneration belong to it; the server-api-sdk boundary stays untouched.
+The scheduler core ships no HTTP surface of its own: no protocol group, no handler, and no SDK regeneration belong to it. The one exception is the read-only schedule-list endpoint, owned by scheduler-view, which reads scheduler/schedule rows through the scheduler/service as its data source.
 
 Fired messages are transient nudges, not durable state. The schedule row is the durable artifact; a fired message displaced from visible history by a later epoch replacement or compaction is never re-delivered (R9). History filtering of discarded assistant and user parts never touches a fired system message, because system messages are not eligible filtering parts. Schedule state lives in a table, not in the event log, so event-log pruning never removes a schedule.
 
@@ -27,7 +27,7 @@ In:
 
 Out (non-goals):
 
-- Any HTTP API, protocol group, handler, or SDK surface for schedules.
+- Any HTTP surface of its own beyond the read-only schedule-list endpoint owned by scheduler-view; in particular any schedule-mutating HTTP API, protocol handler, or SDK operation.
 - Schedules not bound to a session: global, cross-session, or user-facing reminders.
 - Local-timezone or daylight-saving-aware recurring schedules; all due-time evaluation is UTC.
 - Multi-process schedule ownership: concurrent processes writing one database, beyond the single-writer constraint the loop inherits from storage-events.
@@ -319,4 +319,4 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 
 ## Used by
 
-None. No other spec currently cites this reference.
+- scheduler-view (R1.4, R1.5) — its annotator parses the add and list success text as its input contract; its schedule-list endpoint reuses the schedule record fields and the scheduler/service as its list source.

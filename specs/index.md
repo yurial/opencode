@@ -12,6 +12,7 @@
 | specs/integrations.md | integrations | draft | V1 integrations: LSP/MCP hosts, formatters, IDE detection, sharing, git/snapshot/worktree, plugin host, ACP adapter, experimental control-plane workspaces |
 | specs/provider-models.md | provider-models | stable | Provider/LLM layer behavior: model catalog sources, variants, auth, streaming contract, retries, V2 catalog |
 | specs/project.md | project-api | stable | Legacy per-project HTTP API sketch |
+| specs/scheduler-view.md | scheduler-view | draft | Schedule visibility layer: tool-output ETA annotations, read-only session schedule-list endpoint, TUI sidebar schedules block |
 | specs/scheduler.md | scheduler | stable | AI-facing scheduler tool: session-bound schedules (interval, cron, one-shot), fire delivery into V2 and V1 sessions, catch-up semantics, persistence, permission gating |
 | specs/server-api-sdk.md | server-api-sdk | draft | Protocol/Server/Client/SDK stack as built: HttpApi groups and middleware, V2 handlers and transports (SSE/WebSocket), hosting entrypoints, client and legacy SDK generation |
 | specs/storage-events.md | storage-events | stable | SQLite storage and events: database and migration runtime, JSON file storage, EventV2 durable log (projectors, replay, ownership), bridge/SSE delivery, experimental workspace sync |
