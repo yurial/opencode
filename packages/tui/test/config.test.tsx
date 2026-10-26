@@ -61,9 +61,15 @@ test("resolves host-neutral defaults", () => {
   })
   expect(config.leader_timeout).toBe(LeaderTimeoutDefault)
   expect(config.mouse).toBe(true)
+  expect(config.tab_rename).toBe(true)
   expect(config.keybinds.has("terminal.suspend")).toBe(true)
   expect(config.keybinds.has("session.list")).toBe(true)
   expect(config.cursor).toBeUndefined()
+})
+
+test("resolves tab rename override", () => {
+  expect(resolve({ tab_rename: false }, { terminalSuspend: true }).tab_rename).toBe(false)
+  expect(resolve({ tab_rename: true }, { terminalSuspend: true }).tab_rename).toBe(true)
 })
 
 test("resolves overrides without mutating input", () => {

@@ -60,6 +60,7 @@ import { DialogAlert } from "./ui/dialog-alert"
 import { DialogConfirm } from "./ui/dialog-confirm"
 import { ToastProvider, useToast } from "./ui/toast"
 import { isDefaultTitle } from "./util/session"
+import { tmuxTabSequence } from "./util/tmux-tab"
 import { KVProvider, useKV } from "./context/kv"
 import * as Model from "./util/model"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
@@ -484,6 +485,19 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     if (route.data.type === "plugin") {
       renderer.setTerminalTitle(`OC | ${route.data.id}`)
     }
+  })
+
+  // Rename the tmux window (tab) to the current session title. tmux ignores the
+  // OSC pane title above for window names; only the screen-legacy ESC k sequence
+  // renames the tab (with allow-rename on). Both engines deliver title changes
+  // as session.updated into the sync store, so this stays engine-agnostic.
+  createEffect(() => {
+    if (!tuiConfig.tab_rename || !process.env.TMUX) return
+    if (route.data.type !== "session") return
+    const session = sync.session.get(route.data.sessionID)
+    if (!session || isDefaultTitle(session.title)) return
+    const sequence = tmuxTabSequence(session.title)
+    if (sequence) process.stdout.write(sequence)
   })
 
   const args = useArgs()

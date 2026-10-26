@@ -19,6 +19,7 @@
 | specs/tui-architecture.md | tui-architecture | stable | TUI architecture and runtime: launch hosts and worker model, provider tree, routes/keymap/commands, legacy Sync and V2 Data stores, prompt/permission/question flows |
 | specs/tui-package.md | tui-package | draft | TUI extraction into @opencode-ai/tui package |
 | specs/tui-session-display.md | tui-session-display | draft | Session screen: thinking mode, reasoning timer, persisted context-excluded meta parts |
+| specs/tui-tab-rename.md | tui-tab-rename | stable | tmux tab rename: tab_rename tui parameter (default true), ESC k emission gated on TMUX, sanitizer, engine-agnostic sync-store trigger |
 | specs/tui-theme.md | tui-theme | stable | TUI theme v2: per-element format, element catalog with defaults, v1 migration, resolution and errors, TUI/run-CLI/plugin consumption |
 | specs/v2/config-parameters.md | config-v2 | draft | V2 configurable parameters: keys, values, implementation status |
 | specs/v2/config.md | config-v2-review | draft | V2 config review ledger: keep/remove/redesign per legacy group |

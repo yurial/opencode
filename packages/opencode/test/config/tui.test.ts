@@ -189,6 +189,47 @@ it.instance("resolves attention config defaults and overrides", () =>
   ),
 )
 
+it.instance("resolves tab rename default to true", () =>
+  withCleanState(
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      expect((yield* getTuiConfig(test.directory)).tab_rename).toBe(true)
+    }),
+  ),
+)
+
+it.instance("loads tab rename override from tui.json", () =>
+  withCleanState(
+    Effect.gen(function* () {
+      const fs = yield* FSUtil.Service
+      const test = yield* TestInstance
+      yield* fs.writeJson(path.join(test.directory, "tui.json"), { tab_rename: false })
+
+      expect((yield* getTuiConfig(test.directory)).tab_rename).toBe(false)
+    }),
+  ),
+)
+
+it.instance("migrates legacy tui.tab_rename from opencode.json into tui.json", () =>
+  withCleanState(
+    Effect.gen(function* () {
+      const fs = yield* FSUtil.Service
+      const test = yield* TestInstance
+      yield* fs.writeJson(path.join(test.directory, "opencode.json"), {
+        tui: { tab_rename: false },
+      })
+
+      const config = yield* getTuiConfig(test.directory)
+      expect(config.tab_rename).toBe(false)
+      expect(JSON.parse(yield* fs.readFileString(path.join(test.directory, "tui.json")))).toMatchObject({
+        tab_rename: false,
+      })
+      const server = JSON.parse(yield* fs.readFileString(path.join(test.directory, "opencode.json")))
+      expect(server.tui).toBeUndefined()
+    }),
+  ),
+)
+
 it.instance("migrates tui-specific keys from opencode.json when tui.json does not exist", () =>
   withCleanState(
     Effect.gen(function* () {
