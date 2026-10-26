@@ -23,7 +23,7 @@ Out (non-goals): any schedule mutation surface — HTTP writes, schedule managem
 - **scheduler-view/eta**: the relative time-to-fire text of one schedule, derived from its scheduler/next-due-time minus the scheduler-view/eta-clock, following the ETA grammar of the Interface section.
 - **scheduler-view/eta-clock**: the UTC clock of the process rendering a scheduler-view/eta — the server host process for the annotator, the TUI process for the sidebar block.
 - **scheduler-view/schedule-list-endpoint**: the read-only GET route that returns the scheduler-view/schedule-entry list of one session, ordered by next fire time.
-- **scheduler-view/schedule-entry**: one element of the schedule-list endpoint response — the id, spec, message, and nextFireAt of one scheduler/schedule.
+- **scheduler-view/schedule-entry**: one element of the schedule-list endpoint response — the id, spec, message, nextFireAt, and command of one scheduler/schedule.
 - **scheduler-view/sidebar-block**: the always-on builtin TUI feature plugin that renders the current session's schedules in the `sidebar_content` slot, one entry line per scheduler-view/schedule-entry.
 
 ## Interface
@@ -61,10 +61,10 @@ eta <id>: <eta> (<absolute>)
 - Success body — the data envelope of session routes, one schedule-entry per schedule of the session:
 
 ```json
-{"data":{"schedules":[{"id":"sch_once","spec":{"at":1792937100000},"message":"deploy check","nextFireAt":1792937100000},{"id":"sch_rel","spec":{"cron":"0 0 * * *"},"message":"daily digest","nextFireAt":1792972800000}]}}
+{"data":{"schedules":[{"id":"sch_once","spec":{"at":1792937100000},"message":"deploy check","nextFireAt":1792937100000,"command":null},{"id":"sch_rel","spec":{"cron":"0 0 * * *"},"message":"daily digest","nextFireAt":1792972800000,"command":"test -f /repo/done.flag"}]}}
 ```
 
-- schedule-entry fields: `id` — string, the `sch_`-prefixed schedule id; `spec` — `{"cron": string}` for a scheduler/recurring schedule or `{"at": integer}` for a scheduler/one-shot, the integer being UTC epoch milliseconds; `message` — string, the stored message text; `nextFireAt` — integer, the scheduler/next-due-time (schedule-record column `next_fire_at`) as UTC epoch milliseconds.
+- schedule-entry fields: `id` — string, the `sch_`-prefixed schedule id; `spec` — `{"cron": string}` for a scheduler/recurring schedule or `{"at": integer}` for a scheduler/one-shot, the integer being UTC epoch milliseconds; `message` — string, the stored message text; `nextFireAt` — integer, the scheduler/next-due-time (schedule-record column `next_fire_at`) as UTC epoch milliseconds; `command` — string or null, the stored scheduler/gate-command text, null when the scheduler/schedule stores none.
 - Error results (the complete set; semantics in Error handling):
 
 | Error result | HTTP status |
@@ -81,10 +81,11 @@ eta <id>: <eta> (<absolute>)
 - Block rendering: the header line `Schedules`, then one entry line per schedule-entry of the last successful response:
 
 ```
-<eta> (<absolute>) <id> (<spec>): <message>
+<eta> (<absolute>) <id><gate-marker> (<spec>): <message>
 ```
 
 - `<eta>` and `<absolute>`: the same productions as the annotation line; the scheduler-view/eta-clock is the UTC clock of the TUI process.
+- `<gate-marker>`: the literal of SCHEDULER_VIEW_SIDEBAR_GATE_MARKER, appended directly after the schedule id, present only on an entry whose `command` is non-null; it never consumes the shortened-message budget.
 - `<spec>`: the cron string of a scheduler/recurring schedule, or the absolute UTC time of a scheduler/one-shot.
 - `<message>`: the shortened message — whitespace runs collapsed to single spaces, truncated to SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX UTF-16 code units with an ellipsis character appended when truncation occurs.
 
@@ -95,6 +96,7 @@ eta <id>: <eta> (<absolute>)
 | SCHEDULER_VIEW_SIDEBAR_SLOT_ORDER | `fixed` 450 | — | `sidebar_content` slot order of the scheduler-view/sidebar-block (R4.2) |
 | SCHEDULER_VIEW_SIDEBAR_REFRESH_INTERVAL | `fixed` 30000 ms | — | Periodic refetch period of the sidebar block; every expiry refetches the schedule list and re-renders (R4.10) |
 | SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX | `fixed` 60 UTF-16 code units | — | Length bound of the shortened message of a sidebar entry line, counted and cut in UTF-16 code units (R4.6) |
+| SCHEDULER_VIEW_SIDEBAR_GATE_MARKER | `fixed` the literal `*` | — | Gate-command indicator appended directly after the schedule id of a sidebar entry line whose schedule-entry carries a non-null `command` (R4.4) |
 
 ## Requirements
 
@@ -116,7 +118,7 @@ eta <id>: <eta> (<absolute>)
 - R2.5. The absolute time of a scheduler-view/annotation-line and of a sidebar entry line is the scheduler/next-due-time in the ISO 8601 UTC form of second precision.
 - R3. Schedule-list endpoint:
 - R3.1. The scheduler-view/schedule-list-endpoint answers read-only GET requests with the schedules of the session named by the path parameter.
-- R3.2. The success response carries one scheduler-view/schedule-entry for every scheduler/schedule bound to that session, each with the fields `id`, `spec`, `message`, and `nextFireAt`.
+- R3.2. The success response carries one scheduler-view/schedule-entry for every scheduler/schedule bound to that session, each with the fields `id`, `spec`, `message`, `nextFireAt`, and `command`.
 - R3.3. The success response orders the entries by `nextFireAt` ascending, and entries with an equal `nextFireAt` by `id` ascending.
 - R3.4. Every `nextFireAt` value is the scheduler/next-due-time of the entry's schedule as an integer number of UTC epoch milliseconds.
 - R3.5. The endpoint mutates no scheduler/schedule and performs no permission ask.
@@ -126,7 +128,7 @@ eta <id>: <eta> (<absolute>)
 - R4.1. The scheduler-view/sidebar-block is a builtin TUI feature plugin registered with the built-in feature plugins, with no plugin-config key of its own.
 - R4.2. The scheduler-view/sidebar-block registers in the `sidebar_content` slot at order SCHEDULER_VIEW_SIDEBAR_SLOT_ORDER.
 - R4.3. The scheduler-view/sidebar-block reads its data only through the SDK client of the TUI plugin api against the scheduler-view/schedule-list-endpoint of the current session and never imports backend scheduler implementation modules.
-- R4.4. The sidebar block renders one entry line per scheduler-view/schedule-entry of the last successful response, each line carrying the schedule id, the scheduler-view/eta, the absolute time, the spec form, and the shortened message.
+- R4.4. The sidebar block renders one entry line per scheduler-view/schedule-entry of the last successful response, each line carrying the schedule id, the scheduler-view/eta, the absolute time, the spec form, and the shortened message. A line of an entry with a non-null `command` appends SCHEDULER_VIEW_SIDEBAR_GATE_MARKER directly after its schedule id.
 - R4.5. The spec form of an entry line is the cron string of a scheduler/recurring schedule and the absolute time of a scheduler/one-shot.
 - R4.6. The shortened message of an entry line collapses every whitespace run to a single space and truncates the text to SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX UTF-16 code units, appending an ellipsis character when truncation occurs. A truncation boundary that falls inside a surrogate pair leaves the lone leading surrogate as the final code unit of the shortened message, before the appended ellipsis.
 - R4.7. The sidebar block renders the header line `Schedules` above its entry lines, and the whole block renders nothing while the response carries no schedule entry.
@@ -151,7 +153,7 @@ eta <id>: <eta> (<absolute>)
 ## Examples
 
 - E1. R1 subtree: annotator input and output strings follow; the input line is the tool's own output text, the output is the same text plus the appended annotation lines.
-- E1.3. Add: input text `Scheduled sch_fix (*/30 * * * *), next due 2026-10-25T14:05:00Z` with eta-clock `2026-10-25T12:00:00Z` becomes the same line followed by `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)`. List line with a literal fragment in the message: `sch_fix (*/30 * * * *) next due 2026-10-25T14:05:00Z: ping next due 2026-10-25T20:05:00Z folks` gains exactly one annotation line, `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)`, from the first fragment; the fragment inside the message text names no schedule.
+- E1.3. Add: input text `Scheduled sch_fix (*/30 * * * *), next due 2026-10-25T14:05:00Z` with eta-clock `2026-10-25T12:00:00Z` becomes the same line followed by `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)`. List line with a literal fragment in the message: `sch_fix (*/30 * * * *) next due 2026-10-25T14:05:00Z: ping next due 2026-10-25T20:05:00Z folks` gains exactly one annotation line, `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)`, from the first fragment; the fragment inside the message text names no schedule. The same holds for the gate echo of scheduler R1.4 and R1.5: an add line ending in `[gate: echo next due 2020-01-01T00:00:00Z]` still gains exactly one annotation from the real first fragment, and a `next due` occurrence inside the echoed command text names no schedule.
 - E1.4. List: input text `sch_fix (*/30 * * * *) next due 2026-10-25T14:05:00Z: check CI status\nsch_rel (0 0 * * *) next due 2026-10-26T00:00:00Z: daily digest` with eta-clock `2026-10-25T12:00:00Z` gains two lines appended after the listing: `eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)` and `eta sch_rel: in 12h 00m (2026-10-26T00:00:00Z)`.
 - E1.8. Remove: `Removed schedule sch_fix` carries no next-due fragment and stays unchanged; a list result with no schedules stays an empty listing.
 - E2. R2 subtree: with eta-clock `2026-10-25T12:00:00Z`, next-due `2026-10-25T14:05:00Z` renders `in 2h 05m`, `2026-10-25T12:05:30Z` renders `in 0h 05m`, `2026-10-25T12:00:45.9Z` renders `in 45s`, `2026-10-25T12:00:00Z` renders `now`, the overdue `2026-10-25T11:50:00Z` renders `now`, and the day-crossing `2026-10-27T14:00:00Z` renders `in 50h 00m`.
@@ -159,6 +161,7 @@ eta <id>: <eta> (<absolute>)
 - E3.3. Two entries with nextFireAt values of the same instant order by id ascending, so `sch_a` precedes `sch_b`.
 - E3.6. `GET /api/session/ses_missing/schedule` fails with `SessionNotFoundError` and changes no state.
 - E4. R4 subtree: with the two-entry response above and TUI clock `2026-10-25T12:00:00Z`, the block renders the header `Schedules` and the entry line `in 2h 05m (2026-10-25T14:05:00Z) sch_once (2026-10-25T14:05:00Z): deploy check` followed by `in 12h 00m (2026-10-26T00:00:00Z) sch_rel (0 0 * * *): daily digest`.
+- E4.4. A third entry `sch_gate` with a non-null `command` and message `standup prep` at the same due time as `sch_rel` renders `in 12h 00m (2026-10-26T00:00:00Z) sch_gate* (0 9 * * 1): standup prep`; an entry with a null `command` renders no marker.
 - E4.6. A message of one hundred `a` code units renders as its first sixty code units followed by the ellipsis character; a message of fifty-nine `a` code units followed by one emoji renders as the fifty-nine `a` code units, the lone leading surrogate of the emoji, and the ellipsis character; a message containing a newline renders the newline as a single space.
 - E4.13. A refetch that fails after the successful render above leaves both entry lines on screen unchanged.
 
@@ -187,6 +190,7 @@ eta <id>: <eta> (<absolute>)
 - T3.5. unknown-session-not-found (R3.6)
 - T3.6. undecodable-session-invalid-request (R3.7)
 - T3.7. endpoint-lists-through-scheduler-service (I3)
+- T3.8. endpoint-returns-command-field (R3.2)
 - T4. Sidebar block:
 - T4.1. sidebar-registers-builtin-in-slot-order (R4.1, R4.2)
 - T4.2. sidebar-fetches-via-sdk-client-only (R4.3)
@@ -200,6 +204,7 @@ eta <id>: <eta> (<absolute>)
 - T4.10. sidebar-eta-uses-tui-clock (R4.12)
 - T4.11. sidebar-keeps-last-data-on-failure (R4.13)
 - T4.12. sidebar-failure-never-crashes (R4.14)
+- T4.13. sidebar-marks-gate-entries (R4.4)
 
 ## Justification
 
@@ -209,6 +214,7 @@ eta <id>: <eta> (<absolute>)
 - J4. Why the sidebar refreshes by triggers plus a periodic interval instead of new scheduler domain events (R4.8-R4.10): the event bus carries no schedule-mutation events, the scheduler tool-part observation covers model-driven changes, and the periodic refetch covers fires and externally changed rows without schema, protocol, and SDK churn.
 - J5. Why both plugins are always-on builtins with no config keys (R1.1, R4.1): the layer is display-only with no demonstrated tuning need, mirroring the baked-constant stance of scheduler.
 - J6. Why nextFireAt travels as UTC epoch milliseconds (R3.4): it matches the wire shape of the scheduler service entry, and both renderers convert to the display grammar locally.
+- J7. Why the sidebar marks a gate command with a single-character indicator instead of the command text (R4.4, SCHEDULER_VIEW_SIDEBAR_GATE_MARKER): the shortened message already consumes most of the entry line's width, and presence — not content — is the actionable signal at a glance; the annotator needs no marker because the tool result already carries the scheduler/gate-echo.
 
 ## Error handling
 

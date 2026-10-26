@@ -1,5 +1,25 @@
 # V2 Schema Changelog
 
+## 2026-10-26: Nullable Command Field on the Session Schedule List Endpoint
+
+Affected schema:
+
+- Optional nullable `command` field on the `SessionSchedule` response component of `GET /api/session/:sessionID/schedule` (`session.schedule.list`, OpenAPI `v2.session.schedule.list`).
+
+Change:
+
+- Return the stored scheduler gate-command text of each schedule entry as `command`, a string or null; null when the schedule stores no gate command.
+- Keep the remaining `SessionSchedule` fields (`id`, `spec`, `message`, `nextFireAt`) and the response ordering unchanged.
+- Add no request-shape, mutation, or permission change; schedule management stays on the scheduler tool.
+
+Reason:
+
+- specs/scheduler.md and specs/scheduler-view.md R3.2: a schedule may carry a gate command checked before each fire, and clients — the TUI sidebar gate marker among them — need its presence on the wire.
+
+Compatibility:
+
+- Additive nullable response field; existing clients that ignore unknown fields are unaffected. Regenerated the private client (`packages/client/src/generated*`) and the legacy SDK `src/v2/gen` surface.
+
 ## 2026-10-26: Read-Only Session Schedule List Endpoint
 
 Affected schema:
