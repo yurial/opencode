@@ -375,6 +375,63 @@ describe("sidebar schedules block", () => {
     }
   })
 
+  test("drops a stale response that resolves after the session changed (R4.8, R4.13)", async () => {
+    const clock = clockFixture(T0)
+    const calls: string[] = []
+    // The first response, for ses_a, is held back until the test releases
+    // it — a controlled slow client stands in for a slow schedule-list
+    // round trip.
+    let releaseSlow: ((value: unknown) => void) | undefined
+    const stale = new Promise<unknown>((resolve) => {
+      releaseSlow = resolve
+    })
+    const schedulesB = [entry("sch_in_b", { cron: "* * * * *" }, T0 + 3_600_000, "session b schedule")]
+    const schedulesA = [entry("sch_in_a", { cron: "* * * * *" }, T0 + 3_600_000, "session a schedule")]
+    const client = {
+      v2: {
+        session: {
+          schedule: {
+            list: (input: { sessionID: string }) => {
+              calls.push(input.sessionID)
+              if (input.sessionID === "ses_a") return stale
+              return Promise.resolve({ data: { data: { schedules: schedulesB } } })
+            },
+          },
+        },
+      },
+    }
+    const [sessionID, setSessionID] = createSignal("ses_a")
+    const harness = await mount({
+      client,
+      calls,
+      options: { etaClock: clock.etaClock },
+      sessionID: () => sessionID(),
+    })
+    try {
+      // The first fetch for ses_a is still pending: the block stays hidden.
+      expect(calls).toEqual(["ses_a"])
+      expect(harness.frame().trim()).toBe("")
+
+      // Switching the session refetches for ses_b, which answers at once.
+      setSessionID("ses_b")
+      await harness.render()
+      expect(calls).toEqual(["ses_a", "ses_b"])
+      expect(harness.frame()).toContain("sch_in_b")
+
+      // The held-back ses_a response resolves after the switch: an answer
+      // for a session that is no longer current must not overwrite the
+      // entries of the session on screen.
+      releaseSlow?.({ data: { data: { schedules: schedulesA } } })
+      await sleep(50)
+      await harness.render()
+      const frame = harness.frame()
+      expect(frame).toContain("sch_in_b")
+      expect(frame).not.toContain("sch_in_a")
+    } finally {
+      harness.destroy()
+    }
+  })
+
   test("refetches when a scheduler tool part is observed; other tools and part removals do not trigger (T4.7, R4.9, I6)", async () => {
     const clock = clockFixture(T0)
     const [messages, setMessages] = createSignal<Message[]>([])

@@ -219,11 +219,17 @@ function View(props: { api: TuiPluginApi; settings: { etaClock: EtaClock; interv
 
   // R4.13/R4.14: every failure — transport, non-success status, decode —
   // keeps the entries of the last successful response (none before the
-  // first success) and never propagates beyond the block.
+  // first success) and never propagates beyond the block. A response that
+  // resolves after the current session changed answers the previous
+  // session and is dropped, so a slow round trip cannot overwrite the
+  // entries of the session on screen until the next trigger (R4.8).
   const refetch = (sessionID: string) => {
     void api.client.v2.session.schedule
       .list({ sessionID }, { throwOnError: true })
-      .then((result) => setEntries(result.data.data.schedules))
+      .then((result) => {
+        if (props.session_id !== sessionID) return
+        setEntries(result.data.data.schedules)
+      })
       .catch(() => {})
   }
 
