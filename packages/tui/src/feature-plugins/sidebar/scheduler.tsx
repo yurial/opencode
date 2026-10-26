@@ -21,7 +21,10 @@ import { textAttributes } from "../../theme/catalog"
  *   module is imported and no TuiState accessor for schedules exists (R4.3).
  * - The block renders the header `Schedules` and one entry line per entry,
  *   in the order the server delivered them — the endpoint already orders by
- *   next fire time; the block never re-sorts (R4.4, R4.5, R4.7).
+ *   next fire time; the block never re-sorts (R4.4, R4.5, R4.7). An entry
+ *   with a non-null `command` carries SCHEDULER_VIEW_SIDEBAR_GATE_MARKER
+ *   directly after its schedule id, without consuming the shortened-message
+ *   budget (R4.4, R4.6).
  * - Refetch triggers: the first run on mount, a change of the current
  *   session (R4.8), a newly observed scheduler tool part in the current
  *   session (R4.9, I6), and every expiry of the refresh interval (R4.10).
@@ -107,6 +110,15 @@ const SCHEDULER_VIEW_SIDEBAR_REFRESH_INTERVAL_MS = 30_000
 const SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX = 60
 
 /**
+ * Gate-command indicator appended directly after the schedule id of an entry
+ * line whose schedule-entry carries a non-null `command`
+ * (specs/scheduler-view.md Configuration, SCHEDULER_VIEW_SIDEBAR_GATE_MARKER,
+ * R4.4). Fixed — the spec has no config key for it. The marker never
+ * consumes the shortened-message budget of R4.6.
+ */
+const SCHEDULER_VIEW_SIDEBAR_GATE_MARKER = "*"
+
+/**
  * Boundaries of the scheduler-view/eta grammar (specs/scheduler-view.md, ETA
  * grammar): a remainder at or below ETA_NOW_BOUND_MS renders `now` (R2.2), a
  * remainder below ETA_MINUTE_MS renders the seconds production (R2.3), a
@@ -177,13 +189,16 @@ function shorten(message: string): string {
 }
 
 /**
- * Renders one entry line (R4.4): `<eta> (<absolute>) <id> (<spec>): <message>`
- * — the eta and absolute productions of R2.1-R2.5, the schedule id, the spec
- * form of R4.5, and the shortened message of R4.6.
+ * Renders one entry line (R4.4): `<eta> (<absolute>) <id><gate-marker> (<spec>): <message>`
+ * — the eta and absolute productions of R2.1-R2.5, the schedule id with the
+ * gate marker appended directly after it when the entry carries a non-null
+ * `command`, the spec form of R4.5, and the shortened message of R4.6. The
+ * marker is no part of the message: shorten sees the message text alone.
  */
 function entryLine(entry: SessionSchedule, now: number): string {
   const due = entry.nextFireAt
-  return `${eta(due, now)} (${absolute(due)}) ${entry.id} (${specForm(entry.spec)}): ${shorten(entry.message)}`
+  const gateMarker = entry.command === null ? "" : SCHEDULER_VIEW_SIDEBAR_GATE_MARKER
+  return `${eta(due, now)} (${absolute(due)}) ${entry.id}${gateMarker} (${specForm(entry.spec)}): ${shorten(entry.message)}`
 }
 
 /**

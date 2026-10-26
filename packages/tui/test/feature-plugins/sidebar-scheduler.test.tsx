@@ -63,8 +63,14 @@ function textPart(messageID: string): Part {
   return { id: `part-${++seq}`, sessionID: "ses", messageID, type: "text", text: "hello" }
 }
 
-function entry(id: string, spec: SessionSchedule["spec"], nextFireAt: number, message: string): SessionSchedule {
-  return { id, spec, message, nextFireAt }
+function entry(
+  id: string,
+  spec: SessionSchedule["spec"],
+  nextFireAt: number,
+  message: string,
+  command: string | null = null,
+): SessionSchedule {
+  return { id, spec, message, nextFireAt, command }
 }
 
 // The scheduler-view/eta-clock of the block under test: a mutable reading
@@ -239,6 +245,44 @@ describe("sidebar schedules block", () => {
       // Server order stands (R3.3 upstream; the block never re-sorts).
       expect(frame.indexOf("sch_once")).toBeLessThan(frame.indexOf("sch_rel"))
       expect(calls).toEqual(["ses"])
+    } finally {
+      harness.destroy()
+    }
+  })
+
+  test("marks gate entries: the marker rides the id only when command is non-null (T4.13, R4.4, E4.4)", async () => {
+    const clock = clockFixture(T0)
+    const calls: string[] = []
+    const schedules = [
+      // E4.4 verbatim: a third entry with a non-null `command` at the same
+      // due time as `sch_rel`.
+      entry("sch_gate", { cron: "0 9 * * 1" }, 1792972800000, "standup prep", "test -f /repo/done.flag"),
+      entry("sch_rel", { cron: "0 0 * * *" }, 1792972800000, "daily digest"),
+      // A gated entry whose message fills the bound exactly, and one past
+      // the bound: the marker must not consume the 60-unit message budget.
+      entry("sch_full", { cron: "0 9 * * 1" }, 1792972800000, "e".repeat(60), "make check"),
+      entry("sch_cut", { cron: "0 9 * * 1" }, 1792972800000, "m".repeat(100), "make check"),
+    ]
+    const harness = await mount({
+      client: clientFixture(calls, () => ({ data: { schedules } })),
+      calls,
+      options: { etaClock: clock.etaClock },
+    })
+    try {
+      const frame = harness.frame()
+      // Non-null `command`: the marker appends directly after the schedule id.
+      expect(frame).toContain("in 12h 00m (2026-10-26T00:00:00Z) sch_gate* (0 9 * * 1): standup prep")
+      expect(frame).not.toContain("sch_gate (0 9 * * 1)")
+      // Null `command`: no marker, the line keeps its exact former shape.
+      expect(frame).toContain("in 12h 00m (2026-10-26T00:00:00Z) sch_rel (0 0 * * *): daily digest")
+      expect(frame).not.toContain("sch_rel*")
+      // The shortened-message budget counts the message alone: exactly sixty
+      // units stay untruncated behind the marker, one hundred truncate to
+      // sixty plus the ellipsis.
+      expect(frame).toContain(`sch_full* (0 9 * * 1): ${"e".repeat(60)}`)
+      expect(frame).not.toContain(`${"e".repeat(60)}…`)
+      expect(frame).toContain(`sch_cut* (0 9 * * 1): ${"m".repeat(60)}…`)
+      expect(frame).not.toContain("m".repeat(61))
     } finally {
       harness.destroy()
     }
