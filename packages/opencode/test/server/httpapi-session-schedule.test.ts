@@ -179,16 +179,21 @@ describe("session schedule HttpApi", () => {
 
         const body = yield* listSchedules(session.id, headers)
         expect(body.data.schedules).toHaveLength(2)
-        expect(body.data.schedules[1]).toEqual({
+        // R3.3 orders entries by nextFireAt ascending, and the relative order
+        // of now+6h and the daily cron midnight flips at 18:00 UTC — locate
+        // the entries by id; the ordering itself is covered by the ordering
+        // test above.
+        const oneShotEntry = body.data.schedules.find((entry) => entry.id === oneShot.id)!
+        expect(oneShotEntry).toEqual({
           id: oneShot.id,
           spec: { at: due },
           message: "deploy check",
           nextFireAt: due,
         })
-        expect(body.data.schedules[1]!.id).toMatch(/^sch_/)
-        expect(Object.keys(body.data.schedules[1]!).sort()).toEqual(["id", "message", "nextFireAt", "spec"])
+        expect(oneShotEntry.id).toMatch(/^sch_/)
+        expect(Object.keys(oneShotEntry).sort()).toEqual(["id", "message", "nextFireAt", "spec"])
 
-        const cronEntry = body.data.schedules[0]!
+        const cronEntry = body.data.schedules.find((entry) => entry.id === recurring.id)!
         expect(cronEntry).toEqual({
           id: recurring.id,
           spec: { cron: "0 0 * * *" },
