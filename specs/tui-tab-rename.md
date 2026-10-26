@@ -1,5 +1,7 @@
 # TUI tmux Tab Rename
 
+Status: stable
+
 ## Goal
 
 Rename the tmux window (tab) to the current session title. tmux ignores OSC 0/2

@@ -401,6 +401,7 @@ This is separate from `opencode.json`, which configures server/runtime behavior.
 - `diff_style` - Controls diff rendering. `"auto"` adapts to terminal width, `"stacked"` always shows a single-column layout.
 - `cursor` - Controls the terminal cursor in TUI input fields. `style` defaults to `"block"`, can be `"underline"`, `"line"`, or `"default"`; `blinking` defaults to `true`. When `style` is `"default"`, the terminal default cursor is restored, so `blinking` has no effect.
 - `mouse` - Enable or disable mouse capture in the TUI (default: `true`). When disabled, the terminal's native mouse selection/scrolling behavior is preserved.
+- `tab_rename` - Renames the tmux tab (window) to the current session title (default: `true`). Only works inside tmux: it sends the `ESC k` escape sequence, which requires `allow-rename on` in your tmux configuration. Renames only the tmux tab; the outer terminal's title is untouched (that is controlled by the separate terminal title option in the TUI). With the v2 engine, automatic title generation is not implemented yet, so the tab is renamed on session switches and manual renames.
 - `attention` - Configures TUI desktop notifications and sounds. Disabled by default.
 
 Use `OPENCODE_TUI_CONFIG` to load a custom TUI config path.
