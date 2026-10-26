@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "b2d0a241-ac23-48cf-bcd1-26ac37ce944b",
+  "id": "ef4ae8e2-537f-4eea-93d4-d050c4a31f16",
   "prevIds": [
-    "f14a9b18-8207-487e-a3d3-227e629ba9ad"
+    "b2d0a241-ac23-48cf-bcd1-26ac37ce944b"
   ],
   "ddl": [
     {
@@ -823,6 +823,16 @@
       "default": null,
       "generated": null,
       "name": "message",
+      "entityType": "columns",
+      "table": "schedule"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "command",
       "entityType": "columns",
       "table": "schedule"
     },

@@ -425,4 +425,108 @@ describe("scheduler tool", () => {
       expect(asks).toEqual([])
     }),
   )
+
+  it.instance("add appends the gate echo and stores the raw command", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      deny.denied = false
+      const sessionID = nextSession()
+      yield* makeSession(sessionID)
+
+      const result = yield* run(
+        { action: "add", every: "30m", message: "check CI status", command: "test -f done.flag" },
+        sessionID,
+      )
+      // E1.4: the echo ends the line, after the next due fragment.
+      expect(result.output).toMatch(
+        /^Scheduled sch_[A-Za-z0-9]+ \(\*\/30 \* \* \* \*\), next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z \[gate: test -f done\.flag\]$/,
+      )
+      expect(result.metadata).toMatchObject({ action: "add", command: "test -f done.flag" })
+      const rows = yield* rowsFor(sessionID)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.command).toBe("test -f done.flag")
+
+      // The echo collapses whitespace runs; the stored text stays raw.
+      const collapsed = yield* run(
+        { action: "add", every: "1h", message: "second", command: "test   -f  done\tflag" },
+        sessionID,
+      )
+      expect(collapsed.output).toContain("[gate: test -f done flag]")
+      const rowsAfter = yield* rowsFor(sessionID)
+      expect(rowsAfter).toHaveLength(2)
+      expect(rowsAfter.find((row) => row.message === "second")!.command).toBe("test   -f  done\tflag")
+    }),
+  )
+
+  it.instance("list lines append the gate echo after the next due fragment", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      const sessionID = nextSession()
+      const stranger = nextSession()
+      yield* makeSession(sessionID)
+      yield* makeSession(stranger)
+      const scheduler = yield* Scheduler.Service
+      yield* scheduler.add({ sessionID, message: "check CI status", spec: { cron: "*/30 * * * *" }, command: "test -f done.flag" })
+      yield* scheduler.add({ sessionID, message: "plain", spec: { cron: "0 12 * * *" } })
+      yield* scheduler.add({ sessionID: stranger, message: "not mine", spec: { cron: "0 0 * * *" }, command: "other" })
+
+      const result = yield* run({ action: "list" }, sessionID)
+      const lines = result.output.split("\n").filter((line) => line.length > 0)
+      expect(lines).toHaveLength(2)
+      // E1.5: the echo ends the line and follows the first next due
+      // fragment of the line.
+      expect(lines[0]).toMatch(
+        /^sch_[A-Za-z0-9]+ \(\*\/30 \* \* \* \*\) next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z: check CI status \[gate: test -f done\.flag\]$/,
+      )
+      expect(lines[1]).not.toContain("[gate:")
+      expect(result.metadata).toMatchObject({ action: "list", commands: ["test -f done.flag", null] })
+    }),
+  )
+
+  it.instance("rejects an over-long command at the exact bound", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      deny.denied = false
+      const sessionID = nextSession()
+      yield* makeSession(sessionID)
+
+      expect(
+        yield* fail(
+          { action: "add", every: "1h", message: "m", command: "x".repeat(Scheduler.MAX_COMMAND_LENGTH + 1) },
+          sessionID,
+        ),
+      ).toContain("command-too-long")
+      expect(yield* fail({ action: "add", every: "1h", message: "m", command: "" }, sessionID)).toContain(
+        "invalid arguments",
+      )
+      expect(yield* rowsFor(sessionID)).toEqual([])
+
+      // The exact bound is accepted (E3.13).
+      yield* run(
+        { action: "add", every: "1h", message: "bounded", command: "y".repeat(Scheduler.MAX_COMMAND_LENGTH) },
+        sessionID,
+      )
+      const rows = yield* rowsFor(sessionID)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.command).toHaveLength(Scheduler.MAX_COMMAND_LENGTH)
+    }),
+  )
+
+  it.instance("a command joins no permission pattern set and adds no ask", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      deny.denied = false
+      asks.length = 0
+      const sessionID = nextSession()
+      yield* makeSession(sessionID)
+
+      yield* run({ action: "add", every: "30m", message: "gated", command: "test -f done.flag" }, sessionID)
+      // R5.1 with the permission-ask section: one scheduler ask whose
+      // pattern set is the spec form — the command joins no pattern set and
+      // asks nothing beyond the add ask (R5.5 keeps the fire-time run ask-free).
+      expect(asks).toHaveLength(1)
+      expect(asks[0]!.permission).toBe("scheduler")
+      expect(asks[0]!.patterns).toEqual(["*/30 * * * *"])
+    }),
+  )
 })

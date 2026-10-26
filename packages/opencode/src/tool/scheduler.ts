@@ -25,6 +25,10 @@ export const Parameters = Schema.Struct({
     description:
       "One-shot firing rule in the future (add only): an ISO 8601 datetime (naive resolves in the local timezone) or a relative offset from now — now+<integer><unit> with unit s, m, h, or d (for example now+5m, now+90s), or now+HH:MM:SS (for example now+01:30:25); prefer the relative form over computing timestamps",
   }),
+  command: Schema.optional(Schema.String).annotate({
+    description:
+      "Optional gate command checked before each fire (add only): it runs with bash -c in the session directory and the schedule fires only when it exits zero; its output, if any, is appended to the fired message",
+  }),
   id: Schema.optional(Schema.String).annotate({
     description: "The schedule id to remove (remove only)",
   }),
@@ -34,6 +38,8 @@ type Metadata = {
   action: "add" | "remove" | "list"
   id?: string
   spec?: string
+  command?: string
+  commands?: ReadonlyArray<string | null>
 }
 
 /**
@@ -51,6 +57,7 @@ class SchedulerToolError extends Schema.TaggedErrorClass<SchedulerToolError>()("
     "invalid-at",
     "at-in-past",
     "message-too-long",
+    "command-too-long",
     "schedule-cap-reached",
     "schedule-not-found",
     "permission-denied",
@@ -183,9 +190,15 @@ export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.
             const entries = yield* scheduler.list(ctx.sessionID)
             return {
               title: `${entries.length} ${entries.length === 1 ? "schedule" : "schedules"}`,
-              metadata: { action: "list" as const },
+              metadata: { action: "list" as const, commands: entries.map((entry) => entry.command) },
               output: entries
-                .map((entry) => SchedulerMessage.listed({ ...entry, spec: SchedulerMessage.spec(entry.spec) }))
+                .map((entry) =>
+                  SchedulerMessage.listed({
+                    ...entry,
+                    spec: SchedulerMessage.spec(entry.spec),
+                    command: entry.command ?? undefined,
+                  }),
+                )
                 .join("\n"),
             }
           }
@@ -250,16 +263,42 @@ export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.
               }),
             )
           }
+          if (params.command !== undefined) {
+            if (params.command.length === 0) {
+              return yield* Effect.die(
+                new Tool.InvalidArgumentsError({
+                  tool: "scheduler",
+                  detail: "action add requires a non-empty command",
+                }),
+              )
+            }
+            if (params.command.length > Scheduler.MAX_COMMAND_LENGTH) {
+              return yield* Effect.die(
+                new SchedulerToolError({
+                  code: "command-too-long",
+                  detail: `command exceeds the ${Scheduler.MAX_COMMAND_LENGTH} character bound`,
+                }),
+              )
+            }
+          }
           const spec = yield* resolveSpec(params, yield* Clock.currentTimeMillis)
           const specForm = SchedulerMessage.spec(spec)
           yield* ask(ctx, {
             permission: "scheduler",
             patterns: [specForm],
             always: ["*"],
-            metadata: { action: "add", spec: specForm, message: params.message },
+            // The command joins no pattern set (the ask approves the
+            // schedule); it rides the metadata so the approval shows what
+            // will run before each fire.
+            metadata: {
+              action: "add",
+              spec: specForm,
+              message: params.message,
+              ...(params.command === undefined ? {} : { command: params.command }),
+            },
           })
           const added = yield* scheduler
-            .add({ sessionID: ctx.sessionID, message: params.message, spec })
+            .add({ sessionID: ctx.sessionID, message: params.message, spec, command: params.command })
             .pipe(
               Effect.catch(() =>
                 Effect.die(
@@ -272,8 +311,18 @@ export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.
             )
           return {
             title: `Scheduled ${added.id}`,
-            metadata: { action: "add" as const, id: added.id, spec: specForm },
-            output: SchedulerMessage.added({ id: added.id, spec: specForm, nextFireAt: added.nextFireAt }),
+            metadata: {
+              action: "add" as const,
+              id: added.id,
+              spec: specForm,
+              ...(params.command === undefined ? {} : { command: params.command }),
+            },
+            output: SchedulerMessage.added({
+              id: added.id,
+              spec: specForm,
+              nextFireAt: added.nextFireAt,
+              command: params.command,
+            }),
           }
         }),
     } satisfies Tool.DefWithoutID<typeof Parameters, Metadata>

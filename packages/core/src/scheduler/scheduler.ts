@@ -1,7 +1,7 @@
 export * as Scheduler from "./scheduler"
 
-import { Cause, Clock, Context, DateTime, Effect, Exit, Layer, Schema, Semaphore } from "effect"
-import { and, asc, eq, lte } from "drizzle-orm"
+import { Cause, Clock, Context, DateTime, Effect, Exit, Layer, Schema, Semaphore, Scope } from "effect"
+import { and, asc, eq, lte, notInArray } from "drizzle-orm"
 import { LayerNode } from "../effect/layer-node"
 import { makeGlobalNode } from "../effect/app-node"
 import { Database } from "../database/database"
@@ -16,6 +16,7 @@ import { SessionStore } from "../session/store"
 import { ScheduleID } from "./schema"
 import { ScheduleTable } from "./sql"
 import { SchedulerCron } from "./cron"
+import { SchedulerGate } from "./gate"
 import { SchedulerMessage } from "./message"
 import { SchedulerV1Prompt } from "./v1-prompt"
 
@@ -32,6 +33,13 @@ export const MAX_SCHEDULES_PER_SESSION = 50
  * (R3.9). Baked constant by design (J6).
  */
 export const MAX_MESSAGE_LENGTH = 4096
+
+/**
+ * Command length bound in characters (specs/scheduler.md Configuration
+ * SCHEDULER_MAX_COMMAND_LENGTH). A longer `command` fails validation
+ * (R3.13). Baked constant by design (J6).
+ */
+export const MAX_COMMAND_LENGTH = 4096
 
 /**
  * Delay between delivery attempts of a failing fire, in milliseconds
@@ -51,14 +59,17 @@ export type Spec = { readonly cron: string } | { readonly at: number }
 /**
  * The service-side view of a scheduler/schedule row (specs/scheduler.md
  * Schedule record). `spec` mirrors the exactly-one-of `cron`/`at` invariant;
- * `nextFireAt` is the stored next-due-time in UTC epoch milliseconds;
- * `timeCreated`/`timeUpdated` are the shared timestamp columns.
+ * `command` is the stored scheduler/gate-command text, `null` when the
+ * schedule stores no gate; `nextFireAt` is the stored next-due-time in UTC
+ * epoch milliseconds; `timeCreated`/`timeUpdated` are the shared timestamp
+ * columns.
  */
 export interface Entry {
   readonly id: ScheduleID
   readonly sessionID: SessionSchema.ID
   readonly spec: Spec
   readonly message: string
+  readonly command: string | null
   readonly nextFireAt: number
   readonly timeCreated: number
   readonly timeUpdated: number
@@ -87,14 +98,33 @@ export class NotFound extends Schema.TaggedErrorClass<NotFound>()("Scheduler.Not
  *   stored next-due-time from the spec: for `{ cron }` the earliest match
  *   strictly after the current time (the spec's future-match requirement has
  *   been validated by the caller; a cron without a future match reaching this
- *   layer is a defect), for `{ at }` the given instant. Fails with
- *   `CapReached` when the session already holds the cap (R2.4); the
- *   permission ask and the argument validation belong to the tool, not here.
+ *   layer is a defect), for `{ at }` the given instant. `command`, when
+ *   given, is stored as the scheduler/gate-command text of the schedule
+ *   (R6.12); an add without `command` stores no gate and fires exactly as
+ *   before (R6.11). Fails with `CapReached` when the session already holds
+ *   the cap (R2.4); the permission ask and the argument validation belong to
+ *   the tool, not here.
  * - `remove` deletes the schedule with `id` bound to `sessionID` and returns
  *   the removed entry; fails with `NotFound` — foreign or unknown ids
  *   remove nothing (R2.3).
  * - `list` returns every schedule bound to `sessionID`, ordered by id
  *   (R2.2); reads take no part in the loop's serialization.
+ * - Gate runs (R6.12-R6.18, I8-I11): a fire of a schedule with a stored
+ *   command runs the command through the scheduler/gate runner before any
+ *   delivery side effect. The run executes outside the delivery loop's
+ *   write permit on a fiber of its own (I9), so the loop keeps serving
+ *   mutations and other schedules while it is in flight (R8.6); at most one
+ *   run per schedule is in flight (R8.7), the due scan and the timer arm
+ *   skip the in-flight row (I11), and a due time reached while the run is
+ *   in flight starts no second run (R8.9) — after the run resolves it is
+ *   processed as a catch-up fire (R7.1 third disjunct, R8.9). A zero exit
+ *   delivers the fire, appending the scheduler/gate-output-section when the
+ *   run wrote output (R6.13, R6.14); a nonzero exit — spawn failure or
+ *   signal death included (Error handling) — suppresses it: no delivery
+ *   side effect, no retry, no delivery-failure marking (R8.10, R8.11), the
+ *   occurrence discharges (R6.15, R7.9; a one-shot is removed, R6.16). A
+ *   catch-up fire runs the gate exactly once for its entire skipped series
+ *   (R7.7) and a suppressed one discharges the series (R7.8).
  * - `attachV1Prompt` binds the host's V1 prompt admission capability (I4);
  *   the first attach wins and later attaches fail softly. Until an attach,
  *   a V1-routed fire fails and retries (R8.5), which also covers processes
@@ -123,6 +153,7 @@ export interface Interface {
     readonly sessionID: SessionSchema.ID
     readonly message: string
     readonly spec: Spec
+    readonly command?: string
   }) => Effect.Effect<Entry, CapReached>
   readonly remove: (input: {
     readonly sessionID: SessionSchema.ID
@@ -140,6 +171,7 @@ const entryOf = (row: Row): Entry => ({
   sessionID: row.session_id,
   spec: row.cron !== null ? { cron: row.cron } : { at: row.at! },
   message: row.message,
+  command: row.command,
   nextFireAt: row.next_fire_at,
   timeCreated: row.time_created,
   timeUpdated: row.time_updated,
@@ -164,6 +196,12 @@ const layer = Layer.effect(
     const sessions = yield* SessionV2.Service
     const execution = yield* SessionExecution.Service
     const store = yield* SessionStore.Service
+    // The process command runner of the host application-services graph
+    // (I4, I8) — executes every scheduler/gate-run (R6.17, R6.18).
+    const gate = yield* SchedulerGate.Service
+    // The scope gate fibers fork into (I9, I10): in-flight runs live in
+    // process memory only and are forgotten when the service dies.
+    const scope = yield* Scope.Scope
 
     // The host's V1 prompt admission (I4); unset until attached, in which
     // case a V1-routed fire fails and retries (R8.5).
@@ -177,11 +215,46 @@ const layer = Layer.effect(
     // Schedule ids whose last delivery attempt failed; their retries are
     // catch-up fires (R7.1) and their rows stay due until success (R8.5).
     const failedDeliveries = new Set<string>()
+    // Schedule ids with a gate-run in flight — at most one per schedule
+    // (R8.7). The due scan and the timer arm skip these rows (I11): the
+    // run's fiber owns the fire until it resolves.
+    const gateInFlight = new Set<ScheduleID>()
+    // Schedule ids whose next occurrence passed while a gate-run was in
+    // flight; their next fire is a catch-up fire (R7.1 third disjunct,
+    // R8.9). In-memory only, like the in-flight set (I10).
+    const gateHeld = new Set<string>()
+
+    /**
+     * The fire a gate-run serves: the row snapshot taken at initiation, the
+     * discharged occurrence's scheduled-fire-time bookkeeping, the command
+     * text, and the working directory (the owning session's location
+     * directory, R6.18).
+     */
+    type GateStart = {
+      readonly phase: "gate"
+      readonly row: Row
+      readonly catchUp: boolean
+      readonly command: string
+      readonly directory: string
+    }
+
+    /** A V1-routed fire awaiting its permit-free admission. */
+    type FireAdmission = {
+      readonly phase: "deliver"
+      readonly row: Row
+      readonly catchUp: boolean
+      readonly text: string
+      readonly prompt: SchedulerV1Prompt.Interface
+    }
 
     const earliest = Effect.fn("Scheduler.earliest")(function* () {
+      // I11: the timer arm skips schedules with an in-flight gate-run —
+      // their fiber owns the fire and re-arms the timer through the wake.
+      const skip = [...gateInFlight]
       const row = yield* db
         .select({ nextFireAt: ScheduleTable.next_fire_at })
         .from(ScheduleTable)
+        .where(skip.length > 0 ? notInArray(ScheduleTable.id, skip) : undefined)
         .orderBy(asc(ScheduleTable.next_fire_at))
         .limit(1)
         .get()
@@ -215,12 +288,19 @@ const layer = Layer.effect(
     })
 
     /**
-     * The serialized final phase of a fire (I6): advance or remove only after
-     * publish and admission succeeded.
+     * The serialized final phase of a fire (I6): advance or remove only
+     * after the fire resolved. Serves both outcomes of a gated fire
+     * (R6.13): a delivered fire passes the delivery completion time, a
+     * suppressed fire the gate-run resolution time — the discharge rule is
+     * the same (R6.8; a catch-up fire advances from the observed time,
+     * R7.4/R7.9; a one-shot is removed, R6.9/R6.16). The output of a
+     * suppressed fire was discarded by the caller; nothing here retries it
+     * (R8.10, R8.11).
      */
     const finishFire = Effect.fn("Scheduler.finishFire")(function* (input: {
       readonly row: Row
       readonly catchUp: boolean
+      /** Delivery completion time of a delivered fire; gate-run resolution time of a suppressed fire. */
       readonly deliveredAt: number
     }) {
       failedDeliveries.delete(input.row.id)
@@ -253,13 +333,17 @@ const layer = Layer.effect(
 
     /**
      * The serialized first phase of a fire (R8.3, I6): resolves the owning
-     * session, drops the schedule of a dead session (R6.10), builds the fired
-     * text, and delivers a V2-routed fire completely — publish, admit-only
-     * admission, wake, and row advance/removal all under one permit hold, as
-     * before. A V1-routed fire cannot finish here: its admission may carry a
-     * full host model turn (see `deliver`), so this phase returns the
-     * admission inputs instead. Returns `undefined` when the fire finished
-     * under the hold or the schedule was dropped.
+     * session, drops the schedule of a dead session (R6.10), determines the
+     * catch-up flag, and routes the fire. A schedule with a stored
+     * gate-command returns a gate start — the command runs before any
+     * delivery side effect (R6.12), outside the write permit (I9). A
+     * commandless schedule behaves exactly as before: a V2-routed fire is
+     * delivered completely under the permit hold — publish, admit-only
+     * admission, wake, and row advance/removal — while a V1-routed fire
+     * cannot finish here: its admission may carry a full host model turn
+     * (see `deliver`), so this phase returns the admission inputs instead.
+     * Returns `undefined` when the fire finished under the hold or the
+     * schedule was dropped.
      */
     const startFire = Effect.fn("Scheduler.startFire")(function* (row: Row) {
       // The due scan runs without the permit, so the row may have been
@@ -284,7 +368,23 @@ const layer = Layer.effect(
         return undefined
       }
 
-      const catchUp = row.next_fire_at < loadedAt || failedDeliveries.has(row.id)
+      // R7.1: a catch-up fire — the scheduled fire time precedes the
+      // service load, a delivery failed before, or the occurrence was
+      // reached while a gate-run of this schedule was in flight (the mark
+      // left by the gate fiber, consumed here).
+      const held = gateHeld.delete(row.id)
+      const catchUp = row.next_fire_at < loadedAt || failedDeliveries.has(row.id) || held
+
+      if (row.command !== null) {
+        return {
+          phase: "gate",
+          row,
+          catchUp,
+          command: row.command,
+          directory: session.location.directory,
+        } as const
+      }
+
       const specForm = SchedulerMessage.spec({ cron: row.cron ?? undefined, at: row.at ?? undefined })
       const text = SchedulerMessage.fired({
         scheduledFireAt: row.next_fire_at,
@@ -317,20 +417,168 @@ const layer = Layer.effect(
           detail: "no V1 prompt admission is attached to the scheduler",
         })
       }
-      return { text, catchUp, prompt: v1Prompt } as const
+      return { phase: "deliver", row, catchUp, text, prompt: v1Prompt } as const
+    })
+
+    /**
+     * The serialized continuation of a resolved gate-run (I9): the resolved
+     * fire re-enters the write permit for its delivery bookkeeping. A
+     * nonzero exit — spawn failure and signal death included (Error
+     * handling) — suppresses the fire: no delivery side effect, the output
+     * is discarded, and the occurrence discharges through `finishFire`
+     * (R6.13, R6.15, R6.16; a catch-up fire advances from the resolution
+     * time, R7.9). A zero exit builds the fired text with the
+     * gate-output-section (R6.14) and routes it like `startFire` does.
+     * Returns the V1 admission inputs, or `undefined` when the fire
+     * finished under the hold, was suppressed, or the schedule was removed
+     * while the run was in flight — a removed schedule never fires.
+     */
+    const resolveGateFire = Effect.fn("Scheduler.resolveGateFire")(function* (
+      started: GateStart,
+      result: SchedulerGate.Result,
+      resolvedAt: number,
+    ) {
+      const present = yield* db
+        .select({ id: ScheduleTable.id })
+        .from(ScheduleTable)
+        .where(eq(ScheduleTable.id, started.row.id))
+        .get()
+        .pipe(Effect.orDie)
+      if (present === undefined) return undefined
+
+      if (result.exitCode !== 0) {
+        yield* finishFire({ row: started.row, catchUp: started.catchUp, deliveredAt: resolvedAt })
+        return undefined
+      }
+
+      const specForm = SchedulerMessage.spec({ cron: started.row.cron ?? undefined, at: started.row.at ?? undefined })
+      const text = SchedulerMessage.fired({
+        scheduledFireAt: started.row.next_fire_at,
+        id: started.row.id,
+        spec: specForm,
+        message: started.row.message,
+        catchUp: started.catchUp,
+        gateOutput: result.output,
+      })
+
+      if (yield* servedByV2(started.row.session_id)) {
+        yield* events.publish(SessionEvent.ContextUpdated, {
+          sessionID: started.row.session_id,
+          messageID: SessionMessage.ID.create(),
+          timestamp: yield* DateTime.now,
+          text,
+        })
+        yield* sessions.prompt({ sessionID: started.row.session_id, prompt: { text }, resume: false })
+        yield* execution.wake(started.row.session_id)
+        yield* finishFire({ row: started.row, catchUp: started.catchUp, deliveredAt: yield* Clock.currentTimeMillis })
+        return undefined
+      }
+
+      if (v1Prompt === undefined) {
+        return yield* new SchedulerV1Prompt.Error({
+          detail: "no V1 prompt admission is attached to the scheduler",
+        })
+      }
+      return { phase: "deliver", row: started.row, catchUp: started.catchUp, text, prompt: v1Prompt } as const
+    })
+
+    /**
+     * R8.5 bookkeeping for a failed delivery attempt, shared by the
+     * delivery loop and the gate fiber: the row stays due and the retry
+     * surfaces as a catch-up fire (R7.1).
+     */
+    const markDeliveryFailure = Effect.fn("Scheduler.markDeliveryFailure")(function* (
+      row: Row,
+      cause: Cause.Cause<unknown>,
+    ) {
+      failedDeliveries.add(row.id)
+      yield* Effect.logError("Scheduler delivery failed; the schedule stays due").pipe(
+        Effect.annotateLogs({ scheduleID: row.id, sessionID: row.session_id, cause: Cause.pretty(cause) }),
+      )
+    })
+
+    /**
+     * The fiber body of one gated fire (I9): runs the gate command holding
+     * no write permit — the delivery loop keeps serving mutations and other
+     * schedules meanwhile (R8.6) — then re-enters the serialized path for
+     * the fire's bookkeeping. Every failure is captured here, so the fiber
+     * never fails. After the fire completes, a due time held by the
+     * in-flight run is marked so the next fire is a catch-up fire (R8.9,
+     * R7.1 third disjunct), and the timer is nudged (R8.4) — the loop may
+     * be parked on the wake while this row was the only due schedule.
+     */
+    const gateFire = Effect.fn("Scheduler.gateFire")(function* (started: GateStart) {
+      const result = yield* gate.run({ command: started.command, directory: started.directory })
+      const resolvedAt = yield* Clock.currentTimeMillis
+      let completed = true
+      const resolved = yield* writes.withPermits(1)(resolveGateFire(started, result, resolvedAt)).pipe(Effect.exit)
+      if (Exit.isFailure(resolved)) {
+        completed = false
+        yield* markDeliveryFailure(started.row, resolved.cause)
+      } else if (resolved.value !== undefined) {
+        const admitted = yield* resolved.value.prompt
+          .prompt({ sessionID: resolved.value.row.session_id, text: resolved.value.text })
+          .pipe(Effect.exit)
+        if (Exit.isSuccess(admitted)) {
+          yield* writes.withPermits(1)(
+            finishFire({
+              row: resolved.value.row,
+              catchUp: resolved.value.catchUp,
+              deliveredAt: yield* Clock.currentTimeMillis,
+            }),
+          )
+        } else {
+          completed = false
+          yield* markDeliveryFailure(resolved.value.row, admitted.cause)
+        }
+      }
+      if (!completed) {
+        // A failed delivery retries on the loop's cadence (R8.5): the fiber
+        // holds the row in-flight while it waits out the retry delay, so
+        // the wake below cannot hand a still-due row straight back to the
+        // scan — that would hot-loop the gate.
+        yield* Effect.sleep(RETRY_DELAY_MILLIS)
+      } else {
+        // The finish above advanced the row, so an already-past
+        // next-due-time is an occurrence that was reached while the run was
+        // in flight. Marked before the row leaves the in-flight set — the
+        // due scan must never deliver it unmarked.
+        const row = yield* db
+          .select({ cron: ScheduleTable.cron, nextFireAt: ScheduleTable.next_fire_at })
+          .from(ScheduleTable)
+          .where(eq(ScheduleTable.id, started.row.id))
+          .get()
+          .pipe(Effect.orDie)
+        const now = yield* Clock.currentTimeMillis
+        if (row !== undefined && row.cron !== null && row.nextFireAt <= now) gateHeld.add(started.row.id)
+      }
+      gateInFlight.delete(started.row.id)
+      yield* wake.release(1)
     })
 
     /**
      * Delivers one due schedule row. The serialized phases of the fire hold
-     * the write permit (R8.3, I6); the V1 admission between them does not:
-     * it may carry a full host model turn (SessionPrompt.prompt runs the turn
+     * the write permit (R8.3, I6); the gate-run of a gated fire and the V1
+     * admission between the phases do not: the gate-run may execute
+     * arbitrarily long (SCHEDULER_GATE_TIMEOUT none) and the admission may
+     * carry a full host model turn (SessionPrompt.prompt runs the turn
      * including tool execution), and a scheduler tool call inside that turn
-     * re-enters `add`/`remove`, which wait for the same permit — holding the
-     * permit across the turn would self-deadlock the delivery loop.
+     * re-enters `add`/`remove`, which wait for the same permit — holding
+     * the permit across either would self-deadlock the delivery loop. The
+     * gate-run further runs on a fiber of its own, so the loop keeps
+     * serving other schedules while it is in flight (R8.6).
      */
     const deliver = Effect.fn("Scheduler.deliver")(function* (row: Row) {
       const started = yield* writes.withPermits(1)(startFire(row))
       if (started === undefined) return
+      if (started.phase === "gate") {
+        // R8.7 single-flight: the row joins the in-flight set before the
+        // fiber is forked — the due scan and the timer arm skip it until
+        // the run resolves (I11).
+        gateInFlight.add(started.row.id)
+        yield* gateFire(started).pipe(Effect.forkIn(scope, { startImmediately: true }))
+        return
+      }
       yield* started.prompt.prompt({ sessionID: row.session_id, text: started.text })
       // The delivery completes with the admission; the model turn it started
       // may still be running.
@@ -349,15 +597,14 @@ const layer = Layer.effect(
         .pipe(Effect.orDie)
       let failed = false
       for (const row of due) {
+        // I11: the in-flight run's fiber owns this row.
+        if (gateInFlight.has(row.id)) continue
         const attempt = yield* deliver(row).pipe(Effect.exit)
         if (Exit.isSuccess(attempt)) continue
         // R8.5: the schedule is neither advanced nor removed; the retry is a
         // catch-up fire (R7.1).
         failed = true
-        failedDeliveries.add(row.id)
-        yield* Effect.logError("Scheduler delivery failed; the schedule stays due").pipe(
-          Effect.annotateLogs({ scheduleID: row.id, sessionID: row.session_id, cause: Cause.pretty(attempt.cause) }),
-        )
+        yield* markDeliveryFailure(row, attempt.cause)
       }
       return failed
     })
@@ -398,6 +645,7 @@ const layer = Layer.effect(
               cron: "cron" in input.spec ? input.spec.cron : null,
               at: "at" in input.spec ? input.spec.at : null,
               message: input.message,
+              command: input.command ?? null,
               next_fire_at: nextFireAt,
               time_created: now,
               time_updated: now,
@@ -441,5 +689,5 @@ const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [Database.node, EventV2.node, SessionV2.node, SessionStore.node, SessionExecution.node],
+  deps: [Database.node, EventV2.node, SessionV2.node, SessionStore.node, SessionExecution.node, SchedulerGate.node],
 })

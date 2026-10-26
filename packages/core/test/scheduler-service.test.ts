@@ -1,4 +1,6 @@
 import { describe, expect } from "bun:test"
+import fs from "fs/promises"
+import { realpathSync } from "node:fs"
 import { Clock, Deferred, Duration, Effect, Fiber, Layer } from "effect"
 import { eq } from "drizzle-orm"
 import * as TestClock from "effect/testing/TestClock"
@@ -11,6 +13,7 @@ import { EventTable } from "@opencode-ai/core/event/sql"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { SchedulerGate } from "@opencode-ai/core/scheduler/gate"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionContextEpochTable, SessionInputTable, SessionTable } from "@opencode-ai/core/session/sql"
@@ -56,6 +59,36 @@ const v1Behavior = {
 // When set, the fake V1 admission blocks until released — the serialization
 // probe of the single delivery loop.
 let v1Gate: Deferred.Deferred<void> | undefined
+
+type GateCall = { readonly command: string; readonly directory: string }
+const gateCalls: GateCall[] = []
+const gateBehavior = {
+  // Exit codes consumed one per run; a run beyond the list exits zero.
+  exitCodes: [] as number[],
+  // Combined outputs consumed one per run; a run beyond the list writes
+  // nothing.
+  outputs: [] as string[],
+  // Programmed per run, the run blocks until the deferred succeeds — the
+  // in-flight probe of the gate phase.
+  holds: [] as Deferred.Deferred<void>[],
+}
+// The fake command-execution layer replaces the process command runner at
+// the I8 boundary: unit tests record invocations and program exit codes
+// instead of spawning real processes.
+const gate = Layer.effect(
+  SchedulerGate.Service,
+  Effect.succeed(
+    SchedulerGate.Service.of({
+      run: (input) =>
+        Effect.suspend(() => {
+          gateCalls.push({ command: input.command, directory: input.directory })
+          const result = { exitCode: gateBehavior.exitCodes.shift() ?? 0, output: gateBehavior.outputs.shift() ?? "" }
+          const hold = gateBehavior.holds.shift()
+          return hold === undefined ? Effect.succeed(result) : Effect.as(Deferred.await(hold), result)
+        }),
+    }),
+  ),
+)
 
 // The fake V1 admission attaches itself to the scheduler service (the same
 // inversion hosts perform): the scheduler must not depend on it as a layer.
@@ -107,14 +140,20 @@ const nodes = LayerNode.group([
   Scheduler.node,
   v1promptNode,
 ])
-const replacements = [[SessionExecution.node, execution]] as const
+const replacements = [
+  [SessionExecution.node, execution],
+  [SchedulerGate.node, gate],
+] as const
+// The real-spawn tests build their own stack without the gate replacement:
+// the production runner spawns actual `bash -c` invocations.
+const replacementsWithoutGate = [[SessionExecution.node, execution]] as const
 
 const it = testEffect(AppNodeBuilder.build(nodes, replacements))
 // Restart-style tests manage their own stacks over a file-backed database;
 // the ambient layer stays empty.
 const itStandalone = testEffect(Layer.empty)
 
-const makeSession = (sessionID: SessionV2.ID) =>
+const makeSession = (sessionID: SessionV2.ID, directory: string = "/project") =>
   Database.Service.use(({ db }) =>
     Effect.gen(function* () {
       yield* db
@@ -129,7 +168,7 @@ const makeSession = (sessionID: SessionV2.ID) =>
           id: sessionID,
           project_id: Project.ID.global,
           slug: "test",
-          directory: "/project",
+          directory,
           title: "test",
           version: "test",
         })
@@ -220,6 +259,10 @@ const resetRecordings = Effect.sync(() => {
   v1Behavior.reentrantAdd = undefined
   v1Behavior.reentrantAdds.length = 0
   v1Gate = undefined
+  gateCalls.length = 0
+  gateBehavior.exitCodes.length = 0
+  gateBehavior.outputs.length = 0
+  gateBehavior.holds.length = 0
 })
 
 const now = Clock.currentTimeMillis
@@ -229,6 +272,42 @@ const settled = Effect.gen(function* () {
   yield* Effect.yieldNow
   yield* Effect.yieldNow
 })
+
+// Drains the longer async chain a resolved gate-run walks: run continuation,
+// delivery bookkeeping, held mark, loop wake, and the follow-up fire.
+const flushed = Effect.gen(function* () {
+  yield* settled
+  yield* settled
+  yield* settled
+})
+
+// Polls a real file in real time — for tests whose gate-run spawns a real
+// process under the virtual clock.
+const waitForFile = (file: string) =>
+  Effect.promise(async () => {
+    while (true) {
+      try {
+        return await fs.readFile(file, "utf8")
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+        await new Promise<void>((resolve) => setTimeout(resolve, 10))
+      }
+    }
+  })
+
+// Polls in real time until the effect holds — for chains whose continuation
+// resumes on a real async callback (a spawned process), which the virtual
+// clock's yield rounds cannot wait for.
+const eventually = <R>(
+  effect: Effect.Effect<boolean, never, R>,
+): Effect.Effect<void, never, R> =>
+  Effect.flatMap(effect, (holds) =>
+    holds
+      ? Effect.void
+      : Effect.flatMap(Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10))), () =>
+          eventually(effect),
+        ),
+  )
 
 describe("Scheduler service", () => {
   it.effect("computes the stored next due time from the spec at add", () =>
@@ -343,6 +422,9 @@ describe("Scheduler service", () => {
   it.effect("registers the schedule table through the migration registry", () =>
     Effect.gen(function* () {
       expect(migrations.some((migration) => migration.id === "20261024202807_add_schedule_table")).toBe(true)
+      // The nullable gate-command column registers through the same
+      // generated pipeline (D-003, R4.3).
+      expect(migrations.some((migration) => migration.id.endsWith("_add_schedule_command"))).toBe(true)
     }),
   )
 
@@ -826,4 +908,694 @@ describe("Scheduler service", () => {
       yield* Effect.promise(() => dir[Symbol.asyncDispose]())
     }),
   )
+
+  it.effect("stores and returns the gate command on rows and entries", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_store")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+
+      const gated = yield* scheduler.add({
+        sessionID,
+        message: "gated",
+        spec: { cron: "0 * * * *" },
+        command: "test -f done.flag",
+      })
+      const plain = yield* scheduler.add({ sessionID, message: "plain", spec: { cron: "0 * * * *" } })
+
+      const rows = yield* scheduleRows
+      expect(rows.find((row) => row.id === gated.id)!.command).toBe("test -f done.flag")
+      expect(rows.find((row) => row.id === plain.id)!.command).toBeNull()
+      const listed = yield* scheduler.list(sessionID)
+      expect(listed.find((entry) => entry.id === gated.id)!.command).toBe("test -f done.flag")
+      expect(listed.find((entry) => entry.id === plain.id)!.command).toBeNull()
+    }),
+  )
+
+  it.effect("runs the gate before any delivery side effect and delivers on a zero exit", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_zero")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      const hold = yield* Deferred.make<void>()
+      gateBehavior.exitCodes.push(0)
+      gateBehavior.outputs.push("  build 1234 passed \n")
+      gateBehavior.holds.push(hold)
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "check CI status",
+        spec: { cron: "0 * * * *" },
+        command: "curl -sf http://ci.local/passed",
+      })
+      yield* advance(added.nextFireAt + 1)
+      yield* settled
+
+      // The run is in flight: invoked with the stored text and the session
+      // directory (R6.17, R6.18), but no delivery side effect happened yet
+      // (R6.12) — no admission, no event (R5.5: the run asks nothing).
+      expect(gateCalls).toEqual([{ command: "curl -sf http://ci.local/passed", directory: "/project" }])
+      expect(v1Calls).toEqual([])
+      expect(wakeCalls).toEqual([])
+
+      // Zero exit delivers, the trimmed output riding the section (R6.13, R6.14).
+      yield* Deferred.succeed(hold, undefined)
+      yield* flushed
+      expect(v1Calls).toHaveLength(1)
+      expect(v1Calls[0]!.text).toContain(`fired schedule id ${added.id} 0 * * * *: check CI status`)
+      expect(v1Calls[0]!.text).toContain("\ngate command output:\nbuild 1234 passed")
+      expect(v1Calls[0]!.text.endsWith("build 1234 passed")).toBe(true)
+
+      // The schedule advanced from the discharged time.
+      const rows = yield* scheduleRows
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.next_fire_at).toBe(added.nextFireAt + 3_600_000)
+    }),
+  )
+
+  it.effect("appends and truncates the gate output section, and skips it when empty", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_output")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      gateBehavior.exitCodes.push(0, 0)
+      gateBehavior.outputs.push("x".repeat(SchedulerMessage.MAX_GATE_OUTPUT_LENGTH + 5), "  \n\t ")
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "watch output",
+        spec: { cron: "0 * * * *" },
+        command: "emit",
+      })
+      yield* advance(added.nextFireAt + 1)
+      yield* settled
+      expect(v1Calls).toHaveLength(1)
+      // Truncation caps the trimmed output at the bound with an ellipsis (R6.14).
+      expect(v1Calls[0]!.text).toContain(
+        `\ngate command output:\n${"x".repeat(SchedulerMessage.MAX_GATE_OUTPUT_LENGTH)}…`,
+      )
+      expect(v1Calls[0]!.text.endsWith("…")).toBe(true)
+
+      // The next fire's run writes nothing: no section at all (R6.14).
+      yield* advance(3_600_000)
+      yield* settled
+      expect(v1Calls).toHaveLength(2)
+      expect(v1Calls[1]!.text).not.toContain("gate command output")
+      expect(v1Calls[1]!.text.endsWith("watch output")).toBe(true)
+    }),
+  )
+
+  it.effect("suppresses a recurring fire on a nonzero exit and advances from the discharged time", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_suppress")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      gateBehavior.exitCodes.push(1)
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "check flag",
+        spec: { cron: "0 * * * *" },
+        command: "test -f done.flag",
+      })
+      yield* advance(added.nextFireAt + 1)
+      yield* settled
+
+      // Nothing was delivered; the occurrence discharged (R6.15).
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toEqual([])
+      expect(yield* eventCount(contextUpdatedType)).toBe(0)
+      const rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(added.nextFireAt + 3_600_000)
+
+      // A suppressed fire is not a delivery failure: the loop retries
+      // nothing (R8.10, R8.11).
+      yield* advance(Scheduler.RETRY_DELAY_MILLIS + 1)
+      yield* settled
+      expect(gateCalls).toHaveLength(1)
+    }),
+  )
+
+  it.effect("removes a one-shot whose gate exits nonzero", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_oneshot")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      gateBehavior.exitCodes.push(7)
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "deploy",
+        spec: { at: (yield* now) + 60_000 },
+        command: "test -f ready.flag",
+      })
+      yield* advance(added.nextFireAt + 1)
+      yield* settled
+
+      // Removed silently: no fire ever appeared (R6.16).
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toEqual([])
+      expect(yield* scheduleRows).toEqual([])
+    }),
+  )
+
+  it.effect("fires commandless schedules unchanged", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_commandless")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+
+      const added = yield* scheduler.add({ sessionID, message: "plain reminder", spec: { cron: "0 * * * *" } })
+      expect(added.command).toBeNull()
+      yield* advance(added.nextFireAt + 1)
+      yield* settled
+
+      // R6.11: no gate-run at all, and the fired text is the plain grammar.
+      expect(gateCalls).toEqual([])
+      expect(v1Calls).toHaveLength(1)
+      expect(v1Calls[0]!.text).toBe(
+        `${SchedulerMessage.timestamp(added.nextFireAt)} fired schedule id ${added.id} 0 * * * *: plain reminder`,
+      )
+      const rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(added.nextFireAt + 3_600_000)
+    }),
+  )
+
+  it.effect("processes a held occurrence as a catch-up fire after the run resolves", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_held")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      const hold = yield* Deferred.make<void>()
+      gateBehavior.exitCodes.push(0, 0)
+      gateBehavior.outputs.push("first run out", "held run out")
+      gateBehavior.holds.push(hold)
+
+      const added = yield* scheduler.add({ sessionID, message: "hold me", spec: { cron: "0 * * * *" }, command: "wait" })
+      const due = added.nextFireAt
+      yield* advance(due + 1)
+      yield* settled
+      expect(gateCalls).toHaveLength(1)
+
+      // The next occurrence passes while the run is in flight: no second
+      // run starts (R8.7, R8.8).
+      yield* advance(90 * 60_000)
+      yield* settled
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toEqual([])
+
+      // The run resolves: its fire delivers unmarked, and the held
+      // occurrence follows with its own run as a catch-up fire (R8.9, E8.9).
+      yield* Deferred.succeed(hold, undefined)
+      yield* flushed
+      expect(gateCalls).toHaveLength(2)
+      expect(v1Calls).toHaveLength(2)
+      expect(v1Calls[0]!.text).toContain(SchedulerMessage.timestamp(due))
+      expect(v1Calls[0]!.text).not.toContain("catch-up")
+      expect(v1Calls[0]!.text).toContain("\ngate command output:\nfirst run out")
+      expect(v1Calls[1]!.text).toContain(SchedulerMessage.timestamp(due + 3_600_000))
+      expect(v1Calls[1]!.text).toContain("catch-up: delivered after the scheduled fire time")
+      expect(v1Calls[1]!.text).toContain("\ngate command output:\nheld run out")
+
+      // The catch-up advanced from its delivery time (R7.4): the next full
+      // hour after the resolution.
+      const rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(due + 2 * 3_600_000)
+    }),
+  )
+
+  it.effect("advances a suppressed held occurrence from the gate resolution time", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_held_suppressed")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      const hold = yield* Deferred.make<void>()
+      gateBehavior.exitCodes.push(0, 1)
+      gateBehavior.holds.push(hold)
+
+      const added = yield* scheduler.add({ sessionID, message: "slow check", spec: { cron: "0 * * * *" }, command: "wait" })
+      const due = added.nextFireAt
+      yield* advance(due + 1)
+      yield* settled
+      yield* advance(90 * 60_000)
+      yield* Deferred.succeed(hold, undefined)
+      yield* flushed
+
+      // The first fire delivered; the held occurrence's own run was
+      // suppressed (R6.13): the series discharged, advancing from the
+      // resolution time (R7.9), with no second delivery.
+      expect(gateCalls).toHaveLength(2)
+      expect(v1Calls).toHaveLength(1)
+      const rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(due + 2 * 3_600_000)
+    }),
+  )
+
+  it.effect("keeps serving other schedules and mutations while a gate-run is in flight", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_others")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      const hold = yield* Deferred.make<void>()
+      gateBehavior.exitCodes.push(0)
+      gateBehavior.holds.push(hold)
+
+      const gated = yield* scheduler.add({ sessionID, message: "gated", spec: { cron: "0 * * * *" }, command: "wait" })
+      yield* advance(gated.nextFireAt + 1)
+      yield* settled
+      expect(gateCalls).toHaveLength(1)
+
+      // The commandless schedule due later fires mid-flight; its slot also
+      // keeps the gated fire's post-fire advance in the future, so only the
+      // two fires below happen.
+      const plain = yield* scheduler.add({ sessionID, message: "plain", spec: { cron: "30 * * * *" } })
+      expect(plain.nextFireAt).toBeGreaterThan(gated.nextFireAt)
+      // TestClock advances are relative: move from the already-reached
+      // gated due time to the plain one.
+      yield* advance(plain.nextFireAt - gated.nextFireAt)
+      yield* settled
+
+      // The gated run is still in flight; the commandless schedule due
+      // later delivered on time (R8.6, E8.6).
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toHaveLength(1)
+      expect(v1Calls[0]!.text).toContain("plain")
+
+      // A concurrent mutation proceeded without waiting for the run.
+      const addFiber = yield* scheduler
+        .add({ sessionID, message: "mid-flight", spec: { cron: "0 0 * * *" } })
+        .pipe(Effect.forkScoped)
+      yield* settled
+      const midFlight = yield* Fiber.join(addFiber)
+      expect(midFlight.message).toBe("mid-flight")
+
+      yield* Deferred.succeed(hold, undefined)
+      yield* flushed
+      expect(v1Calls).toHaveLength(2)
+      expect(v1Calls[1]!.text).toContain("gated")
+    }),
+  )
+
+  it.effect("does not retry a suppressed fire", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_no_retry")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      gateBehavior.exitCodes.push(1, 1)
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "event check",
+        spec: { cron: "0 * * * *" },
+        command: "check",
+      })
+      const due = added.nextFireAt
+      yield* advance(due + 1)
+      yield* settled
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toEqual([])
+
+      // E8.10: no delivery-failure marking, no retry cadence.
+      yield* advance(Scheduler.RETRY_DELAY_MILLIS * 10)
+      yield* settled
+      expect(gateCalls).toHaveLength(1)
+
+      // The schedule next runs its gate at the next occurrence.
+      yield* advance(3_600_000 - Scheduler.RETRY_DELAY_MILLIS * 10)
+      yield* settled
+      expect(gateCalls).toHaveLength(2)
+      expect(v1Calls).toEqual([])
+      const rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(due + 2 * 3_600_000)
+    }),
+  )
+
+  it.effect("retries a gated fire whose admission failed as a catch-up", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_admission_fail")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      // The gate permits the fire, but the V1 admission fails once.
+      v1Behavior.failuresLeft = 1
+      gateBehavior.exitCodes.push(0, 0)
+      gateBehavior.outputs.push("", "retry out")
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "admission check",
+        spec: { cron: "0 * * * *" },
+        command: "check",
+      })
+      const due = added.nextFireAt
+      yield* advance(due + 1)
+      yield* flushed
+
+      // The gate ran and permitted, but the delivery failed: the row stays
+      // due (R8.5).
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toHaveLength(1)
+      let rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(due)
+
+      // The retry re-runs the gate and delivers as a catch-up fire (R7.1).
+      yield* advance(Scheduler.RETRY_DELAY_MILLIS + 1)
+      yield* flushed
+      expect(gateCalls).toHaveLength(2)
+      expect(v1Calls).toHaveLength(2)
+      expect(v1Calls[1]!.text).toContain("catch-up: delivered after the scheduled fire time")
+      expect(v1Calls[1]!.text).toContain(SchedulerMessage.timestamp(due))
+      expect(v1Calls[1]!.text).toContain("\ngate command output:\nretry out")
+      rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(due + 3_600_000)
+    }),
+  )
+
+  itStandalone.effect("retries a gated fire whose admission is missing as a catch-up", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const dir = yield* Effect.promise(tmpdir)
+      // No V1 prompt admission node in the stack, and no V2 state for the
+      // session: the resolved fire has nowhere to be admitted (R8.5).
+      const stack = AppNodeBuilder.build(
+        LayerNode.group([
+          LayerNode.make({
+            service: Database.Service,
+            layer: Database.layerFromPath(`${dir.path}/gate-no-admission.db`),
+            deps: [],
+          }),
+          EventV2.node,
+          SessionProjector.node,
+          SessionV2.node,
+          Scheduler.node,
+        ]),
+        replacements,
+      )
+      const inScope = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.gen(function* () {
+          const environment = yield* Layer.build(stack)
+          return yield* effect.pipe(Effect.provide(environment))
+        }).pipe(Effect.scoped)
+      const sessionID = SessionV2.ID.make("ses_gate_no_admission")
+
+      yield* inScope(
+        Effect.gen(function* () {
+          yield* makeSession(sessionID)
+          const scheduler = yield* Scheduler.Service
+          gateBehavior.exitCodes.push(0, 0)
+          const added = yield* scheduler.add({
+            sessionID,
+            message: "nowhere to go",
+            spec: { cron: "0 * * * *" },
+            command: "check",
+          })
+          const due = added.nextFireAt
+
+          yield* advance(due + 1)
+          yield* flushed
+          // The gate ran and resolved, but the delivery failed: the row
+          // stays due, neither advanced nor removed (R8.5).
+          expect(gateCalls).toHaveLength(1)
+          expect(v1Calls).toEqual([])
+          let rows = yield* scheduleRows
+          expect(rows[0]!.next_fire_at).toBe(due)
+
+          // The retry re-runs the gate and fails the same way; a failed
+          // delivery's retry is a catch-up fire (R7.1), never a hot loop.
+          yield* advance(Scheduler.RETRY_DELAY_MILLIS + 1)
+          yield* flushed
+          expect(gateCalls).toHaveLength(2)
+          rows = yield* scheduleRows
+          expect(rows[0]!.next_fire_at).toBe(due)
+        }),
+      )
+      yield* Effect.promise(() => dir[Symbol.asyncDispose]())
+    }),
+  )
+
+  itStandalone.effect("runs the gate once for a whole skipped catch-up series after a restart", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const dir = yield* Effect.promise(tmpdir)
+      const stack = AppNodeBuilder.build(
+        LayerNode.group([
+          LayerNode.make({
+            service: Database.Service,
+            layer: Database.layerFromPath(`${dir.path}/gate-restart.db`),
+            deps: [],
+          }),
+          EventV2.node,
+          SessionProjector.node,
+          SessionV2.node,
+          Scheduler.node,
+          v1promptNode,
+        ]),
+        replacements,
+      )
+      const inScope = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.gen(function* () {
+          const environment = yield* Layer.build(stack)
+          return yield* effect.pipe(Effect.provide(environment))
+        }).pipe(Effect.scoped)
+      const sessionID = SessionV2.ID.make("ses_gate_restart")
+      const started = yield* now
+
+      yield* inScope(
+        Effect.gen(function* () {
+          yield* makeSession(sessionID)
+          yield* seedV2State(sessionID)
+          const scheduler = yield* Scheduler.Service
+          gateBehavior.exitCodes.push(0)
+          gateBehavior.outputs.push("series out")
+          yield* scheduler.add({ sessionID, message: "after downtime", spec: { cron: "0 * * * *" }, command: "check" })
+        }),
+      )
+      const due = started + 3_600_000
+
+      // The process is down while hours of occurrences pass.
+      yield* advance(4 * 3_600_000)
+
+      // Restart: exactly one gate-run for the entire skipped series (R7.7),
+      // delivering one marked catch-up fire with the section (E7.7).
+      yield* inScope(
+        Effect.gen(function* () {
+          yield* flushed
+          expect(gateCalls).toHaveLength(1)
+          expect(yield* eventCount(contextUpdatedType)).toBe(1)
+          const session = yield* SessionV2.Service
+          const messages = yield* session.messages({ sessionID })
+          const text = messages[0]!.type === "system" ? messages[0]!.text : ""
+          expect(text).toContain("after downtime")
+          expect(text).toContain("catch-up: delivered after the scheduled fire time")
+          expect(text).toContain(SchedulerMessage.timestamp(due))
+          expect(text).toContain("\ngate command output:\nseries out")
+
+          // The catch-up advanced from the delivery time (R7.4); skipped
+          // occurrences are never replayed (R7.5).
+          const rows = yield* scheduleRows
+          expect(rows[0]!.next_fire_at).toBe(due + 4 * 3_600_000)
+          yield* advance(30 * 60_000)
+          yield* flushed
+          expect(yield* eventCount(contextUpdatedType)).toBe(1)
+        }),
+      )
+      yield* Effect.promise(() => dir[Symbol.asyncDispose]())
+    }),
+  )
+
+  itStandalone.effect("discharges a suppressed catch-up series without replay after a restart", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const dir = yield* Effect.promise(tmpdir)
+      const stack = AppNodeBuilder.build(
+        LayerNode.group([
+          LayerNode.make({
+            service: Database.Service,
+            layer: Database.layerFromPath(`${dir.path}/gate-suppressed-restart.db`),
+            deps: [],
+          }),
+          EventV2.node,
+          SessionProjector.node,
+          SessionV2.node,
+          Scheduler.node,
+          v1promptNode,
+        ]),
+        replacements,
+      )
+      const inScope = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.gen(function* () {
+          const environment = yield* Layer.build(stack)
+          return yield* effect.pipe(Effect.provide(environment))
+        }).pipe(Effect.scoped)
+      const sessionID = SessionV2.ID.make("ses_gate_restart_suppressed")
+      const started = yield* now
+
+      yield* inScope(
+        Effect.gen(function* () {
+          yield* makeSession(sessionID)
+          yield* seedV2State(sessionID)
+          const scheduler = yield* Scheduler.Service
+          gateBehavior.exitCodes.push(1)
+          yield* scheduler.add({ sessionID, message: "still down", spec: { cron: "0 * * * *" }, command: "check" })
+        }),
+      )
+      const due = started + 3_600_000
+
+      yield* advance(4 * 3_600_000)
+
+      // Restart: the series runs one gate, exits nonzero, and discharges
+      // without any delivery (R7.7, R7.8).
+      yield* inScope(
+        Effect.gen(function* () {
+          yield* flushed
+          expect(gateCalls).toHaveLength(1)
+          expect(yield* eventCount(contextUpdatedType)).toBe(0)
+          // R7.9: the advance starts at the gate resolution time — hours
+          // after the scheduled fire time, not at it.
+          const rows = yield* scheduleRows
+          expect(rows[0]!.next_fire_at).toBe(due + 4 * 3_600_000)
+
+          // The series is gone: no replay, no hot loop (R7.8, R8.11).
+          yield* advance(30 * 60_000)
+          yield* flushed
+          expect(gateCalls).toHaveLength(1)
+          expect(yield* eventCount(contextUpdatedType)).toBe(0)
+        }),
+      )
+      yield* Effect.promise(() => dir[Symbol.asyncDispose]())
+    }),
+  )
+
+  if (process.platform !== "win32") {
+    itStandalone.effect("executes the gate as bash -c in the session directory", () =>
+      Effect.gen(function* () {
+        yield* resetRecordings
+        const dir = yield* Effect.promise(tmpdir)
+        const stack = AppNodeBuilder.build(
+          LayerNode.group([
+            LayerNode.make({
+              service: Database.Service,
+              layer: Database.layerFromPath(`${dir.path}/gate-bash.db`),
+              deps: [],
+            }),
+            EventV2.node,
+            SessionProjector.node,
+            SessionV2.node,
+            Scheduler.node,
+            v1promptNode,
+          ]),
+          replacementsWithoutGate,
+        )
+        const inScope = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+          Effect.gen(function* () {
+            const environment = yield* Layer.build(stack)
+            return yield* effect.pipe(Effect.provide(environment))
+          }).pipe(Effect.scoped)
+        const sessionID = SessionV2.ID.make("ses_gate_bash")
+        const marker = `${dir.path}/gate-evidence.txt`
+
+        yield* inScope(
+          Effect.gen(function* () {
+            yield* makeSession(sessionID, dir.path)
+            const scheduler = yield* Scheduler.Service
+            const added = yield* scheduler.add({
+              sessionID,
+              message: "bash check",
+              spec: { cron: "0 * * * *" },
+              command: `printf '%s\\n' "$PWD|$BASH_VERSION" > ${JSON.stringify(marker)}`,
+            })
+
+            yield* advance(added.nextFireAt + 1)
+            // The run executes for real; its evidence lands in the session
+            // directory.
+            const evidence = yield* waitForFile(marker)
+            const [cwd, bashVersion] = evidence.trim().split("|")
+            // R6.18: the working directory is the location directory of the
+            // owning session.
+            expect(realpathSync(cwd!)).toBe(realpathSync(dir.path))
+            // R6.17: the interpreter is bash, whatever the host default is.
+            expect(bashVersion!.length > 0).toBe(true)
+
+            // The zero exit delivered the fire — its continuation resumes on
+            // the real spawn callback, so wait in real time.
+            yield* eventually(
+              Effect.gen(function* () {
+                yield* settled
+                return v1Calls.length === 1
+              }),
+            )
+            expect(v1Calls[0]!.text).toContain("bash check")
+          }),
+        )
+        yield* Effect.promise(() => dir[Symbol.asyncDispose]())
+      }),
+    )
+
+    itStandalone.effect("suppresses a fire whose gate cannot spawn", () =>
+      Effect.gen(function* () {
+        yield* resetRecordings
+        const dir = yield* Effect.promise(tmpdir)
+        const stack = AppNodeBuilder.build(
+          LayerNode.group([
+            LayerNode.make({
+              service: Database.Service,
+              layer: Database.layerFromPath(`${dir.path}/gate-spawn-fail.db`),
+              deps: [],
+            }),
+            EventV2.node,
+            SessionProjector.node,
+            SessionV2.node,
+            Scheduler.node,
+            v1promptNode,
+          ]),
+          replacementsWithoutGate,
+        )
+        const inScope = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+          Effect.gen(function* () {
+            const environment = yield* Layer.build(stack)
+            return yield* effect.pipe(Effect.provide(environment))
+          }).pipe(Effect.scoped)
+        const sessionID = SessionV2.ID.make("ses_gate_spawn_fail")
+
+        yield* inScope(
+          Effect.gen(function* () {
+            // The session directory does not exist on disk: the invocation
+            // cannot spawn and counts as a nonzero exit (Error handling).
+            yield* makeSession(sessionID)
+            const scheduler = yield* Scheduler.Service
+            const added = yield* scheduler.add({
+              sessionID,
+              message: "unspawnable",
+              spec: { cron: "0 * * * *" },
+              command: "true",
+            })
+
+            yield* advance(added.nextFireAt + 1)
+            // The spawn fails on a real async callback; wait in real time
+            // for the suppression bookkeeping.
+            yield* eventually(
+              Effect.gen(function* () {
+                yield* settled
+                const rows = yield* scheduleRows
+                return rows[0] !== undefined && rows[0]!.next_fire_at === added.nextFireAt + 3_600_000
+              }),
+            )
+            // Suppressed: no delivery, and the occurrence discharged (R6.13, R6.15).
+            expect(v1Calls).toEqual([])
+          }),
+        )
+        yield* Effect.promise(() => dir[Symbol.asyncDispose]())
+      }),
+    )
+  }
 })

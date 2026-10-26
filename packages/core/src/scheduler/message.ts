@@ -8,6 +8,24 @@ export * as SchedulerMessage from "./message"
 export const CATCH_UP_MARKER = " [catch-up: delivered after the scheduled fire time]"
 
 /**
+ * Literal opening the scheduler/gate-output-section of a fired message
+ * (specs/scheduler.md Configuration SCHEDULER_GATE_OUTPUT_HEADER, R6.14): a
+ * line break, the header text, a line break.
+ */
+export const GATE_OUTPUT_HEADER = "\ngate command output:\n"
+
+/**
+ * Combined-output bound of the scheduler/gate-output-section in characters
+ * (specs/scheduler.md Configuration SCHEDULER_MAX_GATE_OUTPUT_LENGTH,
+ * R6.14). Longer output is truncated to the bound with an ellipsis
+ * character appended.
+ */
+export const MAX_GATE_OUTPUT_LENGTH = 4096
+
+/** The ellipsis character appended to a truncated scheduler/gate-output-section (R6.14). */
+const GATE_ELLIPSIS = "…"
+
+/**
  * Renders a UTC instant in the ISO 8601 form used by the fired-message
  * grammar and every model-facing timestamp (spec E6.6:
  * `2026-10-24T13:00:00Z`).
@@ -43,10 +61,52 @@ export const spec = (input: { readonly cron?: string; readonly at?: number }): s
 }
 
 /**
+ * Renders the scheduler/gate-echo appended to the add and list success
+ * lines of a schedule with a stored gate-command (specs/scheduler.md
+ * Interface, gate-echo grammar, R1.4, R1.5):
+ *
+ *   ` [gate: <command>]`
+ *
+ * Contract:
+ * - `command` is the stored command text; every whitespace run collapses to
+ *   a single space in the echo (the stored text itself stays raw).
+ * - The fragment starts with a space, never introduces a line break, and is
+ *   appended after the `next due` fragment of its line, so the first
+ *   `next due` occurrence keeps naming its schedule (the annotator input
+ *   contract of scheduler-view, E1.5).
+ * - Total: defined for any input; never throws.
+ */
+export const gateEcho = (command: string): string => ` [gate: ${command.replace(/\s+/g, " ")}]`
+
+/**
+ * Renders the scheduler/gate-output-section appended to a fired message
+ * whose gate-run exited with status zero and wrote output
+ * (specs/scheduler.md Interface, fired-message grammar, R6.14):
+ *
+ *   `<GATE_OUTPUT_HEADER><combined output>`
+ *
+ * Contract:
+ * - `output` is the combined standard output and error of the run.
+ * - The output is trimmed of leading and trailing whitespace; a run wrote
+ *   output exactly when the trimmed text is non-empty — an empty or
+ *   whitespace-only run yields no section (empty string).
+ * - Longer output is truncated to MAX_GATE_OUTPUT_LENGTH characters with
+ *   GATE_ELLIPSIS appended when truncation occurs.
+ * - Total: defined for any input; never throws.
+ */
+export const gateOutputSection = (output: string): string => {
+  const trimmed = output.trim()
+  if (trimmed.length === 0) return ""
+  const capped =
+    trimmed.length > MAX_GATE_OUTPUT_LENGTH ? trimmed.slice(0, MAX_GATE_OUTPUT_LENGTH) + GATE_ELLIPSIS : trimmed
+  return `${GATE_OUTPUT_HEADER}${capped}`
+}
+
+/**
  * Renders the fired message delivered by a fire, following the fixed
  * fired-message grammar (specs/scheduler.md Interface, R6.6):
  *
- *   `<scheduled-fire-time> fired schedule id <id> <spec>: <message><catch-up-marker>`
+ *   `<scheduled-fire-time> fired schedule id <id> <spec>: <message><catch-up-marker><gate-output-section>`
  *
  * Contract:
  * - `scheduledFireAt` is the UTC epoch-millisecond instant of the discharged
@@ -56,6 +116,10 @@ export const spec = (input: { readonly cron?: string; readonly at?: number }): s
  *   the stored message text.
  * - `catchUp` appends `CATCH_UP_MARKER` exactly when true; a normal fire
  *   never carries the marker (R7.2).
+ * - `gateOutput`, when given, is the combined output of the permitted
+ *   gate-run; it renders through `gateOutputSection` and is appended after
+ *   the catch-up marker (R6.14). Suppressed fires never reach this renderer
+ *   — their output is discarded.
  * - Total: defined for any input; never throws.
  */
 export const fired = (input: {
@@ -64,27 +128,37 @@ export const fired = (input: {
   readonly spec: string
   readonly message: string
   readonly catchUp: boolean
+  readonly gateOutput?: string
 }): string =>
-  `${timestamp(input.scheduledFireAt)} fired schedule id ${input.id} ${input.spec}: ${input.message}${input.catchUp ? CATCH_UP_MARKER : ""}`
+  `${timestamp(input.scheduledFireAt)} fired schedule id ${input.id} ${input.spec}: ${input.message}${input.catchUp ? CATCH_UP_MARKER : ""}${input.gateOutput === undefined ? "" : gateOutputSection(input.gateOutput)}`
 
 /**
  * Renders the add result line: the schedule id, the spec form, and the next
- * due time in UTC (spec R1.4).
+ * due time in UTC (spec R1.4). A schedule stored with a gate-command ends
+ * its line with the gate-echo (`command`, see `gateEcho`).
  */
-export const added = (entry: { readonly id: string; readonly spec: string; readonly nextFireAt: number }): string =>
-  `Scheduled ${entry.id} (${entry.spec}), next due ${timestamp(entry.nextFireAt)}`
+export const added = (entry: {
+  readonly id: string
+  readonly spec: string
+  readonly nextFireAt: number
+  readonly command?: string
+}): string => `Scheduled ${entry.id} (${entry.spec}), next due ${timestamp(entry.nextFireAt)}${entry.command === undefined ? "" : gateEcho(entry.command)}`
 
 /**
  * Renders one list result line: the schedule id, the spec form, the next due
  * time in UTC, and the message text (spec R1.5). The list result joins these
- * lines with newlines; no schedules yields an empty listing.
+ * lines with newlines; no schedules yields an empty listing. A schedule
+ * stored with a gate-command ends its line with the gate-echo (`command`,
+ * see `gateEcho`).
  */
 export const listed = (entry: {
   readonly id: string
   readonly spec: string
   readonly nextFireAt: number
   readonly message: string
-}): string => `${entry.id} (${entry.spec}) next due ${timestamp(entry.nextFireAt)}: ${entry.message}`
+  readonly command?: string
+}): string =>
+  `${entry.id} (${entry.spec}) next due ${timestamp(entry.nextFireAt)}: ${entry.message}${entry.command === undefined ? "" : gateEcho(entry.command)}`
 
 /**
  * Renders the remove result line confirming the removed schedule id

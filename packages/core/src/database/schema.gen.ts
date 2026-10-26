@@ -131,6 +131,7 @@ export default {
           \`cron\` text,
           \`at\` integer,
           \`message\` text NOT NULL,
+          \`command\` text,
           \`next_fire_at\` integer NOT NULL,
           \`time_created\` integer NOT NULL,
           \`time_updated\` integer NOT NULL,
