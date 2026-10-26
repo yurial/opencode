@@ -2837,6 +2837,7 @@ export type SessionSchedule = {
    * The stored next-due-time as integer UTC epoch milliseconds.
    */
   nextFireAt: number
+  command: string | null
 }
 
 export type SessionScheduleList = {

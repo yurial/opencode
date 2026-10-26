@@ -64,7 +64,7 @@ export type ScenarioContext = {
   todos: (sessionID: SessionID, todos: TodoInfo[]) => Effect.Effect<void>
   schedules: (
     sessionID: SessionID,
-    schedules: ReadonlyArray<{ message: string; spec: Scheduler.Spec }>,
+    schedules: ReadonlyArray<{ message: string; spec: Scheduler.Spec; command?: string }>,
   ) => Effect.Effect<ReadonlyArray<Scheduler.Entry>>
   worktree: (input?: { name?: string }) => Effect.Effect<Worktree.Info>
   worktreeRemove: (directory: string) => Effect.Effect<void>

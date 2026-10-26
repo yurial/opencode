@@ -1771,6 +1771,7 @@ export type SessionsListSchedulesOutput = {
       readonly spec: { readonly cron: string } | { readonly at: number }
       readonly message: string
       readonly nextFireAt: number
+      readonly command: string | null
     }>
   }
 }["data"]

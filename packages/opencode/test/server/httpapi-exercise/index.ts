@@ -1169,6 +1169,7 @@ const scenarios: Scenario[] = [
         const schedules = yield* ctx.schedules(session.id, [
           { spec: { at: Date.now() + 60_000 }, message: "deploy check" },
           { spec: { cron: "0 0 * * *" }, message: "daily digest" },
+          { spec: { cron: "0 9 * * 1" }, message: "standup prep", command: "test -f /repo/done.flag" },
         ])
         return { session, schedules }
       }),
@@ -1183,12 +1184,25 @@ const scenarios: Scenario[] = [
       array(body.data.schedules)
       // R3.3 (I3): the endpoint re-orders the scheduler's id-ordered list by
       // nextFireAt ascending with the id ascending as the tiebreak.
+      // R3.2: every entry carries command — the stored gate-command text, or
+      // null for a schedule that stores none.
       const expected = [...ctx.state.schedules]
         .sort((a, b) => a.nextFireAt - b.nextFireAt || (a.id < b.id ? -1 : 1))
-        .map((entry) => ({ id: entry.id, spec: entry.spec, message: entry.message, nextFireAt: entry.nextFireAt }))
+        .map((entry) => ({
+          id: entry.id,
+          spec: entry.spec,
+          message: entry.message,
+          nextFireAt: entry.nextFireAt,
+          command: entry.command,
+        }))
       check(
         stable(body.data.schedules) === stable(expected),
         "schedules should match the seeded schedules ordered by next fire time",
+      )
+      const gated = body.data.schedules.find((entry) => isRecord(entry) && entry.message === "standup prep")
+      check(
+        isRecord(gated) && gated.command === "test -f /repo/done.flag",
+        "the seeded gate-command schedule should return its command text",
       )
     }),
   http.protected

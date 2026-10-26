@@ -66,6 +66,7 @@ type ScheduleEntry = {
   spec: { cron: string } | { at: number }
   message: string
   nextFireAt: number
+  command: string | null
 }
 
 const DAY = 24 * 60 * 60 * 1000
@@ -176,9 +177,15 @@ describe("session schedule HttpApi", () => {
           message: "daily digest",
           spec: { cron: "0 0 * * *" },
         })
+        const gated = yield* scheduler.add({
+          sessionID: session.id,
+          message: "standup prep",
+          spec: { cron: "0 9 * * 1" },
+          command: "test -f /repo/done.flag",
+        })
 
         const body = yield* listSchedules(session.id, headers)
-        expect(body.data.schedules).toHaveLength(2)
+        expect(body.data.schedules).toHaveLength(3)
         // R3.3 orders entries by nextFireAt ascending, and the relative order
         // of now+6h and the daily cron midnight flips at 18:00 UTC — locate
         // the entries by id; the ordering itself is covered by the ordering
@@ -189,9 +196,12 @@ describe("session schedule HttpApi", () => {
           spec: { at: due },
           message: "deploy check",
           nextFireAt: due,
+          command: null,
         })
         expect(oneShotEntry.id).toMatch(/^sch_/)
-        expect(Object.keys(oneShotEntry).sort()).toEqual(["id", "message", "nextFireAt", "spec"])
+        // R3.2: every entry carries exactly id, spec, message, nextFireAt,
+        // and command — five fields, command present even when null.
+        expect(Object.keys(oneShotEntry).sort()).toEqual(["command", "id", "message", "nextFireAt", "spec"])
 
         const cronEntry = body.data.schedules.find((entry) => entry.id === recurring.id)!
         expect(cronEntry).toEqual({
@@ -199,11 +209,23 @@ describe("session schedule HttpApi", () => {
           spec: { cron: "0 0 * * *" },
           message: "daily digest",
           nextFireAt: cronEntry.nextFireAt,
+          command: null,
         })
         // R3.4: the stored next-due-time as integer UTC epoch milliseconds —
         // the cron schedule's first midnight match lies in the future.
         expect(Number.isInteger(cronEntry.nextFireAt)).toBe(true)
         expect(cronEntry.nextFireAt).toBeGreaterThan(Date.now())
+
+        // R3.2: an entry whose schedule stores a gate command carries the
+        // command text verbatim, not null.
+        const gatedEntry = body.data.schedules.find((entry) => entry.id === gated.id)!
+        expect(gatedEntry).toEqual({
+          id: gated.id,
+          spec: { cron: "0 9 * * 1" },
+          message: "standup prep",
+          nextFireAt: gatedEntry.nextFireAt,
+          command: "test -f /repo/done.flag",
+        })
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )

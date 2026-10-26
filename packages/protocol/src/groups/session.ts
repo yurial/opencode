@@ -86,11 +86,13 @@ const SessionActive = Schema.Struct({
 
 /**
  * One schedule of a session as the schedule-list endpoint returns it
- * (specs/scheduler-view.md Interface, R3.2): exactly the `sch_`-prefixed
- * schedule id, the stored spec variant, the stored message text, and the
- * stored next-due-time. `nextFireAt` and the one-shot `at` are integer UTC
- * epoch milliseconds (R3.4). Exactly one spec variant is present per entry,
- * mirroring the schedule-record invariant of specs/scheduler.md.
+ * (specs/scheduler-view.md Interface, R3.2): the `sch_`-prefixed schedule
+ * id, the stored spec variant, the stored message text, the stored
+ * next-due-time, and the stored gate-command text. `nextFireAt` and the
+ * one-shot `at` are integer UTC epoch milliseconds (R3.4). Exactly one
+ * spec variant is present per entry, mirroring the schedule-record
+ * invariant of specs/scheduler.md; `command` is present on every entry and
+ * is null when the schedule stores no gate command.
  */
 export const SessionSchedule = Schema.Struct({
   id: Schema.String.annotate({ description: "The sch_-prefixed schedule id." }),
@@ -107,6 +109,9 @@ export const SessionSchedule = Schema.Struct({
   }),
   message: Schema.String.annotate({ description: "The stored message text delivered on fire." }),
   nextFireAt: Schema.Int.annotate({ description: "The stored next-due-time as integer UTC epoch milliseconds." }),
+  command: Schema.NullOr(Schema.String).annotate({
+    description: "The stored gate-command text checked before each fire, or null when the schedule stores none.",
+  }),
 }).annotate({ identifier: "SessionSchedule" })
 export type SessionSchedule = typeof SessionSchedule.Type
 
