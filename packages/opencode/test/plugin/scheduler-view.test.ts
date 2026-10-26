@@ -56,6 +56,32 @@ describe("scheduler-view annotator", () => {
     )
   })
 
+  test("annotates a gate-echo line from its first fragment only (spec E1.3)", async () => {
+    // The add line ends with the gate echo; the `next due` inside the echoed
+    // command text names no schedule, the annotation comes from the real
+    // first fragment, and the echo stays at the end of the line.
+    const add = await runHook(
+      "Scheduled sch_fix (*/30 * * * *), next due 2026-10-25T14:05:00Z [gate: echo next due 2020-01-01T00:00:00Z]",
+      { etaClock: () => CLOCK },
+    )
+    expect(add.output).toBe(
+      "Scheduled sch_fix (*/30 * * * *), next due 2026-10-25T14:05:00Z [gate: echo next due 2020-01-01T00:00:00Z]\n" +
+        "eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)",
+    )
+
+    // The same holds for a list line whose message carries a literal
+    // `next due` fragment and whose gate echo carries one too: exactly one
+    // annotation, from the real first fragment.
+    const list = await runHook(
+      "sch_fix (*/30 * * * *) next due 2026-10-25T14:05:00Z: ping next due 2026-10-25T20:05:00Z folks [gate: echo next due 2020-01-01T00:00:00Z]",
+      { etaClock: () => CLOCK },
+    )
+    expect(list.output).toBe(
+      "sch_fix (*/30 * * * *) next due 2026-10-25T14:05:00Z: ping next due 2026-10-25T20:05:00Z folks [gate: echo next due 2020-01-01T00:00:00Z]\n" +
+        "eta sch_fix: in 2h 05m (2026-10-25T14:05:00Z)",
+    )
+  })
+
   test("annotation runs on add, list, and remove results alike (T1.2)", async () => {
     const add = await runHook("Scheduled sch_fix (*/30 * * * *), next due 2026-10-25T14:05:00Z", {
       etaClock: () => CLOCK,
