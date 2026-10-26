@@ -490,6 +490,18 @@ const scenarios: Scenario[] = [
       body: { accountID: "httpapi-account", orgID: "httpapi-org" },
     }))
     .status(400, undefined, "none"),
+  http.protected.get("/experimental/prime-time", "experimental.primeTime.get").json(200, (body) => {
+    object(body)
+    boolean(body.enabled)
+  }),
+  http.protected
+    .post("/experimental/prime-time/switch", "experimental.primeTime.switch")
+    .mutating()
+    .at((ctx) => ({ path: "/experimental/prime-time/switch", headers: ctx.headers(), body: { enabled: false } }))
+    .json(200, (body) => {
+      object(body)
+      check(body.enabled === false, "prime-time switch should return the requested state")
+    }),
   http.protected.get("/experimental/workspace/adapter", "experimental.workspace.adapter.list").json(200, array),
   http.protected.get("/experimental/workspace", "experimental.workspace.list").json(200, array),
   http.protected.get("/experimental/workspace/status", "experimental.workspace.status").json(200, array),
