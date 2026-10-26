@@ -520,13 +520,21 @@ const layer = Layer.effect(
           .prompt({ sessionID: resolved.value.row.session_id, text: resolved.value.text })
           .pipe(Effect.exit)
         if (Exit.isSuccess(admitted)) {
-          yield* writes.withPermits(1)(
+          // A defect in the finish must not strand the row in-flight (R8.7):
+          // it is captured like an admission failure — the row stays due and
+          // the retry is a catch-up fire (R8.5, R7.1) — so the fiber always
+          // reaches its finalization below.
+          const finished = yield* writes.withPermits(1)(
             finishFire({
               row: resolved.value.row,
               catchUp: resolved.value.catchUp,
               deliveredAt: yield* Clock.currentTimeMillis,
             }),
-          )
+          ).pipe(Effect.exit)
+          if (Exit.isFailure(finished)) {
+            completed = false
+            yield* markDeliveryFailure(resolved.value.row, finished.cause)
+          }
         } else {
           completed = false
           yield* markDeliveryFailure(resolved.value.row, admitted.cause)

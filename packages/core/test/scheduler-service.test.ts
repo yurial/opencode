@@ -2,7 +2,7 @@ import { describe, expect } from "bun:test"
 import fs from "fs/promises"
 import { realpathSync } from "node:fs"
 import { Clock, Deferred, Duration, Effect, Fiber, Layer } from "effect"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import * as TestClock from "effect/testing/TestClock"
 import { Database } from "@opencode-ai/core/database/database"
 import { migrations } from "@opencode-ai/core/database/migration.gen"
@@ -235,6 +235,20 @@ const epochRow = (sessionID: SessionV2.ID) =>
       .get()
       .pipe(Effect.orDie),
   )
+
+// A BEFORE UPDATE trigger on the schedule table RAISEs — the injection seam
+// for a defect in the fire's serialized finish phase: the finish's row
+// update dies exactly like a broken database would, while the reads and the
+// admission stay healthy.
+const armFinishFailure = Database.Service.use(({ db }) =>
+  db
+    .run(sql`CREATE TRIGGER schedule_finish_failure BEFORE UPDATE ON schedule BEGIN SELECT RAISE(ABORT, 'injected finish failure'); END`)
+    .pipe(Effect.orDie),
+)
+
+const disarmFinishFailure = Database.Service.use(({ db }) =>
+  db.run(sql`DROP TRIGGER schedule_finish_failure`).pipe(Effect.orDie),
+)
 
 const scheduleRows = Database.Service.use(({ db }) =>
   db.select().from(ScheduleTable).all().pipe(Effect.orDie),
@@ -1205,6 +1219,48 @@ describe("Scheduler service", () => {
     }),
   )
 
+  it.effect("drops a schedule removed while its gate-run is in flight", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_removed")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      const hold = yield* Deferred.make<void>()
+      gateBehavior.holds.push(hold)
+
+      const added = yield* scheduler.add({ sessionID, message: "vanish", spec: { cron: "0 * * * *" }, command: "wait" })
+      const due = added.nextFireAt
+      yield* advance(due + 1)
+      yield* settled
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toEqual([])
+
+      // The schedule is removed while its gate-run hangs in flight.
+      const removed = yield* scheduler.remove({ sessionID, id: added.id })
+      expect(removed.id).toBe(added.id)
+
+      // The run resolves into a removed row: no delivery, no second run,
+      // and no row left behind.
+      yield* Deferred.succeed(hold, undefined)
+      yield* flushed
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toEqual([])
+      expect(yield* scheduleRows).toEqual([])
+
+      // The machine is clean: a follow-up schedule fires unmarked on time —
+      // the fiber released the row and nudged the timer.
+      const later = yield* scheduler.add({ sessionID, message: "later", spec: { cron: "30 * * * *" } })
+      yield* advance(later.nextFireAt - due)
+      yield* flushed
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toHaveLength(1)
+      expect(v1Calls[0]!.text).toContain("later")
+      expect(v1Calls[0]!.text).not.toContain("catch-up")
+      const rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBeGreaterThan(later.nextFireAt)
+    }),
+  )
+
   it.effect("does not retry a suppressed fire", () =>
     Effect.gen(function* () {
       yield* resetRecordings
@@ -1278,6 +1334,60 @@ describe("Scheduler service", () => {
       expect(v1Calls[1]!.text).toContain("\ngate command output:\nretry out")
       rows = yield* scheduleRows
       expect(rows[0]!.next_fire_at).toBe(due + 3_600_000)
+    }),
+  )
+
+  it.effect("retries a gated fire whose finish failed as a catch-up", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_finish_fail")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      // The gate permits the fire, the V1 admission succeeds, and the
+      // serialized finish's row update dies once.
+      yield* armFinishFailure
+      gateBehavior.exitCodes.push(0, 0, 0)
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "finish check",
+        spec: { cron: "0 * * * *" },
+        command: "check",
+      })
+      const due = added.nextFireAt
+      yield* advance(due + 1)
+      yield* flushed
+
+      // The finish died after the admission: the row stays due (R8.5) and
+      // the fiber finalized — the row left the in-flight set, so its retry
+      // can be scanned like any other due row.
+      expect(gateCalls).toHaveLength(1)
+      expect(v1Calls).toHaveLength(1)
+      let rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(due)
+
+      // The retry re-runs the gate and finishes as a catch-up fire (R7.1).
+      yield* disarmFinishFailure
+      yield* advance(Scheduler.RETRY_DELAY_MILLIS + 1)
+      yield* flushed
+      expect(gateCalls).toHaveLength(2)
+      expect(v1Calls).toHaveLength(2)
+      expect(v1Calls[1]!.text).toContain("catch-up: delivered after the scheduled fire time")
+      expect(v1Calls[1]!.text).toContain(SchedulerMessage.timestamp(due))
+      rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(due + 3_600_000)
+
+      // The machine is clean (R8.7, R8.9, R8.11): the next occurrence runs
+      // its gate and delivers unmarked — no leftover held mark, no in-flight
+      // skip.
+      yield* advance(3_600_000 + 1)
+      yield* flushed
+      expect(gateCalls).toHaveLength(3)
+      expect(v1Calls).toHaveLength(3)
+      expect(v1Calls[2]!.text).not.toContain("catch-up")
+      expect(v1Calls[2]!.text).toContain(SchedulerMessage.timestamp(due + 3_600_000))
+      rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(due + 2 * 3_600_000)
     }),
   )
 
