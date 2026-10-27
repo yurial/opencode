@@ -11,7 +11,7 @@ import { RGBA, TextAttributes } from "@opentui/core"
 import { testRender, type JSX } from "@opentui/solid"
 import type { AssistantMessage, Part } from "@opencode-ai/sdk/v2"
 import { KVProvider } from "../../src/context/kv"
-import { ThemeProvider, useTheme } from "../../src/context/theme"
+import { ThemeProvider, useTheme, type ThemeSource } from "../../src/context/theme"
 import { LocalContext } from "../../src/context/local"
 import { SyncContext } from "../../src/context/sync"
 import { LocationProvider } from "../../src/context/location"
@@ -92,10 +92,18 @@ function spanList(): SpanInfo[] {
 // components read outside the provider tree — the local agent colors and the
 // sync store — are stubbed with inert values: no agent override resolves and
 // no permission is ever pending. Polls past the provider's async readiness,
-// then captures the settled span list.
+// then polls until every expected substring is on screen before capturing:
+// the markdown/code renderables parse and highlight asynchronously (the
+// reasoning body exists only after the tree-sitter worker answers its
+// highlight request), so a fixed settle count races that work — the renderer
+// sits idle while the worker runs, making harness frame-based waits
+// (`waitFor`/`waitForFrame`) return early too. The span predicate mirrors the
+// tests' own `spans.find((span) => span.text.includes(...))` reads, so the
+// capture happens exactly when the assertions' preconditions hold.
 async function mount(
   body: (ctx: ReturnType<typeof ctxValue>) => JSX.Element,
-  themed = true,
+  wait: string | string[],
+  themeSource: ThemeSource = source,
 ): Promise<SpanInfo[]> {
   let probe: ReturnType<typeof useTheme> | undefined
   function Probe() {
@@ -121,7 +129,7 @@ async function mount(
       <TestTuiContexts>
         <TuiConfigProvider config={config}>
           <KVProvider>
-            <ThemeProvider mode="dark" source={themed ? source : undefined}>
+            <ThemeProvider mode="dark" source={themeSource}>
               <Probe />
             </ThemeProvider>
           </KVProvider>
@@ -137,13 +145,19 @@ async function mount(
     if (Date.now() - start > 5000) throw new Error("timed out waiting for theme readiness")
     await Bun.sleep(20)
   }
-  // The markdown/code renderables parse their content asynchronously; give
-  // them a few passes before capturing so text spans exist.
-  for (let i = 0; i < 5; i++) {
+  const expected = Array.isArray(wait) ? wait : [wait]
+  // Stay under bun's default per-test timeout so a genuine missing span
+  // fails here with the captured spans instead of a raw test timeout.
+  const deadline = Date.now() + 4000
+  for (;;) {
     await app.renderOnce()
-    await Bun.sleep(60)
+    const spans = spanList()
+    if (expected.every((text) => spans.some((span) => span.text.includes(text)))) return spans
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for [${expected.join(", ")}]; captured spans: ${spans.map((span) => span.text.trim()).join(" | ")}`)
+    }
+    await Bun.sleep(25)
   }
-  return spanList()
 }
 
 function ctxValue(): typeof noopContextValue {
@@ -227,11 +241,14 @@ describe("discarded-block transcript styling", () => {
   test("marked assistant text renders the discarded foreground and sentinel bg (R10.1, R51.2)", async () => {
     const part = textPart("msg_a", "marked body text")
     marked = collectDiscardedPartIds([part, discardCall("msg_a", [part.id])])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <TextPart last={true} part={part as never} message={assistant("msg_a")} />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      "marked body text",
+    )
     const body = spans.find((span) => span.text.includes("marked body text"))
     expect(body).toBeDefined()
     // The markdown renderer paints the default scope from syntax.default, so
@@ -244,12 +261,15 @@ describe("discarded-block transcript styling", () => {
     const markedPart = textPart("msg_a", "marked body")
     const unmarked = textPart("msg_a", "unmarked body")
     marked = collectDiscardedPartIds([markedPart, discardCall("msg_a", [markedPart.id])])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <TextPart last={true} part={markedPart as never} message={assistant("msg_a")} />
     <TextPart last={true} part={unmarked as never} message={assistant("msg_a")} />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      ["marked body", "unmarked body"],
+    )
     const unmarkedSpan = spans.find((span) => span.text.includes("unmarked body"))
     expect(unmarkedSpan).toBeDefined()
     expect(unmarkedSpan!.fg).toEqual(NORMAL_TEXT_FG)
@@ -267,16 +287,19 @@ describe("discarded-block transcript styling", () => {
       filename: "notes.md",
     }
     marked = collectDiscardedPartIds([text, discardCall("msg_u", [text.id, file.id])])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <UserMessage
     message={userMessage("msg_u") as never}
     parts={[text, file] as Part[]}
     onMouseUp={() => {}}
     index={0}
     />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      ["user prompt text", "notes.md"],
+    )
     const prompt = spans.find((span) => span.text.includes("user prompt text"))
     expect(prompt).toBeDefined()
     expect(prompt!.fg).toEqual(DISCARDED_FG)
@@ -289,16 +312,19 @@ describe("discarded-block transcript styling", () => {
     const first = textPart("msg_u", "kept prompt")
     const second = textPart("msg_u", "dropped prompt")
     marked = collectDiscardedPartIds([second, discardCall("msg_u", [second.id])])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <UserMessage
     message={userMessage("msg_u") as never}
     parts={[first, second] as Part[]}
     onMouseUp={() => {}}
     index={0}
     />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      ["kept prompt", "dropped prompt"],
+    )
     const kept = spans.find((span) => span.text.includes("kept prompt"))
     expect(kept).toBeDefined()
     // Unmarked user text keeps message.user.body from the theme file.
@@ -315,8 +341,9 @@ describe("discarded-block transcript styling", () => {
     const text = textPart("msg_u", "the disappearing prompt")
     const call = discardCall("msg_a", [text.id])
     marked = collectDiscardedPartIds([text, call])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <UserMessage
     message={userMessage("msg_u") as never}
     parts={[text] as Part[]}
@@ -324,8 +351,10 @@ describe("discarded-block transcript styling", () => {
     index={0}
     />
     <ToolPart last={true} part={call as never} message={assistant("msg_a")} />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      ["the disappearing prompt", "Discarded 1 context part"],
+    )
     const prompt = spans.find((span) => span.text.includes("the disappearing prompt"))
     expect(prompt).toBeDefined()
     expect(prompt!.fg).toEqual(DISCARDED_FG)
@@ -345,11 +374,14 @@ describe("discarded-block transcript styling", () => {
       time: { start: 1, end: 2 },
     }
     marked = collectDiscardedPartIds([part, discardCall("msg_a", [part.id])])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
-        <ReasoningPart last={true} part={part as never} message={assistant("msg_a")} />
-      </sessionTranscriptContext.Provider>
-    ))
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
+          <ReasoningPart last={true} part={part as never} message={assistant("msg_a")} />
+        </sessionTranscriptContext.Provider>
+      ),
+      ["reasoned carefully", "Thought"],
+    )
     const body = spans.find((span) => span.text.includes("reasoned carefully"))
     expect(body).toBeDefined()
     // The body text renders through the subtle syntax style (R37): the
@@ -365,12 +397,18 @@ describe("discarded-block transcript styling", () => {
     const settled = toolPart("msg_a", "completed")
     const pending = toolPart("msg_a", "pending")
     marked = collectDiscardedPartIds([settled, pending, discardCall("msg_a", [settled.id, pending.id])])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <ToolPart last={true} part={settled as never} message={assistant("msg_a")} />
     <ToolPart last={true} part={pending as never} message={assistant("msg_a")} />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      // The pending read keeps `complete` (the filePath input), so both rows
+      // render the "Read /tmp/f" label; the "~ Reading file…" fallback never
+      // shows for this fixture.
+      ["Read /tmp/f"],
+    )
     const label = spans.find((span) => span.text.includes("Read /tmp/f") && !span.text.includes("~"))
     expect(label).toBeDefined()
     // The settled completed tool renders its label in the discarded fg.
@@ -383,11 +421,14 @@ describe("discarded-block transcript styling", () => {
   test("a failed marked tool keeps its state color (R10.3, R51.3)", async () => {
     const failed = toolPart("msg_a", "error")
     marked = collectDiscardedPartIds([failed, discardCall("msg_a", [failed.id])])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <ToolPart last={true} part={failed as never} message={assistant("msg_a")} />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      "Read /tmp/f",
+    )
     const row = spans.find((span) => span.text.includes("Read /tmp/f"))
     expect(row).toBeDefined()
     expect(row!.fg).toEqual(RGBA.fromInts(3, 3, 3))
@@ -398,13 +439,16 @@ describe("discarded-block transcript styling", () => {
     const pendingPart = discardCall("msg_a", [], "pending")
     const failedPart = discardCall("msg_a", [], "error")
     marked = new Set()
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <ToolPart last={true} part={settledPart as never} message={assistant("msg_a")} />
     <ToolPart last={true} part={pendingPart as never} message={assistant("msg_a")} />
     <ToolPart last={true} part={failedPart as never} message={assistant("msg_a")} />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      ["Discarded 1 context part", "Discarding context…", "Discard failed"],
+    )
     const settledRow = spans.find((span) => span.text.includes("Discarded 1 context part"))
     expect(settledRow).toBeDefined()
     expect(settledRow!.fg).toEqual(RGBA.fromInts(0, 255, 0))
@@ -420,12 +464,15 @@ describe("discarded-block transcript styling", () => {
     const part = textPart("msg_a", "marked body text")
     const call = discardCall("msg_a", [part.id])
     marked = collectDiscardedPartIds([part, call])
-    const spans = await mount((ctx) => (
-      <sessionTranscriptContext.Provider value={ctx}>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
     <TextPart last={true} part={part as never} message={assistant("msg_a")} />
     <ToolPart last={true} part={call as never} message={assistant("msg_a")} />
-      </sessionTranscriptContext.Provider>
-    ))
+        </sessionTranscriptContext.Provider>
+      ),
+      ["marked body text", "Discarded 1 context part"],
+    )
     const rendered = spans.map((span) => span.text).join("")
     expect(rendered).not.toContain(part.id)
     expect(rendered).not.toContain(call.id)
@@ -444,56 +491,21 @@ describe("discarded-block transcript styling", () => {
     const strikeSource = { discover: async () => ({ "discard-v2": strikeTheme }) }
     const text = textPart("msg_u", "struck prompt")
     marked = collectDiscardedPartIds([text, discardCall("msg_a", [text.id])])
-    let probe: ReturnType<typeof useTheme> | undefined
-    function Probe() {
-      probe = useTheme()
-      return (
-        <LocalContext.Provider
-          value={{
-            agent: { color: () => RGBA.fromInts(1, 1, 1) },
-          } as never}
-        >
-          <SyncContext.Provider value={{ data: { permission: {} } } as never}>
-            <LocationProvider location={undefined}>
-              <sessionTranscriptContext.Provider value={ctxValue()}>
-                <UserMessage
-                  message={userMessage("msg_u") as never}
-                  parts={[text] as Part[]}
-                  onMouseUp={() => {}}
-                  index={0}
-                />
-              </sessionTranscriptContext.Provider>
-            </LocationProvider>
-          </SyncContext.Provider>
-        </LocalContext.Provider>
-      )
-    }
-    app = await testRender(
-      () => (
-        <TestTuiContexts>
-          <TuiConfigProvider config={config}>
-            <KVProvider>
-              <ThemeProvider mode="dark" source={strikeSource}>
-                <Probe />
-              </ThemeProvider>
-            </KVProvider>
-          </TuiConfigProvider>
-        </TestTuiContexts>
+    const spans = await mount(
+      (ctx) => (
+        <sessionTranscriptContext.Provider value={ctx}>
+          <UserMessage
+            message={userMessage("msg_u") as never}
+            parts={[text] as Part[]}
+            onMouseUp={() => {}}
+            index={0}
+          />
+        </sessionTranscriptContext.Provider>
       ),
-      { width: 72, height: 20 },
+      "struck prompt",
+      strikeSource,
     )
-    const start = Date.now()
-    for (;;) {
-      await app.renderOnce()
-      if (probe?.ready ?? false) break
-      if (Date.now() - start > 5000) throw new Error("timed out waiting for theme readiness")
-      await Bun.sleep(20)
-    }
-    for (let i = 0; i < 5; i++) {
-      await app.renderOnce()
-      await Bun.sleep(60)
-    }
-    const span = spanList().find((span) => span.text.includes("struck prompt"))
+    const span = spans.find((span) => span.text.includes("struck prompt"))
     expect(span).toBeDefined()
     expect(span!.fg).toEqual(DISCARDED_FG)
     expect(span!.attributes & TextAttributes.STRIKETHROUGH).toBe(TextAttributes.STRIKETHROUGH)
