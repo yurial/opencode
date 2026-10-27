@@ -7,6 +7,7 @@ import type { AssistantMessage, Message, Part, SessionSchedule } from "@opencode
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import scheduler from "../../src/feature-plugins/sidebar/scheduler"
 import { createBuiltinPlugins } from "../../src/feature-plugins/builtins"
+import { createSlots } from "../../src/plugin/slots"
 import { createTuiPluginApi } from "../fixture/tui-plugin"
 
 // Every data assertion below flows through the mock on the only permitted
@@ -198,6 +199,76 @@ async function mount(opts: {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Mounts the block through the real host slot machinery — createSlots, the
+// same createSolidSlotRegistry/createSlot path the session sidebar renders
+// with (packages/tui/src/plugin/slots.tsx) — instead of calling the slot
+// renderer directly. The remount storm of R4.7 lives in that render loop:
+// the slot re-invokes the entry renderer whenever the block's reactive root
+// changes, remounting the View and resetting its entries. The direct-mount
+// tests above bypass the loop and cannot observe it.
+async function mountViaSlot(opts: {
+  client: unknown
+  options?: Record<string, unknown>
+  sessionID?: () => string
+  messages?: () => Message[]
+  parts?: (messageID: string) => Part[]
+}): Promise<Harness> {
+  const runtime = createSlots()
+  const base = createTuiPluginApi()
+  const disposes: Array<() => void> = []
+  const api = {
+    ...base,
+    client: opts.client,
+    // A renderer stand-in: the slot registry only keys its store by the
+    // renderer instance and hooks its destroy event.
+    renderer: { once() {} },
+    state: {
+      ...base.state,
+      session: {
+        ...base.state.session,
+        messages: (sessionID: string) => opts.messages?.() ?? [],
+      },
+      part: (messageID: string) => opts.parts?.(messageID) ?? [],
+    },
+    lifecycle: {
+      signal: new AbortController().signal,
+      onDispose: (fn: () => void) => {
+        disposes.push(fn)
+        return () => {}
+      },
+    },
+  } as unknown as TuiPluginApi
+  api.slots = {
+    register(plugin: { id?: string; order?: number; slots: Record<string, unknown> }) {
+      // The host wrapper (packages/opencode/src/plugin/tui/runtime.ts) owns
+      // the registry id and returns it; the fixture fixes both the same way.
+      const fixed = { ...plugin, id: plugin.id ?? "internal:sidebar-scheduler" }
+      runtime.setup(api).register(fixed)
+      return fixed.id
+    },
+  }
+
+  await scheduler.tui(api, opts.options, META)
+
+  const session = opts.sessionID ?? (() => "ses")
+  const app = await testRender(
+    () => runtime.Slot({ name: "sidebar_content", get session_id() { return session() } }),
+    { width: 160, height: 24 },
+  )
+  const render = async () => {
+    await app.renderOnce()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    await app.renderOnce()
+  }
+  await render()
+  return {
+    frame: () => app.captureCharFrame(),
+    render,
+    dispose: () => disposes.forEach((fn) => fn()),
+    destroy: () => app.renderer.destroy(),
+  }
+}
 
 describe("sidebar schedules block", () => {
   test("registers as a builtin in the sidebar_content slot at order 450 (T4.1, R4.1, R4.2)", async () => {
@@ -641,6 +712,81 @@ describe("sidebar schedules block", () => {
       expect(malformed.frame().trim()).toBe("")
     } finally {
       malformed.destroy()
+    }
+  })
+
+  test("mounts once through the slot machinery and keeps entries across stream deltas (R4.7, R4.8, R4.9, R4.13)", async () => {
+    const clock = clockFixture(T0)
+    const calls: string[] = []
+    const [messages, setMessages] = createSignal<Message[]>([])
+    const partsByMessage = new Map<string, Part[]>()
+    let schedules = [entry("sch_live", { cron: "* * * * *" }, T0 + 3_600_000, "live schedule")]
+
+    // Each fetch answers on a macrotask: a remount loop advances at timer
+    // pace, so a slot that remounts per response shows up as extra list
+    // calls instead of starving the microtask queue.
+    const client = {
+      v2: {
+        session: {
+          schedule: {
+            list: (input: { sessionID: string }) => {
+              calls.push(input.sessionID)
+              return new Promise((resolve) =>
+                setTimeout(
+                  () => resolve({ data: JSON.parse(JSON.stringify({ data: { schedules } })) }),
+                  5,
+                ),
+              )
+            },
+          },
+        },
+      },
+    }
+
+    const [sessionID, setSessionID] = createSignal("ses")
+    const harness = await mountViaSlot({
+      client,
+      options: { etaClock: clock.etaClock },
+      sessionID: () => sessionID(),
+      messages: () => messages(),
+      parts: (messageID) => partsByMessage.get(messageID) ?? [],
+    })
+    try {
+      // The mount fetch is the only call: the block mounts once and the
+      // first response renders the entries.
+      expect(calls).toEqual(["ses"])
+      expect(harness.frame()).toContain("sch_live")
+
+      // Ten stream deltas — message and part updates with no scheduler tool
+      // part — remount nothing and refetch nothing; the entries of the last
+      // successful response stay rendered between the deltas (R4.13).
+      for (let i = 0; i < 10; i++) {
+        const streamed = assistant(`msg_stream_${i}`)
+        partsByMessage.set(streamed.id, [textPart(streamed.id)])
+        setMessages((previous) => [...previous, user(`msg_u_${i}`), streamed])
+        await harness.render()
+      }
+      expect(calls).toEqual(["ses"])
+      expect(harness.frame()).toContain("sch_live")
+
+      // A newly observed scheduler tool part still refetches exactly once
+      // through the slot (R4.9) and renders the refreshed entry.
+      schedules = [entry("sch_live_next", { cron: "* * * * *" }, T0 + 3_600_000, "refreshed schedule")]
+      const schedulerPartMessage = assistant("msg_sched")
+      partsByMessage.set(schedulerPartMessage.id, [toolPart(schedulerPartMessage.id, "scheduler")])
+      setMessages((previous) => [...previous, user("msg_u_sched"), schedulerPartMessage])
+      await harness.render()
+      expect(calls).toEqual(["ses", "ses"])
+      expect(harness.frame()).toContain("sch_live_next")
+
+      // A change of the current session still refetches exactly once through
+      // the slot (R4.8).
+      setSessionID("ses_b")
+      await harness.render()
+      expect(calls).toEqual(["ses", "ses", "ses_b"])
+      expect(harness.frame()).toContain("sch_live_next")
+    } finally {
+      harness.destroy()
     }
   })
 })

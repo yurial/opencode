@@ -278,21 +278,36 @@ function View(props: { api: TuiPluginApi; settings: { etaClock: EtaClock; interv
   onCleanup(() => clearInterval(timer))
   api.lifecycle.onDispose(() => clearInterval(timer))
 
-  // R4.7: no entry — no block, including before the first success (R4.13).
+  // R4.7: no entry — no visible block, including before the first success
+  // (R4.13). The static root box keeps the slot render loop from tracking
+  // the block's internals: the slot re-invokes its entry renderer whenever
+  // the reactive root value it received changes (the entry renderer's
+  // return is re-read through solid's children resolution), so a reactive
+  // root — a bare <Show> memo reading `entries` — remounts the whole View
+  // on every refetch completion and restarts the fetch loop. The static
+  // root box keeps the root value inert; its `position` and the <Show>
+  // below flip reactively without touching the View's identity, and the
+  // absolute position hides the empty box from the flex gap of the sidebar
+  // column so an empty block occupies no row.
+  const visible = createMemo(() => (entries()?.length ?? 0) > 0)
   return (
-    <Show when={(entries()?.length ?? 0) > 0}>
-      <box>
-        <text
-          fg={api.theme.element("sidebar.strong").fg}
-          attributes={textAttributes(api.theme.element("sidebar.strong").attributes)}
-        >
-          Schedules
-        </text>
-        <For each={entries()}>
-          {(entry) => <text fg={api.theme.element("sidebar.text").fg}>{entryLine(entry, props.settings.etaClock())}</text>}
-        </For>
-      </box>
-    </Show>
+    <box position={visible() ? "relative" : "absolute"}>
+      <Show when={visible()}>
+        <box>
+          <text
+            fg={api.theme.element("sidebar.strong").fg}
+            attributes={textAttributes(api.theme.element("sidebar.strong").attributes)}
+          >
+            Schedules
+          </text>
+          <For each={entries()}>
+            {(entry) => (
+              <text fg={api.theme.element("sidebar.text").fg}>{entryLine(entry, props.settings.etaClock())}</text>
+            )}
+          </For>
+        </box>
+      </Show>
+    </box>
   )
 }
 
