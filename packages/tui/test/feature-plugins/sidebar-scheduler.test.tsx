@@ -789,4 +789,105 @@ describe("sidebar schedules block", () => {
       harness.destroy()
     }
   })
+
+  test("updates every line's eta on tick expiry without remounting (T4.14, R4.15)", async () => {
+    const clock = clockFixture(T0)
+    const calls: string[] = []
+    const schedules = [
+      entry("sch_tick_a", { cron: "* * * * *" }, T0 + 45_000, "tick line a"),
+      entry("sch_tick_b", { cron: "* * * * *" }, T0 + 120_000, "tick line b"),
+    ]
+    // The client answers on a macrotask like the storm test: a remount on
+    // any tick expiry would surface as extra list calls, since every fresh
+    // View refetches on its first run.
+    const client = {
+      v2: {
+        session: {
+          schedule: {
+            list: (input: { sessionID: string }) => {
+              calls.push(input.sessionID)
+              return new Promise((resolve) =>
+                setTimeout(
+                  () => resolve({ data: JSON.parse(JSON.stringify({ data: { schedules } })) }),
+                  5,
+                ),
+              )
+            },
+          },
+        },
+      },
+    }
+    const harness = await mountViaSlot({
+      client,
+      options: { etaClock: clock.etaClock, tickIntervalMs: 15 },
+    })
+    try {
+      expect(calls).toEqual(["ses"])
+      const before = harness.frame()
+      expect(before).toContain("in 45s (2026-10-25T12:00:45Z) sch_tick_a (* * * * *): tick line a")
+      expect(before).toContain("in 0h 02m (2026-10-25T12:02:00Z) sch_tick_b (* * * * *): tick line b")
+
+      // The clock moves past the due instants with no refetch trigger in
+      // between: the next tick expiry re-renders the eta of every rendered
+      // line from the clock alone, the rest of each line stands unchanged.
+      clock.advance(T0 + 90_000)
+      await sleep(80)
+      await harness.render()
+      const after = harness.frame()
+      expect(after).toContain("now (2026-10-25T12:00:45Z) sch_tick_a (* * * * *): tick line a")
+      expect(after).toContain("in 30s (2026-10-25T12:02:00Z) sch_tick_b (* * * * *): tick line b")
+      // The mount fetch is still the only client call: no tick refetched and
+      // no tick remounted the block through the slot machinery.
+      expect(calls).toEqual(["ses"])
+    } finally {
+      harness.destroy()
+    }
+  })
+
+  test("issues zero schedule-list requests over consecutive tick expiries (T4.15, R4.16)", async () => {
+    const clock = clockFixture(T0)
+    const calls: string[] = []
+    const schedules = [entry("sch_quiet", { cron: "* * * * *" }, T0 + 3_600_000, "quiet tick")]
+    const harness = await mount({
+      client: clientFixture(calls, () => ({ data: { schedules } })),
+      calls,
+      options: { etaClock: clock.etaClock, tickIntervalMs: 15 },
+    })
+    try {
+      expect(calls).toEqual(["ses"])
+      // Roughly eight tick expiries with the entries already rendered: the
+      // display-only tick issues no request and the entries stand unchanged.
+      await sleep(120)
+      await harness.render()
+      expect(calls).toEqual(["ses"])
+      expect(harness.frame()).toContain("in 1h 00m (2026-10-25T13:00:00Z) sch_quiet (* * * * *): quiet tick")
+    } finally {
+      harness.destroy()
+    }
+  })
+
+  test("clears the eta-tick timer on lifecycle disposal (T4.16, R4.17)", async () => {
+    const clock = clockFixture(T0)
+    const calls: string[] = []
+    const schedules = [entry("sch_frozen", { cron: "* * * * *" }, T0 + 45_000, "frozen eta")]
+    const harness = await mount({
+      client: clientFixture(calls, () => ({ data: { schedules } })),
+      calls,
+      options: { etaClock: clock.etaClock, tickIntervalMs: 15 },
+    })
+    try {
+      expect(harness.frame()).toContain("in 45s (2026-10-25T12:00:45Z) sch_frozen (* * * * *): frozen eta")
+      harness.dispose()
+      // The tick timer is cleared with the lifecycle: the clock moves on but
+      // no eta re-render fires after disposal, the rendered eta stays frozen.
+      clock.advance(T0 + 120_000)
+      await sleep(80)
+      await harness.render()
+      const frame = harness.frame()
+      expect(frame).toContain("in 45s (2026-10-25T12:00:45Z) sch_frozen (* * * * *): frozen eta")
+      expect(frame).not.toContain("now (2026-10-25T12:00:45Z) sch_frozen")
+    } finally {
+      harness.destroy()
+    }
+  })
 })

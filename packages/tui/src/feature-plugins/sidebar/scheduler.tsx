@@ -30,6 +30,10 @@ import { textAttributes } from "../../theme/catalog"
  *   session (R4.9, I6), and every expiry of the refresh interval (R4.10).
  *   The interval timer is cleared on disposal through the TUI plugin
  *   lifecycle (R4.11, I5).
+ * - Eta tick: every expiry of the eta-tick interval re-renders the eta text
+ *   of the rendered entry lines from the eta-clock in place — display-only,
+ *   no SDK client request, the schedule entries untouched; the tick timer
+ *   clears on disposal through the TUI plugin lifecycle (R4.15-R4.17).
  * - Degradation: a failed fetch keeps the entries of the last successful
  *   response rendered — the block renders nothing before the first success
  *   — and no failure propagates beyond the block (R4.13, R4.14).
@@ -85,6 +89,20 @@ export type SchedulerViewSidebarOptions = {
    *   time-based waiting.
    */
   refreshIntervalMs?: number
+
+  /**
+   * The eta re-render period in milliseconds (R4.15).
+   *
+   * Contract:
+   * - Allowed values: positive integers; each expiry re-renders the eta text
+   *   of the rendered entry lines from the eta-clock, with no refetch
+   *   (R4.15, R4.16).
+   * - Omitted: SCHEDULER_VIEW_SIDEBAR_ETA_TICK_INTERVAL (fixed 1000 ms).
+   * - A non-positive or non-numeric value falls back to the fixed default;
+   *   the injection point exists for tests, where a short period replaces
+   *   time-based waiting.
+   */
+  tickIntervalMs?: number
 }
 
 /**
@@ -101,6 +119,15 @@ const SCHEDULER_VIEW_SIDEBAR_SLOT_ORDER = 450
  * the spec has no config key for it.
  */
 const SCHEDULER_VIEW_SIDEBAR_REFRESH_INTERVAL_MS = 30_000
+
+/**
+ * Eta re-render period of the block in milliseconds; every expiry re-renders
+ * the eta text of the rendered entry lines from the eta-clock with no
+ * refetch (specs/scheduler-view.md Configuration,
+ * SCHEDULER_VIEW_SIDEBAR_ETA_TICK_INTERVAL, R4.15, R4.16). Fixed — the spec
+ * has no config key for it.
+ */
+const SCHEDULER_VIEW_SIDEBAR_ETA_TICK_INTERVAL_MS = 1_000
 
 /**
  * Length bound of the shortened message of an entry line
@@ -202,17 +229,29 @@ function entryLine(entry: SessionSchedule, now: number): string {
 }
 
 /**
- * Resolves the block settings from the plugin options: the injected values
- * when present and well-formed, the spec-fixed defaults otherwise (see
- * SchedulerViewSidebarOptions for the per-field contract).
+ * Resolved runtime settings of the block: the injected values when present
+ * and well-formed, the spec-fixed defaults otherwise (see
+ * SchedulerViewSidebarOptions for the per-field contract). `intervalMs` is
+ * the refetch period, `tickMs` the eta re-render period.
  */
-function settingsOf(options: PluginOptions | undefined): { etaClock: EtaClock; intervalMs: number } {
+type Settings = {
+  etaClock: EtaClock
+  intervalMs: number
+  tickMs: number
+}
+
+/**
+ * Resolves the block settings from the plugin options.
+ */
+function settingsOf(options: PluginOptions | undefined): Settings {
   const etaClock = options?.etaClock
   const interval = options?.refreshIntervalMs
+  const tick = options?.tickIntervalMs
   return {
     etaClock: typeof etaClock === "function" ? (etaClock as EtaClock) : tuiEtaClock,
     intervalMs:
       typeof interval === "number" && interval > 0 ? interval : SCHEDULER_VIEW_SIDEBAR_REFRESH_INTERVAL_MS,
+    tickMs: typeof tick === "number" && tick > 0 ? tick : SCHEDULER_VIEW_SIDEBAR_ETA_TICK_INTERVAL_MS,
   }
 }
 
@@ -223,12 +262,51 @@ function settingsOf(options: PluginOptions | undefined): { etaClock: EtaClock; i
 const tuiEtaClock: EtaClock = () => Date.now()
 
 /**
+ * Renders the visible body of the block (R4.7): the header line above the
+ * entry lines, one line per entry of the last successful response (R4.4).
+ *
+ * Each line's text expression reads the tick signal (R4.15): a tick expiry
+ * re-runs only that text expression — the eta re-derives from the eta-clock
+ * in place, so the block structure and the <For> rows never remount on a
+ * tick and no request is issued (R4.16; the slot render loop behind R4.7
+ * sees no root change, so the View keeps its identity after the remount
+ * storm fix).
+ */
+function BlockBody(props: {
+  api: TuiPluginApi
+  settings: Settings
+  entries: () => ReadonlyArray<SessionSchedule> | undefined
+  tick: () => number
+}) {
+  const api = props.api
+  return (
+    <box>
+      <text
+        fg={api.theme.element("sidebar.strong").fg}
+        attributes={textAttributes(api.theme.element("sidebar.strong").attributes)}
+      >
+        Schedules
+      </text>
+      <For each={props.entries()}>
+        {(entry) => (
+          <text fg={api.theme.element("sidebar.text").fg}>
+            {(props.tick(), entryLine(entry, props.settings.etaClock()))}
+          </text>
+        )}
+      </For>
+    </box>
+  )
+}
+
+/**
  * Renders the schedules block for one session (see the module contract): a
  * hidden block until a successful response carries an entry (R4.7, R4.13),
  * then the header and one line per entry, refetched by the session-change
- * and scheduler-part triggers and the periodic interval.
+ * and scheduler-part triggers and the periodic interval, with the eta text
+ * of the rendered lines re-rendered in place on every eta-tick expiry
+ * (R4.15).
  */
-function View(props: { api: TuiPluginApi; settings: { etaClock: EtaClock; intervalMs: number }; session_id: string }) {
+function View(props: { api: TuiPluginApi; settings: Settings; session_id: string }) {
   const api = props.api
   const [entries, setEntries] = createSignal<ReadonlyArray<SessionSchedule> | undefined>(undefined)
 
@@ -278,6 +356,15 @@ function View(props: { api: TuiPluginApi; settings: { etaClock: EtaClock; interv
   onCleanup(() => clearInterval(timer))
   api.lifecycle.onDispose(() => clearInterval(timer))
 
+  // R4.15-R4.17: every tick expiry re-renders the eta text of the rendered
+  // entry lines from the eta-clock — display-only, the entries signal stays
+  // untouched (R4.16); the timer clears on unmount and on the TUI plugin
+  // lifecycle disposal, mirroring the refetch timer (R4.17).
+  const [tick, setTick] = createSignal(0)
+  const tickTimer = setInterval(() => setTick((value) => value + 1), props.settings.tickMs)
+  onCleanup(() => clearInterval(tickTimer))
+  api.lifecycle.onDispose(() => clearInterval(tickTimer))
+
   // R4.7: no entry — no visible block, including before the first success
   // (R4.13). The static root box keeps the slot render loop from tracking
   // the block's internals: the slot re-invokes its entry renderer whenever
@@ -293,19 +380,7 @@ function View(props: { api: TuiPluginApi; settings: { etaClock: EtaClock; interv
   return (
     <box position={visible() ? "relative" : "absolute"}>
       <Show when={visible()}>
-        <box>
-          <text
-            fg={api.theme.element("sidebar.strong").fg}
-            attributes={textAttributes(api.theme.element("sidebar.strong").attributes)}
-          >
-            Schedules
-          </text>
-          <For each={entries()}>
-            {(entry) => (
-              <text fg={api.theme.element("sidebar.text").fg}>{entryLine(entry, props.settings.etaClock())}</text>
-            )}
-          </For>
-        </box>
+        <BlockBody api={api} settings={props.settings} entries={entries} tick={tick} />
       </Show>
     </box>
   )
