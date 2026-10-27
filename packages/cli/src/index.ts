@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect"
 import { Commands } from "./commands/commands"
 import { Runtime } from "./framework/runtime"
 import { Daemon } from "./services/daemon"
-import { exitGuard, mainTeardown } from "./exit-guard"
+import { exitGuard, guarded, mainTeardown } from "./exit-guard"
 
 const Handlers = Runtime.handlers(Commands, {
   $: () => import("./commands/handlers/default"),
@@ -29,15 +29,19 @@ const Handlers = Runtime.handlers(Commands, {
 // leaked TTY file descriptors and worker threads keep the event loop alive
 // forever after a finished teardown (the attach-client zombie incident). The
 // guard force-exits in the fiber teardown, and its backstop covers finalizers
-// hanging after the command handler completed.
+// hanging after the command handler completed — armed on every completion
+// outcome (success, failure, interruption), but never while the handler runs,
+// so long-lived commands like the TUI session or `serve` only arm at their
+// own exit.
 const guard = exitGuard({ exit: (code) => process.exit(code) })
 
 NodeRuntime.runMain(
-  Runtime.run(Commands, Handlers, { version: "local" }).pipe(
-    Effect.provide(Daemon.layer),
-    Effect.provide(NodeServices.layer),
-    Effect.tap(() => Effect.sync(guard.arm)),
-    Effect.scoped,
+  guarded(
+    Runtime.run(Commands, Handlers, { version: "local" }).pipe(
+      Effect.provide(Daemon.layer),
+      Effect.provide(NodeServices.layer),
+    ),
+    guard,
   ),
   {
     teardown: (exit, onExit) => mainTeardown(exit, onExit, guard.complete),

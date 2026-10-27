@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { fail, succeed } from "effect/Exit"
-import { EXIT_BACKSTOP_TIMEOUT_MS, exitGuard, mainTeardown } from "../src/exit-guard"
+import * as Effect from "effect/Effect"
+import { hasInterruptsOnly } from "effect/Cause"
+import { fail, isFailure, succeed } from "effect/Exit"
+import { EXIT_BACKSTOP_TIMEOUT_MS, exitGuard, guarded, mainTeardown } from "../src/exit-guard"
 
 // Bun cannot delete or reset process.exitCode to undefined inside one
 // process, so every test assigns the code it asserts on explicitly. The
@@ -28,6 +30,25 @@ function harness(code: number) {
       },
     }),
     timeout: () => timeout,
+  }
+}
+
+// Guards the backstop-window tests: the injected schedule records the arming
+// among the window events and keeps the scheduled run callable on demand.
+function windowHarness() {
+  const events: string[] = []
+  let scheduled: (() => void) | undefined
+  return {
+    events,
+    fire: () => scheduled?.(),
+    guard: exitGuard({
+      exit: (code) => events.push(`exit:${code}`),
+      schedule: (run) => {
+        events.push("arm")
+        scheduled = run
+        return () => events.push("cancel")
+      },
+    }),
   }
 }
 
@@ -74,6 +95,58 @@ describe("exitGuard", () => {
       guard.arm()
       guard.complete()
       expect(exits).toEqual([7])
+    } finally {
+      process.exitCode = 0
+    }
+  })
+})
+
+describe("guarded", () => {
+  test("failure exit arms the backstop over the finalizer window and keeps exit code 1", () => {
+    process.exitCode = 1
+    try {
+      const state = windowHarness()
+      const outcome = Effect.runSyncExit(
+        guarded(
+          Effect.gen(function* () {
+            yield* Effect.acquireRelease(
+              Effect.sync(() => state.events.push("acquire")),
+              () => Effect.sync(() => state.events.push("finalizer")),
+            )
+            return yield* Effect.fail(new Error("boom"))
+          }),
+          state.guard,
+        ),
+      )
+      expect(isFailure(outcome)).toBe(true)
+      expect(state.events).toEqual(["acquire", "arm", "finalizer"])
+      state.fire()
+      expect(state.events).toEqual(["acquire", "arm", "finalizer", "exit:1"])
+    } finally {
+      process.exitCode = 0
+    }
+  })
+
+  test("interruption exit arms the backstop over the finalizer window and keeps the accumulated exit code", () => {
+    process.exitCode = 1
+    try {
+      const state = windowHarness()
+      const outcome = Effect.runSyncExit(
+        guarded(
+          Effect.gen(function* () {
+            yield* Effect.acquireRelease(
+              Effect.sync(() => state.events.push("acquire")),
+              () => Effect.sync(() => state.events.push("finalizer")),
+            )
+            return yield* Effect.interrupt
+          }),
+          state.guard,
+        ),
+      )
+      expect(isFailure(outcome) && hasInterruptsOnly(outcome.cause)).toBe(true)
+      expect(state.events).toEqual(["acquire", "arm", "finalizer"])
+      state.fire()
+      expect(state.events).toEqual(["acquire", "arm", "finalizer", "exit:1"])
     } finally {
       process.exitCode = 0
     }

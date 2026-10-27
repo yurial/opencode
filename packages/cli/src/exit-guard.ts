@@ -1,13 +1,16 @@
+import * as Effect from "effect/Effect"
 import type { Exit } from "effect/Exit"
 import { defaultTeardown } from "effect/Runtime"
+import type { Scope } from "effect/Scope"
 
 // Backstop window for the teardown that runs after a command handler has
 // completed: scoped finalizers only. The handler itself — including the TUI
 // render and its epilogue — always finishes before the guard is armed, so the
-// window never cuts live work short (long-lived commands like the TUI session
-// or `serve` never arm it). The spec fixes no value for this constant
-// (tui-architecture Configuration lists no exit-backstop level); 5 s matches
-// the magnitude of the worker-shutdown timeout.
+// window never cuts live work short (a long-lived command like the TUI
+// session or `serve` runs to its own exit before the window opens). The spec
+// fixes no value for this constant (tui-architecture Configuration lists no
+// exit-backstop level); 5 s matches the magnitude of the worker-shutdown
+// timeout.
 export const EXIT_BACKSTOP_TIMEOUT_MS = 5000
 
 export type ExitGuard = {
@@ -52,4 +55,16 @@ function defaultSchedule(run: () => void, ms: number) {
 export function mainTeardown<A, E>(exit: Exit<A, E>, onExit: (code: number) => void, complete: () => void) {
   defaultTeardown(exit, onExit)
   complete()
+}
+
+// Run a command program inside the guard's backstop window: the backstop arms
+// when the program completes — success, failure, or interruption alike — so a
+// finalizer hanging in the scope release that follows force-exits instead of
+// lingering. Arming happens only after the program finished, so live work
+// (a TUI session, `serve`) never falls inside the window.
+export function guarded<A, E, R>(
+  program: Effect.Effect<A, E, R>,
+  guard: ExitGuard,
+): Effect.Effect<A, E, Exclude<R, Scope>> {
+  return Effect.scoped(Effect.onExit(program, () => Effect.sync(guard.arm)))
 }
