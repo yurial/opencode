@@ -1,13 +1,24 @@
 /** @jsxImportSource @opentui/solid */
 import { describe, expect, test } from "bun:test"
 import { RGBA } from "@opentui/core"
-import { testRender } from "@opentui/solid"
-import type { JSX } from "solid-js"
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk/v2"
 import discardStats from "../../src/feature-plugins/sidebar/discard-stats"
 import { discardedTokenTotal, formatCompactTokens } from "../../src/util/discard-context"
-import { createTuiPluginApi } from "../fixture/tui-plugin"
+import { activateTuiPluginSlot } from "../fixture/tui-plugin"
+import { renderTuiSlot, type TuiSlotSpan } from "../fixture/tui-frame"
+
+const META = {
+  id: "internal:sidebar-discard-stats",
+  source: "internal" as const,
+  spec: "internal:sidebar-discard-stats",
+  target: "internal:sidebar-discard-stats",
+  first_time: 0,
+  last_time: 0,
+  time_changed: 0,
+  load_count: 1,
+  fingerprint: "test",
+  state: "same" as const,
+}
 
 let seq = 0
 
@@ -104,94 +115,29 @@ function byMessage(messages: Message[], parts: Part[]) {
   return (messageID: string) => byID.get(messageID)
 }
 
-// Activates the plugin against a captured slots.register and renders the
-// registered sidebar_content slot, mirroring the host flow in
-// packages/opencode/src/plugin/tui/runtime.ts.
 async function renderSidebar(
   store: Store,
   themeElements?: Record<string, { fg: RGBA; bg: RGBA; attributes: ReadonlySet<string> }>,
 ) {
-  let view: ((ctx: unknown, props: { session_id: string }) => JSX.Element) | undefined
-  const base = createTuiPluginApi({ theme: { elements: themeElements } })
-  const api = {
-    ...base,
+  const { sidebar } = await activateTuiPluginSlot(discardStats, {
+    meta: META,
     state: {
-      ...base.state,
-      session: {
-        ...base.state.session,
-        messages: (sessionID: string) => store.message[sessionID] ?? [],
-      },
-      part: (messageID: string) => store.part[messageID] ?? [],
+      session: { messages: (sessionID) => store.message[sessionID] ?? [] },
+      part: (messageID) => store.part[messageID] ?? [],
     },
-    slots: {
-      register(plugin: { slots: Record<string, unknown> }) {
-        view = plugin.slots.sidebar_content as (ctx: unknown, props: { session_id: string }) => JSX.Element
-        return "internal:sidebar-discard-stats"
-      },
-    },
-  } as unknown as TuiPluginApi
-
-  await discardStats.tui(api, undefined, {
-    id: "internal:sidebar-discard-stats",
-    source: "internal",
-    spec: "internal:sidebar-discard-stats",
-    target: "internal:sidebar-discard-stats",
-    first_time: 0,
-    last_time: 0,
-    time_changed: 0,
-    load_count: 1,
-    fingerprint: "test",
-    state: "same",
+    theme: { elements: themeElements },
   })
-  if (!view) throw new Error("sidebar_content slot was not registered")
-
-  const app = await testRender(() => view!({ theme: undefined }, { session_id: "ses" }), { width: 48, height: 12 })
-  try {
-    await settled(app)
-    const frame = await captureFrame(app)
-    lastSpans = spanList(app)
-    return frame
-  } finally {
-    app.renderer.destroy()
-  }
+  const result = await renderTuiSlot({ slot: sidebar, sessionID: () => "ses", width: 48, height: 12 })
+  lastSpans = result.spans
+  return result.frame
 }
 
-// Flat span list of the most recently rendered frame: text plus resolved
-// fg/bg/attributes, for color-level assertions the char frame cannot carry.
-type SpanInfo = { text: string; fg: RGBA; bg: RGBA; attributes: number }
+// The span list of the most recently rendered frame, for color-level
+// assertions the char frame cannot carry.
+let lastSpans: TuiSlotSpan[] = []
 
-let lastSpans: SpanInfo[] = []
-
-function spanList(app: Awaited<ReturnType<typeof testRender>>): SpanInfo[] {
-  const spans: SpanInfo[] = []
-  for (const line of app.captureSpans().lines) {
-    for (const span of line.spans) {
-      if (span.text.trim().length > 0) {
-        spans.push({ text: span.text, fg: span.fg, bg: span.bg, attributes: span.attributes })
-      }
-    }
-  }
-  return spans
-}
-
-function captureSpans(): SpanInfo[] {
+function captureSpans(): TuiSlotSpan[] {
   return lastSpans
-}
-
-async function settled(app: Awaited<ReturnType<typeof testRender>>) {
-  await app.renderOnce()
-  await new Promise((resolve) => setTimeout(resolve, 25))
-  await app.renderOnce()
-}
-
-async function captureFrame(app: Awaited<ReturnType<typeof testRender>>) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const frame = app.captureCharFrame()
-    if (frame.trim().length > 0) return frame
-    await new Promise((resolve) => setTimeout(resolve, 25))
-    await app.renderOnce()
-  }
-  return app.captureCharFrame()
 }
 
 describe("sidebar discard statistics", () => {

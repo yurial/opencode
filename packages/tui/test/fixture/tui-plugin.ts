@@ -1,4 +1,5 @@
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
+import type { TuiPlugin, TuiPluginApi, TuiPluginMeta } from "@opencode-ai/plugin/tui"
+import type { JSX } from "solid-js"
 import { RGBA } from "@opentui/core"
 import { createTuiResolvedConfig } from "./tui-runtime"
 
@@ -42,4 +43,57 @@ export function createTuiPluginApi(opts: Opts = {}) {
     tuiConfig: createTuiResolvedConfig(),
     ui: { dialog },
   } as unknown as TuiPluginApi
+}
+
+// The slot renderer a sidebar plugin registers: the host invokes it with the
+// render context and the slot props.
+export type TuiSlotView = (ctx: unknown, props: { session_id: string }) => JSX.Element
+
+type TuiSlotRegistration = { order?: number; slots: Record<string, unknown> }
+
+// Activates a TUI plugin against a captured slots.register, mirroring the
+// host flow in packages/opencode/src/plugin/tui/runtime.ts: the host passes
+// its registry-backed slots api and owns the returned registration id, so
+// the fixture stub fixes one the same way. Returns the whole registration
+// for order/slot-shape assertions plus the captured sidebar_content renderer
+// for mounting through test/fixture/tui-frame.
+export async function activateTuiPluginSlot(
+  plugin: { tui: TuiPlugin },
+  opts: {
+    meta: TuiPluginMeta
+    options?: Record<string, unknown>
+    client?: unknown
+    state?: {
+      session?: Partial<TuiPluginApi["state"]["session"]>
+      part?: TuiPluginApi["state"]["part"]
+    }
+    lifecycle?: TuiPluginApi["lifecycle"]
+    theme?: Opts["theme"]
+  },
+) {
+  let registered: TuiSlotRegistration | undefined
+  let sidebar: TuiSlotView | undefined
+  const base = createTuiPluginApi({ theme: opts.theme })
+  const api = {
+    ...base,
+    client: opts.client,
+    state: {
+      ...base.state,
+      ...opts.state,
+      session: { ...base.state.session, ...opts.state?.session },
+    },
+    ...(opts.lifecycle ? { lifecycle: opts.lifecycle } : {}),
+    slots: {
+      register(next: TuiSlotRegistration) {
+        registered = next
+        sidebar = next.slots.sidebar_content as TuiSlotView
+        return "internal:test-plugin"
+      },
+    },
+  } as unknown as TuiPluginApi
+
+  await plugin.tui(api, opts.options, opts.meta)
+  const view = sidebar
+  if (!view) throw new Error("sidebar_content slot was not registered")
+  return { registered, sidebar: view }
 }

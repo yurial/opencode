@@ -1,14 +1,13 @@
 /** @jsxImportSource @opentui/solid */
 import { describe, expect, test } from "bun:test"
-import { testRender } from "@opentui/solid"
-import type { JSX } from "solid-js"
 import { createSignal } from "solid-js"
 import type { AssistantMessage, Message, Part, SessionSchedule } from "@opencode-ai/sdk/v2"
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import scheduler from "../../src/feature-plugins/sidebar/scheduler"
 import { createBuiltinPlugins } from "../../src/feature-plugins/builtins"
 import { createSlots } from "../../src/plugin/slots"
-import { createTuiPluginApi } from "../fixture/tui-plugin"
+import { activateTuiPluginSlot, createTuiPluginApi } from "../fixture/tui-plugin"
+import { mountTuiSlot, type TuiSlotHarness } from "../fixture/tui-frame"
 
 // Every data assertion below flows through the mock on the only permitted
 // boundary — the SDK client of the plugin api (R4.3); the TuiState accessors
@@ -127,18 +126,10 @@ function clientFixture(calls: string[], respond: (sessionID: string) => unknown)
   }
 }
 
-type Harness = {
-  frame: () => string
-  render: () => Promise<void>
-  dispose: () => void
-  destroy: () => void
-}
-
 // Activates the plugin against a captured slots.register and mounts the
-// registered sidebar_content slot, mirroring the host flow in
-// packages/opencode/src/plugin/tui/runtime.ts. The session id and the
-// message list arrive as reactive getters so tests can fire the refetch
-// triggers of R4.8 and R4.9 without remounting.
+// registered sidebar_content slot. The session id and the message list
+// arrive as reactive getters so tests can fire the refetch triggers of
+// R4.8 and R4.9 without remounting.
 async function mount(opts: {
   client: unknown
   calls: string[]
@@ -146,56 +137,31 @@ async function mount(opts: {
   sessionID?: () => string
   messages?: () => Message[]
   parts?: (messageID: string) => Part[]
-}): Promise<Harness> {
-  let view: ((ctx: unknown, props: { session_id: string }) => JSX.Element) | undefined
+}): Promise<TuiSlotHarness> {
   const disposes: Array<() => void> = []
-  const base = createTuiPluginApi()
-  const api = {
-    ...base,
+  const { sidebar } = await activateTuiPluginSlot(scheduler, {
+    meta: META,
+    options: opts.options,
     client: opts.client,
     state: {
-      ...base.state,
-      session: {
-        ...base.state.session,
-        messages: (sessionID: string) => opts.messages?.() ?? [],
-      },
-      part: (messageID: string) => opts.parts?.(messageID) ?? [],
+      session: { messages: () => opts.messages?.() ?? [] },
+      part: (messageID) => opts.parts?.(messageID) ?? [],
     },
     lifecycle: {
       signal: new AbortController().signal,
-      onDispose: (fn: () => void) => {
+      onDispose: (fn) => {
         disposes.push(fn)
         return () => {}
       },
     },
-    slots: {
-      register(plugin: { slots: Record<string, unknown> }) {
-        view = plugin.slots.sidebar_content as (ctx: unknown, props: { session_id: string }) => JSX.Element
-        return "internal:sidebar-scheduler"
-      },
-    },
-  } as unknown as TuiPluginApi
-
-  await scheduler.tui(api, opts.options, META)
-  if (!view) throw new Error("sidebar_content slot was not registered")
-
-  const session = opts.sessionID ?? (() => "ses")
-  const app = await testRender(() => view!({ theme: undefined }, { get session_id() { return session() } }), {
+  })
+  return mountTuiSlot({
+    slot: sidebar,
+    sessionID: opts.sessionID ?? (() => "ses"),
     width: 160,
     height: 24,
-  })
-  const render = async () => {
-    await app.renderOnce()
-    await new Promise((resolve) => setTimeout(resolve, 25))
-    await app.renderOnce()
-  }
-  await render()
-  return {
-    frame: () => app.captureCharFrame(),
-    render,
     dispose: () => disposes.forEach((fn) => fn()),
-    destroy: () => app.renderer.destroy(),
-  }
+  })
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -213,7 +179,7 @@ async function mountViaSlot(opts: {
   sessionID?: () => string
   messages?: () => Message[]
   parts?: (messageID: string) => Part[]
-}): Promise<Harness> {
+}): Promise<TuiSlotHarness> {
   const runtime = createSlots()
   const base = createTuiPluginApi()
   const disposes: Array<() => void> = []
@@ -227,7 +193,7 @@ async function mountViaSlot(opts: {
       ...base.state,
       session: {
         ...base.state.session,
-        messages: (sessionID: string) => opts.messages?.() ?? [],
+        messages: () => opts.messages?.() ?? [],
       },
       part: (messageID: string) => opts.parts?.(messageID) ?? [],
     },
@@ -251,39 +217,18 @@ async function mountViaSlot(opts: {
 
   await scheduler.tui(api, opts.options, META)
 
-  const session = opts.sessionID ?? (() => "ses")
-  const app = await testRender(
-    () => runtime.Slot({ name: "sidebar_content", get session_id() { return session() } }),
-    { width: 160, height: 24 },
-  )
-  const render = async () => {
-    await app.renderOnce()
-    await new Promise((resolve) => setTimeout(resolve, 25))
-    await app.renderOnce()
-  }
-  await render()
-  return {
-    frame: () => app.captureCharFrame(),
-    render,
+  return mountTuiSlot({
+    slot: () => runtime.Slot({ name: "sidebar_content", get session_id() { return (opts.sessionID ?? (() => "ses"))() } }),
+    sessionID: opts.sessionID ?? (() => "ses"),
+    width: 160,
+    height: 24,
     dispose: () => disposes.forEach((fn) => fn()),
-    destroy: () => app.renderer.destroy(),
-  }
+  })
 }
 
 describe("sidebar schedules block", () => {
   test("registers as a builtin in the sidebar_content slot at order 450 (T4.1, R4.1, R4.2)", async () => {
-    let registered: { order: number; slots: Record<string, unknown> } | undefined
-    const base = createTuiPluginApi()
-    const api = {
-      ...base,
-      slots: {
-        register(plugin: { order: number; slots: Record<string, unknown> }) {
-          registered = plugin
-          return "internal:sidebar-scheduler"
-        },
-      },
-    } as unknown as TuiPluginApi
-    await scheduler.tui(api, undefined, META)
+    const { registered } = await activateTuiPluginSlot(scheduler, { meta: META })
 
     expect(registered?.order).toBe(450)
     expect(typeof registered?.slots.sidebar_content).toBe("function")

@@ -4,13 +4,11 @@
 // session has a parentID) and shows its title, agent, provider/model, and
 // the live status from the session_status store.
 import { describe, expect, test } from "bun:test"
-import { testRender } from "@opentui/solid"
-import type { JSX } from "solid-js"
 import type { Session, SessionStatus } from "@opencode-ai/sdk/v2"
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import subagentInfo from "../../src/feature-plugins/sidebar/subagent-info"
 import { createBuiltinPlugins } from "../../src/feature-plugins/builtins"
-import { createTuiPluginApi } from "../fixture/tui-plugin"
+import { activateTuiPluginSlot } from "../fixture/tui-plugin"
+import { renderTuiSlot } from "../fixture/tui-frame"
 
 const META = {
   id: "internal:sidebar-subagent-info",
@@ -48,66 +46,28 @@ type Store = {
   status?: SessionStatus
 }
 
-// Activates the plugin against a captured slots.register and renders the
-// registered sidebar_content slot, mirroring the host flow in
-// packages/opencode/src/plugin/tui/runtime.ts.
 async function renderBlock(store: Store) {
-  let view: ((ctx: unknown, props: { session_id: string }) => JSX.Element) | undefined
-  const base = createTuiPluginApi()
-  const api = {
-    ...base,
+  const { sidebar } = await activateTuiPluginSlot(subagentInfo, {
+    meta: META,
     state: {
-      ...base.state,
       session: {
-        ...base.state.session,
-        get: (sessionID: string) => (sessionID === store.session?.id ? store.session : undefined),
-        status: (sessionID: string) => (sessionID === store.session?.id ? store.status : undefined),
+        get: (sessionID) => (sessionID === store.session?.id ? store.session : undefined),
+        status: (sessionID) => (sessionID === store.session?.id ? store.status : undefined),
       },
     },
-    slots: {
-      register(plugin: { slots: Record<string, unknown> }) {
-        view = plugin.slots.sidebar_content as (ctx: unknown, props: { session_id: string }) => JSX.Element
-        return "internal:sidebar-subagent-info"
-      },
-    },
-  } as unknown as TuiPluginApi
-
-  await subagentInfo.tui(api, undefined, META)
-  if (!view) throw new Error("sidebar_content slot was not registered")
-
-  const app = await testRender(() => view!({ theme: undefined }, { session_id: store.session?.id ?? "ses" }), {
+  })
+  const result = await renderTuiSlot({
+    slot: sidebar,
+    sessionID: () => store.session?.id ?? "ses",
     width: 48,
     height: 12,
   })
-  try {
-    // Render before the first capture: an unrendered char frame is
-    // uninitialized memory, not a blank screen.
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await app.renderOnce()
-      const frame = app.captureCharFrame()
-      if (frame.trim().length > 0) return frame
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-    return app.captureCharFrame()
-  } finally {
-    app.renderer.destroy()
-  }
+  return result.frame
 }
 
 describe("sidebar subagent-info block", () => {
   test("registers as a builtin in the sidebar_content slot at order 50", async () => {
-    let registered: { order: number; slots: Record<string, unknown> } | undefined
-    const base = createTuiPluginApi()
-    const api = {
-      ...base,
-      slots: {
-        register(plugin: { order: number; slots: Record<string, unknown> }) {
-          registered = plugin
-          return "internal:sidebar-subagent-info"
-        },
-      },
-    } as unknown as TuiPluginApi
-    await subagentInfo.tui(api, undefined, META)
+    const { registered } = await activateTuiPluginSlot(subagentInfo, { meta: META })
 
     expect(registered?.order).toBe(50)
     expect(typeof registered?.slots.sidebar_content).toBe("function")
