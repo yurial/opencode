@@ -1,6 +1,6 @@
 # Specification Glossary
 
-| Term | Definition | Defined in |
+| Term ID | Definition | Defined in |
 |---|---|---|
 | config-v1/channel | One of the three configuration input kinds: file key, environment variable, CLI flag | config-v1 |
 | config-v1/config-document | One parsed JSONC file contributing keys to the effective V1 configuration | config-v1 |
