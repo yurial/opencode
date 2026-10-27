@@ -509,6 +509,7 @@ Metadata is persisted by plugin id.
 ## Built-in plugins
 
 - `internal:home-tips`
+- `internal:sidebar-subagent-info`
 - `internal:sidebar-context`
 - `internal:sidebar-discard-stats`
 - `internal:sidebar-mcp`
@@ -518,7 +519,9 @@ Metadata is persisted by plugin id.
 - `internal:sidebar-footer`
 - `internal:plugin-manager`
 
-Sidebar content order is currently: context `100`, discard-stats `150`, mcp `200`, lsp `300`, todo `400`, files `500`.
+Sidebar content order is currently: subagent-info `50`, context `100`, discard-stats `150`, mcp `200`, lsp `300`, todo `400`, files `500`.
+
+`internal:sidebar-subagent-info` renders only when the viewed session is a subagent session (has `parentID`): the session title, the agent name, the provider/model, and the live session status.
 
 The plugin manager is exposed as a command with title `Plugins` and value `plugins.list`.
 
