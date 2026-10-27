@@ -186,6 +186,16 @@ function use() {
   return ctx
 }
 
+// The shared sidebar visibility rule (specs/tui-architecture.md R20): the
+// manual toggle shows the sidebar, otherwise auto mode shows it on terminals
+// wider than the inline width. The viewed session's parentID is accepted and
+// deliberately ignored — child (subagent) sessions follow the same rule as
+// root sessions, there is no subagent-specific hiding. Exported for tests.
+export function sidebarVisibleRule(input: { parentID?: string; open: boolean; mode: "auto" | "hide"; wide: boolean }) {
+  if (input.open) return true
+  return input.mode === "auto" && input.wide
+}
+
 export function Session() {
   const setEpilogue = useEpilogue()
   const clipboard = useClipboard()
@@ -290,12 +300,9 @@ export function Session() {
   const [showGenericToolOutput, setShowGenericToolOutput] = kv.signal("generic_tool_output_visibility", false)
 
   const wide = createMemo(() => dimensions().width > 120)
-  const sidebarVisible = createMemo(() => {
-    if (session()?.parentID) return false
-    if (sidebarOpen()) return true
-    if (sidebar() === "auto" && wide()) return true
-    return false
-  })
+  const sidebarVisible = createMemo(() =>
+    sidebarVisibleRule({ parentID: session()?.parentID, open: sidebarOpen(), mode: sidebar(), wide: wide() }),
+  )
   const showTimestamps = createMemo(() => timestamps() === "show")
   const contentWidth = createMemo(() => dimensions().width - (sidebarVisible() ? 42 : 0) - 4)
   const providers = createMemo(() => Model.index(sync.data.provider))
