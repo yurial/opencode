@@ -19,6 +19,11 @@ export function createEventSource() {
   let fn: ((event: GlobalEvent) => void) | undefined
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined
   const pending: Uint8Array[] = []
+  const chunk = (event: GlobalEvent) => {
+    if (!("properties" in event.payload)) return undefined
+    // The v2 event stream carries the GlobalEvent itself as the data payload.
+    return new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`)
+  }
   return {
     source: {
       subscribe: async (handler: (event: GlobalEvent) => void) => {
@@ -31,16 +36,25 @@ export function createEventSource() {
     emit(event: GlobalEvent) {
       if (!fn) throw new Error("event source not ready")
       fn(event)
-      if (!("properties" in event.payload)) return
-      const chunk = new TextEncoder().encode(
-        `data: ${JSON.stringify({
-          ...event.payload,
-          location: { directory: event.directory, workspaceID: event.workspace },
-          data: event.payload.properties,
-        })}\n\n`,
-      )
-      if (stream) return stream.enqueue(chunk)
-      pending.push(chunk)
+      const data = chunk(event)
+      if (!data) return
+      if (stream) return stream.enqueue(data)
+      pending.push(data)
+    },
+    feed(event: GlobalEvent) {
+      const data = chunk(event)
+      if (!data) return
+      if (stream) return stream.enqueue(data)
+      pending.push(data)
+    },
+    closeStream() {
+      stream?.close()
+    },
+    errorStream(reason: unknown) {
+      stream?.error(reason)
+    },
+    streamReady() {
+      return stream !== undefined
     },
     response() {
       return new Response(
@@ -68,7 +82,7 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (url.pathname === "/session") session.push(url)
     const overridden = await override?.(url)
     if (overridden) return overridden
-    if (url.pathname === "/api/event" && events) return events.response()
+    if (events && ["/api/event", "/global/event"].includes(url.pathname)) return events.response()
 
     if (
       [

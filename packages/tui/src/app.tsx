@@ -87,6 +87,7 @@ import * as TuiAudio from "./audio"
 import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-win32"
 import { destroyRenderer } from "./util/renderer"
 import { cliErrorMessage, errorFormat } from "./util/error"
+import { lifecycleLog, LIFECYCLE_LOG_INFO } from "./util/lifecycle-log"
 
 registerOpencodeSpinner()
 
@@ -186,7 +187,9 @@ function isVersionGreater(left: string, right: string) {
 
 export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   const global = yield* Global.Service
-  const exit = { epilogue: undefined as string | undefined, reason: undefined as unknown }
+  // cause defaults to "destroy": a renderer destroyed without exit()/SIGHUP
+  // (external destroy) still resolves shutdown and gets its exit record.
+  const exit = { epilogue: undefined as string | undefined, reason: undefined as unknown, cause: "destroy" }
   const result = yield* Effect.scoped(
     Effect.gen(function* () {
       const renderer = yield* Effect.acquireRelease(
@@ -201,6 +204,11 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
               autoFocus: false,
               openConsoleOnError: false,
               useMouse: !Flag.OPENCODE_DISABLE_MOUSE && input.config.mouse,
+              // The app owns SIGHUP (R3): the renderer must not self-destruct
+              // on it before the exit cause is recorded, and the renderer's
+              // own exit handler fires ahead of the app-level listener. The
+              // other exit signals stay renderer-owned.
+              exitSignals: ["SIGINT", "SIGTERM", "SIGQUIT", "SIGABRT", "SIGBREAK", "SIGPIPE", "SIGBUS"],
               consoleOptions: {
                 keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
               },
@@ -214,6 +222,19 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       )
       win32DisableProcessedInput()
       const keymap = createDefaultOpenTuiKeymap(renderer)
+      // Single exit-accounting path: every trigger (command, SIGHUP, fatal
+      // bootstrap, external destroy) resolves the shutdown Deferred through
+      // here, so the lifecycle exit record carries the cause (R4.2-R4.4).
+      // First trigger wins: the renderer's own exit-signal handler (and any
+      // external destroy) may fire before this app-level SIGHUP handler, and
+      // a later trigger must not rewrite the recorded cause or reason.
+      const requestExit = (cause: string, reason?: unknown) => {
+        if (exit.cause !== "destroy") return
+        exit.cause = cause
+        exit.reason = reason
+        destroyRenderer(renderer)
+      }
+      const onSighup = () => requestExit("SIGHUP")
       yield* Effect.acquireRelease(
         Effect.sync(() => registerOpencodeKeymap(keymap, renderer, input.config)),
         (unregister) => Effect.sync(unregister),
@@ -229,7 +250,6 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       )
       yield* Effect.addFinalizer(() => Effect.sync(TuiAudio.dispose))
       const shutdown = yield* Deferred.make<unknown>()
-      const onSighup = () => destroyRenderer(renderer)
       yield* Effect.acquireRelease(
         Effect.sync(() => process.on("SIGHUP", onSighup)),
         () => Effect.sync(() => process.off("SIGHUP", onSighup)),
@@ -246,11 +266,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         await render(() => {
           return (
             <ExitProvider
-              exit={(reason) => {
-                if (renderer.isDestroyed) return
-                exit.reason = reason
-                destroyRenderer(renderer)
-              }}
+              exit={(reason, cause) => requestExit(cause ?? "exit", reason)}
             >
               <EpilogueProvider set={(value) => (exit.epilogue = value)}>
                 <ErrorBoundary fallback={(error, reset) => <ErrorComponent error={error} reset={reset} mode={mode} />}>
@@ -352,16 +368,28 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         }, renderer)
       })
       yield* Deferred.await(shutdown)
-      return { epilogue: exit.epilogue, reason: exit.reason }
+      return { epilogue: exit.epilogue, reason: exit.reason, cause: exit.cause }
     }),
   )
+  const renderedReason =
+    result.reason !== undefined ? (cliErrorMessage(result.reason) ?? errorFormat(result.reason)) : undefined
   yield* Effect.sync(() => {
     win32FlushInputBuffer()
-    if (result.reason !== undefined) {
-      process.stderr.write((cliErrorMessage(result.reason) ?? errorFormat(result.reason)) + "\n")
+    if (renderedReason !== undefined) {
+      process.stderr.write(renderedReason + "\n")
       process.exitCode = 1
     }
     if (result.epilogue) process.stdout.write(result.epilogue + "\n")
+    // Exactly one exit record per run, after the exit code is final (R4.2):
+    // it carries the cause, the process exit code, and the reason when set
+    // (R4.3, R4.4).
+    lifecycleLog(
+      LIFECYCLE_LOG_INFO,
+      "tui exit",
+      renderedReason === undefined
+        ? { cause: result.cause, code: Number(process.exitCode ?? 0) }
+        : { cause: result.cause, code: Number(process.exitCode ?? 0), reason: renderedReason },
+    )
   })
 })
 

@@ -4,11 +4,25 @@ import { createTestRenderer } from "@opentui/core/testing"
 import { Effect } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Global } from "@opencode-ai/core/global"
+import { captureLifecycleLog } from "./fixture/lifecycle-log"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
 import { createEventSource, createFetch, directory, json } from "./fixture/tui-sdk"
 
+// Mirrors the app renderer contract (R3): the app owns SIGHUP, so the test
+// renderer must not self-destruct on it before the exit cause is recorded.
+const rendererExitSignals: NodeJS.Signals[] = [
+  "SIGINT",
+  "SIGTERM",
+  "SIGQUIT",
+  "SIGABRT",
+  "SIGBREAK",
+  "SIGPIPE",
+  "SIGBUS",
+]
+
 test("SIGHUP clears title and disposes scoped resources once", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
+  const lifecycle = captureLifecycleLog()
+  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false, exitSignals: rendererExitSignals })
   const core = await import("@opentui/core")
   mock.module("@opentui/core", () => ({ ...core, createCliRenderer: async () => setup.renderer }))
   const titles: string[] = []
@@ -48,20 +62,32 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
     )
     await ready
     process.emit("SIGHUP")
+    // A repeated SIGHUP after teardown started must be a no-op.
+    process.emit("SIGHUP")
     await task
 
     expect(setup.renderer.isDestroyed).toBe(true)
     expect(titles.at(-1)).toBe("")
     expect(disposes).toBe(1)
     expect(process.listeners("SIGHUP").every((listener) => listeners.has(listener))).toBe(true)
+    expect(lifecycle.records()).toEqual([
+      {
+        level: "info",
+        message: "tui exit",
+        fields: expect.objectContaining({ cause: "SIGHUP", code: "0" }),
+      },
+    ])
+    expect(lifecycle.records()[0]?.fields.timestamp).toBeTruthy()
   } finally {
+    lifecycle.dispose()
     if (!setup.renderer.isDestroyed) setup.renderer.destroy()
     mock.restore()
   }
 })
 
 test("app.exit prints the session epilogue after scoped cleanup", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
+  const lifecycle = captureLifecycleLog()
+  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false, exitSignals: rendererExitSignals })
   const core = await import("@opentui/core")
   mock.module("@opentui/core", () => ({ ...core, createCliRenderer: async () => setup.renderer }))
   const events = createEventSource()
@@ -120,7 +146,15 @@ test("app.exit prints the session epilogue after scoped cleanup", async () => {
 
     expect(stdout).toContain("Demo session")
     expect(stdout).toContain("opencode -s dummy")
+    expect(lifecycle.records()).toEqual([
+      {
+        level: "info",
+        message: "tui exit",
+        fields: expect.objectContaining({ cause: "exit", code: "0" }),
+      },
+    ])
   } finally {
+    lifecycle.dispose()
     process.stdout.write = originalWrite
     if (!setup.renderer.isDestroyed) setup.renderer.destroy()
     mock.restore()
@@ -128,7 +162,8 @@ test("app.exit prints the session epilogue after scoped cleanup", async () => {
 })
 
 test("fatal startup errors set a nonzero exit after scoped cleanup", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
+  const lifecycle = captureLifecycleLog()
+  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false, exitSignals: rendererExitSignals })
   const core = await import("@opentui/core")
   await mock.module("@opentui/core", () => ({ ...core, createCliRenderer: async () => setup.renderer }))
   const events = createEventSource()
@@ -181,7 +216,19 @@ test("fatal startup errors set a nonzero exit after scoped cleanup", async () =>
     expect(process.exitCode).toBe(1)
     expect(setup.renderer.isDestroyed).toBe(true)
     expect(disposes).toBe(1)
+
+    const records = lifecycle.records()
+    const fatal = records.findIndex((record) => record.level === "error" && record.message === "tui bootstrap failed")
+    const exit = records.findIndex((record) => record.message === "tui exit")
+    expect(fatal).toBeGreaterThanOrEqual(0)
+    expect(exit).toBeGreaterThan(fatal)
+    expect(records.filter((record) => record.message === "tui exit")).toHaveLength(1)
+    expect(records[exit]?.level).toBe("info")
+    expect(records[exit]?.fields.cause).toBe("bootstrap-fatal")
+    expect(records[exit]?.fields.code).toBe("1")
+    expect(records[exit]?.fields.reason).toContain("opencode auth login https://example.com")
   } finally {
+    lifecycle.dispose()
     process.stderr.write = originalWrite
     process.exitCode = originalExitCode
     if (!setup.renderer.isDestroyed) setup.renderer.destroy()

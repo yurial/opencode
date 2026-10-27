@@ -32,6 +32,7 @@ import { batch, onMount } from "solid-js"
 import path from "path"
 import { useKV } from "./kv"
 import { usePermission } from "./permission"
+import { formatError, lifecycleLog, LIFECYCLE_LOG_ERROR } from "../util/lifecycle-log"
 
 const emptyConsoleState: ConsoleState = {
   consoleManagedProviders: [],
@@ -544,7 +545,12 @@ export const {
             stack: e instanceof Error ? e.stack : undefined,
           })
           if (fatal) {
-            exit(e)
+            // Fatal bootstrap failure is recorded before the exit (R4.5); the
+            // exit record itself names the bootstrap cause (R4.2).
+            lifecycleLog(LIFECYCLE_LOG_ERROR, "tui bootstrap failed", {
+              error: formatError(e),
+            })
+            exit(e, "bootstrap-fatal")
           } else {
             throw e
           }
