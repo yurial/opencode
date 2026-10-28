@@ -5,7 +5,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -718,6 +718,128 @@ describe("tool.task", () => {
       expect(notification.variant).toBe("xhigh")
       expect(notification.parts[0]?.type).toBe("text")
       if (notification.parts[0]?.type === "text") expect(notification.parts[0].text).toContain("second done")
+    }),
+  )
+
+  it.instance("extend of a wait-launched run attaches the completion watcher for the resuming session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const jobs = yield* BackgroundJob.Service
+      const { chat, assistant } = yield* seed()
+      const second = yield* sessions.create({ title: "Second parent" })
+      const secondAssistant = yield* sessions.updateMessage({
+        ...assistant,
+        id: MessageID.ascending(),
+        parentID: MessageID.ascending(),
+        sessionID: second.id,
+      })
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const first = defer<void>()
+      const secondRun = defer<void>()
+      const seenChild = defer<SessionPrompt.PromptInput>()
+      const seenExtension = defer<SessionPrompt.PromptInput>()
+      const waiters: Array<(value: SessionPrompt.PromptInput) => void> = []
+      const parentPrompts: SessionPrompt.PromptInput[] = []
+      let prompts = 0
+      const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        prompt: (input) => {
+          if (input.sessionID === chat.id || input.sessionID === second.id) {
+            parentPrompts.push(input)
+            waiters.shift()?.(input)
+            return Effect.succeed(reply(input, "delivered"))
+          }
+          prompts++
+          if (prompts === 1)
+            return Effect.sync(() => seenChild.resolve(input)).pipe(
+              Effect.andThen(Effect.promise(() => first.promise)),
+              Effect.as(reply(input, "first done")),
+            )
+          return Effect.sync(() => seenExtension.resolve(input)).pipe(
+            Effect.andThen(Effect.promise(() => secondRun.promise)),
+            Effect.as(reply(input, "second done")),
+          )
+        },
+      }
+      const context = {
+        sessionID: chat.id,
+        messageID: assistant.id,
+        agent: "build",
+        abort: new AbortController().signal,
+        extra: { promptOps },
+        messages: [],
+        metadata: () => Effect.void,
+        ask: () => Effect.void,
+      }
+      const resumeContext = {
+        ...context,
+        sessionID: second.id,
+        messageID: secondAssistant.id,
+      }
+
+      // The original launch blocks in wait=true, so its result will arrive
+      // through the tool call; no completion watcher exists for the job yet.
+      const fiber = yield* def
+        .execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+            wait: true,
+          },
+          context,
+        )
+        .pipe(Effect.forkChild)
+      const started = yield* Effect.promise(() => seenChild.promise).pipe(Effect.timeoutOption(2_000))
+      const childID = Option.getOrThrow(started).sessionID
+      const resumed = yield* def.execute(
+        {
+          description: "add investigation scope",
+          prompt: "also inspect cancellation",
+          subagent_type: "general",
+          task_id: childID,
+        },
+        resumeContext,
+      )
+
+      expect(resumed.metadata.sessionId).toBe(childID)
+      expect(resumed.output).toContain(`state="running"`)
+      expect(resumed.output).toContain("Additional context sent to the running task")
+
+      first.resolve()
+      yield* Effect.promise(() => seenExtension.promise).pipe(Effect.timeoutOption(2_000))
+      expect((yield* jobs.get(resumed.metadata.sessionId))?.status).toBe("running")
+
+      const completion = new Promise<SessionPrompt.PromptInput>((done) => waiters.push(done))
+      secondRun.resolve()
+      const waited = yield* jobs.wait({ id: resumed.metadata.sessionId, timeout: 1_000 })
+      expect(waited.info?.status).toBe("completed")
+      expect(waited.info?.output).toBe("second done")
+
+      // The resuming parent receives exactly one synthetic completion message,
+      // and nothing is delivered to the blocked original parent or anywhere else.
+      const notification = yield* Effect.promise(() => completion).pipe(Effect.timeoutOption(2_000))
+      const settled = yield* Fiber.join(fiber)
+      expect(settled.output).toContain(`state="completed"`)
+      expect(settled.output).toContain("second done")
+      expect(parentPrompts).toHaveLength(1)
+      expect(parentPrompts[0]?.sessionID).toBe(second.id)
+      if (Option.isSome(notification)) {
+        expect(notification.value.variant).toBe("xhigh")
+        const part = notification.value.parts[0]
+        expect(part?.type).toBe("text")
+        if (part?.type === "text") {
+          expect(part.synthetic).toBe(true)
+          expect(part.text).toContain(`<task id="${resumed.metadata.sessionId}" state="completed">`)
+          expect(part.text).toContain("second done")
+        }
+      } else {
+        throw new Error("expected a synthetic completion message for the resuming session")
+      }
+
+      yield* Effect.yieldNow
+      expect(parentPrompts).toHaveLength(1)
     }),
   )
 

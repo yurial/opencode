@@ -1108,8 +1108,6 @@ it.instance(
 
       const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
 
-      // The launch returns immediately (async default); the metadata attached
-      // mid-flight must survive the tool-call transition into the result.
       // The launch returns immediately (async default) and the drain moves on
       // to the next assistant message, so look for the task tool part across
       // the whole session; the metadata attached mid-flight must have survived

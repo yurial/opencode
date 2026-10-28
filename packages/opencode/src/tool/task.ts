@@ -224,8 +224,19 @@ export const TaskTool = Tool.define(
             },
           ],
         })
-        .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+        .pipe(
+          // Swallowed on purpose (a failed completion delivery must not crash
+          // the watcher), but the failure is diagnosable through the log.
+          Effect.ignore({ log: "Error", message: "task completion admission failed" }),
+          Effect.forkIn(scope, { startImmediately: true }),
+        )
     })
+
+    // One live watcher per run keeps completion delivery exactly-once. A
+    // wait-launched run has no watcher of its own, so the resuming session's
+    // extend path attaches one and the completion message reaches the resuming
+    // parent while the blocked original parent settles through its tool call.
+    const watchers = new Set<string>()
 
     const notifyCompletion = Effect.fn("TaskTool.notifyCompletion")(function* (input: {
       ops: TaskPromptOps
@@ -234,34 +245,35 @@ export const TaskTool = Tool.define(
       runID: SessionID
       description: string
     }) {
-      yield* background
-        .wait({ id: input.runID })
-        .pipe(
-          Effect.flatMap((result) => {
-            if (result.info?.status === "completed")
-              return injectCompletion({
-                ops: input.ops,
-                ctx: input.ctx,
-                variant: input.variant,
-                runID: input.runID,
-                summary: `Task completed: ${input.description}`,
-                text: result.info.output ?? "",
-                state: "completed",
-              })
-            if (result.info?.status === "error")
-              return injectCompletion({
-                ops: input.ops,
-                ctx: input.ctx,
-                variant: input.variant,
-                runID: input.runID,
-                summary: `Task failed: ${input.description}`,
-                text: result.info.error ?? "",
-                state: "error",
-              })
-            return Effect.void
-          }),
-          Effect.forkIn(scope, { startImmediately: true }),
-        )
+      if (watchers.has(input.runID)) return
+      watchers.add(input.runID)
+      yield* background.wait({ id: input.runID }).pipe(
+        Effect.flatMap((result) => {
+          if (result.info?.status === "completed")
+            return injectCompletion({
+              ops: input.ops,
+              ctx: input.ctx,
+              variant: input.variant,
+              runID: input.runID,
+              summary: `Task completed: ${input.description}`,
+              text: result.info.output ?? "",
+              state: "completed",
+            })
+          if (result.info?.status === "error")
+            return injectCompletion({
+              ops: input.ops,
+              ctx: input.ctx,
+              variant: input.variant,
+              runID: input.runID,
+              summary: `Task failed: ${input.description}`,
+              text: result.info.error ?? "",
+              state: "error",
+            })
+          return Effect.void
+        }),
+        Effect.ensuring(Effect.sync(() => watchers.delete(input.runID))),
+        Effect.forkIn(scope, { startImmediately: true }),
+      )
     })
 
     const waitForSettlement = Effect.fn("TaskTool.waitForSettlement")(function* (input: {
@@ -269,7 +281,12 @@ export const TaskTool = Tool.define(
       runID: SessionID
       cancel: Effect.Effect<void>
       title: string
-      metadata: Record<string, any>
+      metadata: {
+        parentSessionId: SessionID
+        sessionId: SessionID
+        model: { modelID: string; providerID: string }
+        background: boolean
+      }
     }) {
       const runCancel = yield* EffectBridge.make()
 
@@ -284,7 +301,8 @@ export const TaskTool = Tool.define(
         () =>
           Effect.gen(function* () {
             const result = yield* background.wait({ id: input.runID })
-            if (result.info?.status === "error") return yield* Effect.fail(new Error(result.info.error ?? "Task failed"))
+            if (result.info?.status === "error")
+              return yield* Effect.fail(new Error(result.info.error ?? "Task failed"))
             if (result.info?.status === "cancelled") return yield* Effect.fail(new Error("Task cancelled"))
             return {
               title: input.title,
@@ -358,9 +376,16 @@ export const TaskTool = Tool.define(
       })
 
       // A resumed launch against a still-running task queues its prompt onto
-      // the live job; the job's single completion watcher keeps delivery
-      // exactly-once per settled run.
+      // the live job and owns its completion notification: without a watcher
+      // here a wait-launched run would settle with no delivery at all (R2.4).
       if (yield* background.extend({ id: nextSession.id, run: subagentRun() })) {
+        yield* notifyCompletion({
+          ops,
+          ctx,
+          variant,
+          runID: nextSession.id,
+          description: params.description,
+        })
         return runningResult("Task updated", RUNNING_UPDATED_TEXT)
       }
 

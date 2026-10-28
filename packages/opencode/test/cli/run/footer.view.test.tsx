@@ -124,7 +124,6 @@ function subagent(input: {
   label: string
   description: string
   status?: FooterSubagentTab["status"]
-  background?: boolean
 }) {
   return {
     sessionID: input.sessionID,
@@ -133,7 +132,6 @@ function subagent(input: {
     label: input.label,
     description: input.description,
     status: input.status ?? "running",
-    background: input.background,
     lastUpdatedAt: 1,
   } satisfies FooterSubagentTab
 }
@@ -1038,7 +1036,7 @@ test("direct footer shows editable prompts and additional queued work while runn
     expect(spinner).toBeDefined()
     expect(frame).toContain("a-model-name-long-enough-to-force-responsive-truncation")
     expect(frame).toContain("3 queued")
-    expect(frame).toContain("ctrl+b background")
+    expect(frame).not.toContain("ctrl+b background")
     expect(frame).toContain("ctrl+x q 3 queued")
     expect(frame).toContain("ctrl+x down subagents")
     expect(frame).toContain("ctrl+p cmd")
@@ -1065,7 +1063,7 @@ test("direct footer separates a lone context hint from model and command hint", 
     currentModel: { providerID: "opencode", modelID: "gpt-5" },
     currentVariant: "xhigh",
     subagents: {
-      tabs: [subagent({ sessionID: "s-1", label: "Explore", description: "Inspect auth flow", background: true })],
+      tabs: [subagent({ sessionID: "s-1", label: "Explore", description: "Inspect auth flow" })],
       details: {},
       permissions: [],
       questions: [],

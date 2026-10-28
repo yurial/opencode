@@ -349,10 +349,6 @@ async function runInteractiveRuntime(input: RunRuntimeInput, deps: RunRuntimeDep
           state.aborting = false
         })
     },
-    onBackground: () => {
-      if (!hasSession(input, state)) return
-      void ctx.sdk.experimental.session.background({ sessionID: state.sessionID }).catch(() => {})
-    },
     onSubagentSelect: (sessionID) => {
       state.selectSubagent?.(sessionID)
       log?.write("subagent.select", {
