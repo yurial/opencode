@@ -416,3 +416,4 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 ## Used by
 
 - scheduler-view (R1.4, R1.5) — its annotator parses the add and list success text as its input contract; its schedule-list endpoint reuses the schedule record fields and the scheduler/service as its list source.
+- tool-task (R2.3) — cites the single-delivery-loop property (R8.3) as the process-topology precondition of its completion-message delivery; no scheduler behavior changes there.

@@ -731,3 +731,10 @@ These represent invariant violations, not operator-recoverable conditions.
   context epoch (§6.2, §8.2), and accept the epoch-scoped visibility of fired
   system messages (§8.3); V1-served sessions get the V1 boundary delivery
   of §10.
+- session-llm-serialization — owns the provider-facing serialization of
+  unsettled tool calls in the history-lowering path of the provider turn
+  and in the V1 history replay boundary; the drain-start failing of
+  abandoned tools stays here unchanged.
+- tool-task — the completion message of an asynchronously launched subagent
+  run is admitted through the V1 prompt boundary of the legacy runtime
+  section.

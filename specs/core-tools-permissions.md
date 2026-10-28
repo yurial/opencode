@@ -97,7 +97,7 @@ Built-in `Tool.Def` ids produced by the registry
 | `grep` | `grep.ts` | `grep` | |
 | `edit` | `edit.ts` | `edit` + `external_directory` | Hidden for `gpt-*` (non-`oss`, non-`gpt-4`) models |
 | `write` | `write.ts` | `edit` + `external_directory` | Same model gating as `edit` |
-| `task` | `task.ts` | `task` | |
+| `task` | `task.ts` | `task` | Launch and completion contract: `tool-task` |
 | `webfetch` | `webfetch.ts` | `webfetch` | |
 | `todowrite` | `todo.ts` | `todowrite` | |
 | `websearch` | `websearch.ts` | `websearch` | Only when `webSearchEnabled` (R14) |
@@ -155,8 +155,7 @@ Categories used elsewhere in the pipeline:
   rendered per shell kind and platform with the resolved truncation limits
   and default timeout (`shell/prompt.ts`).
 - R7. `parameters` is an Effect Schema; `jsonSchema` (JSONSchema7) overrides
-  the derived schema for providers (used by `task` to hide `background`
-  behind a flag, and by plugin tools).
+  the derived schema for providers (used by plugin tools).
 
 ### T3 — Registry (`registry.ts`)
 
@@ -238,8 +237,9 @@ Categories used elsewhere in the pipeline:
 - R24. History replay (`src/session/message-v2.ts`): completed tool parts →
   `output-available` (text + media attachments per provider capability);
   error parts → `output-error` with `errorText` (interrupted metadata may
-  substitute prior partial output); pending/running → `output-error`
-  `"[Tool execution was interrupted]"` so every `tool_use` has a result.
+  substitute prior partial output); pending/running tool parts serialize per
+  session-llm-serialization (the pending-result-placeholder as one successful
+  result), so every `tool_use` has a result.
 
 ### P1 — Permission model
 
@@ -397,9 +397,9 @@ A `workdir` outside the instance always adds the `external_directory` ask.
   asks `task` unless `bypassAgentCheck`; derives the child session ruleset
   (`deriveSubagentSessionPermission`: parent's `external_directory` + deny
   rules, plus default `todowrite`/`task` denies unless the subagent grants
-  them, plus `experimental.primary_tools` denies); foreground waits on a
-  background job (abort cancels), background mode (experimental flag)
-  returns immediately and injects a synthetic result prompt on completion.
+  them, plus `experimental.primary_tools` denies); launch modes and
+  completion delivery — asynchronous by default, optional blocking wait,
+  synthetic completion message — are specified by `tool-task`.
 - `webfetch`: http(s) only; format-negotiated Accept header; Cloudflare
   challenge 403 retried with honest UA; 30 s default / 120 s max timeout;
   5 MiB cap; html→markdown/text via turndown/htmlparser2; images attach.
@@ -491,9 +491,16 @@ A `workdir` outside the instance always adds the `external_directory` ask.
 | `OPENCODE_WEBSEARCH_PROVIDER` | `exa` \| `parallel` | — | Overrides websearch provider selection |
 | `EXA_API_KEY` / `PARALLEL_API_KEY` | string | — | Websearch endpoint auth |
 
+## Dependencies
+
+- session-llm-serialization — the unsettled-call clause of the history
+  replay contract (R24) is owned there.
+
 ## Used by
 
 - scheduler — the `scheduler` built-in registers through the V1 tool
   contract and registry (T2, T3), gates add and remove through the
   `ctx.ask` session-invocation flow (T5), and follows the permission-matrix
   row pattern (P4) under the permission key `scheduler`.
+- tool-task — the task tool's launch and completion contract builds on this
+  spec's tool contract, registry, and `task` permission ask.
