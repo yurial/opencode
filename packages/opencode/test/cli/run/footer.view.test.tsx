@@ -124,6 +124,7 @@ function subagent(input: {
   label: string
   description: string
   status?: FooterSubagentTab["status"]
+  background?: boolean
 }) {
   return {
     sessionID: input.sessionID,
@@ -132,6 +133,7 @@ function subagent(input: {
     label: input.label,
     description: input.description,
     status: input.status ?? "running",
+    background: input.background,
     lastUpdatedAt: 1,
   } satisfies FooterSubagentTab
 }
@@ -160,7 +162,6 @@ async function renderFooter(
     currentModel?: RunInput["model"]
     currentVariant?: string
     subagents?: FooterSubagentState
-    backgroundSubagents?: boolean
     width?: number
     height?: number
     state?: Partial<FooterState>
@@ -198,7 +199,6 @@ async function renderFooter(
           subagent={subagents}
           theme={input.theme ?? (() => RUN_THEME_FALLBACK)}
           tuiConfig={config}
-          backgroundSubagents={input.backgroundSubagents ?? true}
           agent="opencode"
           onSubmit={input.onSubmit ?? (() => true)}
           onPermissionReply={() => {}}
@@ -987,7 +987,6 @@ test("direct footer shows editable prompts and additional queued work while runn
           ]}
           theme={() => RUN_THEME_FALLBACK}
           tuiConfig={tuiConfig}
-          backgroundSubagents={true}
           agent="opencode"
           onSubmit={() => true}
           onPermissionReply={() => {}}
@@ -1066,12 +1065,11 @@ test("direct footer separates a lone context hint from model and command hint", 
     currentModel: { providerID: "opencode", modelID: "gpt-5" },
     currentVariant: "xhigh",
     subagents: {
-      tabs: [subagent({ sessionID: "s-1", label: "Explore", description: "Inspect auth flow" })],
+      tabs: [subagent({ sessionID: "s-1", label: "Explore", description: "Inspect auth flow", background: true })],
       details: {},
       permissions: [],
       questions: [],
     },
-    backgroundSubagents: false,
     width: 160,
   })
 
@@ -1099,7 +1097,6 @@ test("direct footer hides the subagent hint when only completed subagents remain
       permissions: [],
       questions: [],
     },
-    backgroundSubagents: false,
     width: 160,
   })
 

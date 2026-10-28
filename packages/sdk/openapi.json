@@ -811,60 +811,6 @@
         ]
       }
     },
-    "/experimental/capabilities": {
-      "get": {
-        "tags": ["experimental"],
-        "operationId": "experimental.capabilities.get",
-        "parameters": [
-          {
-            "name": "directory",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Experimental capabilities",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExperimentalCapabilities"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Get experimental features enabled on the OpenCode server.",
-        "summary": "Get experimental capabilities",
-        "x-codeSamples": [
-          {
-            "lang": "js",
-            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.experimental.capabilities.get({\n  ...\n})"
-          }
-        ]
-      }
-    },
     "/experimental/console": {
       "get": {
         "tags": ["experimental"],
@@ -1086,6 +1032,137 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.experimental.console.switchOrg({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/experimental/prime-time": {
+      "get": {
+        "tags": ["experimental"],
+        "operationId": "experimental.primeTime.get",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prime-time enforcement state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentalPrimeTimeState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get whether prime-time enforcement is currently enabled for this OpenCode server process.",
+        "summary": "Get prime-time enforcement state",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.experimental.primeTime.get({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/experimental/prime-time/switch": {
+      "post": {
+        "tags": ["experimental"],
+        "operationId": "experimental.primeTime.switch",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New prime-time enforcement state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentalPrimeTimeState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Enable or disable prime-time enforcement for this OpenCode server process and return the new state.",
+        "summary": "Switch prime-time enforcement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["enabled"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.experimental.primeTime.switch({\n  ...\n})"
           }
         ]
       }
@@ -11541,6 +11618,91 @@
         ]
       }
     },
+    "/api/session/{sessionID}/schedule": {
+      "get": {
+        "tags": ["sessions"],
+        "operationId": "v2.session.schedule.list",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "SessionScheduleList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionScheduleList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SessionNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "UnknownError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnknownError1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retrieve the schedules bound to a session, ordered by next fire time with ties ordered by id. Read-only: the endpoint mutates nothing and performs no permission ask.",
+        "summary": "List session schedules",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.session.schedule.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/api/session/{sessionID}/message": {
       "get": {
         "tags": ["messages"],
@@ -17112,6 +17274,36 @@
         "required": ["id", "sessionID", "messageID", "type", "attempt", "error", "time"],
         "additionalProperties": false
       },
+      "MetaPart": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^prt"
+          },
+          "sessionID": {
+            "type": "string",
+            "pattern": "^ses"
+          },
+          "messageID": {
+            "type": "string",
+            "pattern": "^msg"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["meta"]
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "payload": {
+            "type": "object"
+          }
+        },
+        "required": ["id", "sessionID", "messageID", "type", "kind", "payload"],
+        "additionalProperties": false
+      },
       "CompactionPart": {
         "type": "object",
         "properties": {
@@ -17179,6 +17371,9 @@
           },
           {
             "$ref": "#/components/schemas/RetryPart"
+          },
+          {
+            "$ref": "#/components/schemas/MetaPart"
           },
           {
             "$ref": "#/components/schemas/CompactionPart"
@@ -20690,9 +20885,13 @@
               {
                 "type": "string",
                 "enum": ["primary", "secondary", "accent", "success", "warning", "error", "info"]
+              },
+              {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$"
               }
             ],
-            "description": "Hex color code (e.g., #FF5733) or theme color (e.g., primary)"
+            "description": "Hex color code (e.g., #FF5733), theme color (e.g., primary), or theme element (e.g., agent.color.one)"
           },
           "steps": {
             "type": "integer",
@@ -20794,6 +20993,11 @@
                   }
                 ],
                 "description": "Timeout in milliseconds between streamed SSE chunks for this provider (default: 300000). If no chunk arrives within this window, the request is aborted. Set to false to disable timeout."
+              },
+              "retries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
               }
             },
             "additionalProperties": {}
@@ -20826,6 +21030,26 @@
                 },
                 "tool_call": {
                   "type": "boolean"
+                },
+                "primeTimeStart": {
+                  "type": "string",
+                  "description": "ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset) marking the start of the model's prime-time window; start and end must both carry the same offset suffix or both omit it"
+                },
+                "primeTimeEnd": {
+                  "type": "string",
+                  "description": "ISO 8601 time-of-day (HH:MM[:SS], optionally suffixed with Z or a ±HH:MM/±HHmm/±HH offset) marking the end of the model's prime-time window; start and end must both carry the same offset suffix or both omit it"
+                },
+                "primeTimeDay": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+                  },
+                  "description": "Weekdays the prime-time window applies to (weekday of the current moment in the window's timezone)"
+                },
+                "primeTimeRetry": {
+                  "type": "boolean",
+                  "description": "When true, an active prime-time window fails retryably with the retry scheduled at the window end instead of standard backoff; absent or false keeps the terminal error"
                 },
                 "interleaved": {
                   "anyOf": [
@@ -21221,6 +21445,9 @@
             "additionalProperties": false
           },
           "snapshot": {
+            "type": "boolean"
+          },
+          "discard_context": {
             "type": "boolean"
           },
           "plugin": {
@@ -21811,6 +22038,22 @@
           "release_date": {
             "type": "string"
           },
+          "primeTimeStart": {
+            "type": "string"
+          },
+          "primeTimeEnd": {
+            "type": "string"
+          },
+          "primeTimeDay": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+            }
+          },
+          "primeTimeRetry": {
+            "type": "boolean"
+          },
           "variants": {
             "type": "object",
             "additionalProperties": {
@@ -21868,16 +22111,6 @@
         "required": ["id", "name", "source", "env", "options", "models"],
         "additionalProperties": false
       },
-      "ExperimentalCapabilities": {
-        "type": "object",
-        "properties": {
-          "backgroundSubagents": {
-            "type": "boolean"
-          }
-        },
-        "required": ["backgroundSubagents"],
-        "additionalProperties": false
-      },
       "ConsoleState": {
         "type": "object",
         "properties": {
@@ -21907,6 +22140,16 @@
           }
         },
         "required": ["_tag"],
+        "additionalProperties": false
+      },
+      "ExperimentalPrimeTimeState": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
         "additionalProperties": false
       },
       "ToolListItem": {
@@ -23774,6 +24017,84 @@
         },
         "contentMediaType": "application/json"
       },
+      "SessionScheduleSpec": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "cron": {
+                "type": "string"
+              }
+            },
+            "required": ["cron"],
+            "additionalProperties": false,
+            "description": "The stored five-field cron spec of a recurring schedule."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "integer"
+              }
+            },
+            "required": ["at"],
+            "additionalProperties": false,
+            "description": "The due time of a one-shot schedule as integer UTC epoch milliseconds."
+          }
+        ]
+      },
+      "SessionSchedule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The sch_-prefixed schedule id."
+          },
+          "spec": {
+            "$ref": "#/components/schemas/SessionScheduleSpec"
+          },
+          "message": {
+            "type": "string",
+            "description": "The stored message text delivered on fire."
+          },
+          "nextFireAt": {
+            "type": "integer",
+            "description": "The stored next-due-time as integer UTC epoch milliseconds."
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["id", "spec", "message", "nextFireAt", "command"],
+        "additionalProperties": false
+      },
+      "SessionScheduleList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "schedules": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SessionSchedule"
+                }
+              }
+            },
+            "required": ["schedules"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
       "SessionMessagesResponse": {
         "type": "object",
         "properties": {
@@ -24586,6 +24907,9 @@
       "PromptFileAttachment": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string"
+          },
           "uri": {
             "type": "string"
           },
@@ -29958,6 +30282,22 @@
             },
             "required": ["context", "output"],
             "additionalProperties": false
+          },
+          "primeTimeStart": {
+            "type": "string"
+          },
+          "primeTimeEnd": {
+            "type": "string"
+          },
+          "primeTimeDay": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+            }
+          },
+          "primeTimeRetry": {
+            "type": "boolean"
           }
         },
         "required": [

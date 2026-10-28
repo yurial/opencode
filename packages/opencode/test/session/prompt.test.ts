@@ -948,7 +948,7 @@ it.instance("loop continues when finish is stop but assistant has tool parts", (
   }),
 )
 
-it.instance("failed subtask preserves metadata on error tool state", () =>
+it.instance("failed subtask preserves metadata and delivers the failure as a completion message", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig((url) => ({
       ...providerCfg(url),
@@ -961,34 +961,38 @@ it.instance("failed subtask preserves metadata on error tool state", () =>
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
     const chat = yield* sessions.create({ title: "Pinned" })
-    yield* llm.tool("task", {
-      description: "inspect bug",
-      prompt: "look into the cache key path",
-      subagent_type: "general",
-    })
     yield* llm.text("done")
     const msg = yield* user(chat.id, "hello")
     yield* addSubtask(chat.id, msg.id)
 
     const result = yield* prompt.loop({ sessionID: chat.id })
     expect(result.info.role).toBe("assistant")
-    expect(yield* llm.calls).toBe(2)
+    // The subagent failure no longer fails the subtask tool call (async
+    // default); it arrives later as the completion message, adding one turn
+    // (the failing child never reaches the provider, so it consumes no call).
+    yield* llm.wait(2)
 
     const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
     const taskMsg = msgs.find((item) => item.info.role === "assistant" && item.info.agent === "general")
     expect(taskMsg?.info.role).toBe("assistant")
     if (!taskMsg || taskMsg.info.role !== "assistant") return
 
-    const tool = errorTool(taskMsg.parts)
+    const tool = completedTool(taskMsg.parts)
     if (!tool) return
 
-    expect(tool.state.error).toContain("Tool execution failed")
     expect(tool.state.metadata).toBeDefined()
     expect(tool.state.metadata?.sessionId).toBeDefined()
     expect(tool.state.metadata?.model).toEqual({
       providerID: ProviderV2.ID.make("test"),
       modelID: ModelV2.ID.make("missing-model"),
     })
+
+    const completion = msgs.find(
+      (item) =>
+        item.info.role === "user" &&
+        item.parts.some((part) => part.type === "text" && part.text.includes(`state="error"`)),
+    )
+    expect(completion).toBeDefined()
   }),
 )
 
@@ -1047,7 +1051,7 @@ noLLMServer.instance("prompt tools replace previous prompt tool rules", () =>
 )
 
 it.instance(
-  "running subtask preserves metadata after tool-call transition",
+  "completed subtask preserves metadata after tool-call transition",
   () =>
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig(providerCfg)
@@ -1060,17 +1064,19 @@ it.instance(
 
       const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
 
+      // The launch returns immediately (async default); the metadata attached
+      // mid-flight must survive the tool-call transition into the result.
       const tool = yield* pollWithTimeout(
         Effect.gen(function* () {
           const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
           const taskMsg = msgs.find((item) => item.info.role === "assistant" && item.info.agent === "general")
           const tool = taskMsg?.parts.find((part): part is SessionV1.ToolPart => part.type === "tool")
-          if (tool?.state.status === "running" && tool.state.metadata?.sessionId) return tool
+          if (tool?.state.status === "completed" && tool.state.metadata?.sessionId) return tool
         }),
-        "timed out waiting for running subtask metadata",
+        "timed out waiting for completed subtask metadata",
       )
 
-      if (tool.state.status !== "running") return
+      if (tool.state.status !== "completed") return
       expect(typeof tool.state.metadata?.sessionId).toBe("string")
       expect(tool.state.title).toBeDefined()
       expect(tool.state.metadata?.model).toBeDefined()
@@ -1078,11 +1084,11 @@ it.instance(
       yield* prompt.cancel(chat.id)
       yield* Fiber.await(fiber)
     }),
-  5_000,
+  10_000,
 )
 
 it.instance(
-  "running task tool preserves metadata after tool-call transition",
+  "completed task tool preserves metadata after tool-call transition",
   () =>
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig(providerCfg)
@@ -1102,19 +1108,28 @@ it.instance(
 
       const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
 
+      // The launch returns immediately (async default); the metadata attached
+      // mid-flight must survive the tool-call transition into the result.
+      // The launch returns immediately (async default) and the drain moves on
+      // to the next assistant message, so look for the task tool part across
+      // the whole session; the metadata attached mid-flight must have survived
+      // the tool-call transition into the completed result.
       const tool = yield* pollWithTimeout(
         Effect.gen(function* () {
           const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
-          const assistant = msgs.findLast((item) => item.info.role === "assistant" && item.info.agent === "build")
-          const tool = assistant?.parts.find(
-            (part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "task",
-          )
-          if (tool?.state.status === "running" && tool.state.metadata?.sessionId) return tool
+          return msgs
+            .filter((item) => item.info.role === "assistant" && item.info.agent === "build")
+            .flatMap((item) =>
+              item.parts.filter(
+                (part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "task",
+              ),
+            )
+            .findLast((part) => part.state.status === "completed" && part.state.metadata?.sessionId)
         }),
-        "timed out waiting for running task metadata",
+        "timed out waiting for completed task metadata",
       )
 
-      if (tool.state.status !== "running") return
+      if (tool.state.status !== "completed") return
       expect(typeof tool.state.metadata?.sessionId).toBe("string")
       expect(tool.state.title).toBe("inspect bug")
       expect(tool.state.metadata?.model).toBeDefined()
@@ -1122,7 +1137,7 @@ it.instance(
       yield* prompt.cancel(chat.id)
       yield* Fiber.await(fiber)
     }),
-  10_000,
+  30_000,
 )
 
 it.instance(
@@ -1344,7 +1359,13 @@ it.instance(
       const sessions = yield* Session.Service
       const status = yield* SessionStatus.Service
       const chat = yield* sessions.create({ title: "Pinned" })
-      yield* llm.hang
+      // Only the child's own provider turn hangs; the parent turn resolves
+      // with the auto reply, so the subtask tool call has already completed
+      // (async default) by the time we inspect it.
+      yield* llm.pushMatch(
+        (hit) => JSON.stringify(hit.body).includes("look into the cache key path"),
+        reply().hang(),
+      )
       const msg = yield* user(chat.id, "hello")
       yield* addSubtask(chat.id, msg.id)
 
@@ -1354,7 +1375,10 @@ it.instance(
       const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
       const taskMsg = msgs.find((item) => item.info.role === "assistant" && item.info.agent === "general")
       const tool = taskMsg ? toolPart(taskMsg.parts) : undefined
-      const sessionID = tool?.state.status === "running" ? tool.state.metadata?.sessionId : undefined
+      const sessionID =
+        tool?.state.status === "running" || tool?.state.status === "completed"
+          ? tool.state.metadata?.sessionId
+          : undefined
       expect(typeof sessionID).toBe("string")
       if (typeof sessionID !== "string") throw new Error("missing child session id")
       const childID = SessionID.make(sessionID)

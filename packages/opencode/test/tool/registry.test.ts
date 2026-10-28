@@ -293,7 +293,7 @@ describe("tool.registry", () => {
     }),
   )
 
-  it.instance("hides task background parameter unless experimental background subagents are enabled", () =>
+  it.instance("advertises wait and never background in the task schema", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const agent = yield* Agent.Service
@@ -305,8 +305,11 @@ describe("tool.registry", () => {
         agent: build,
       })).find((tool) => tool.id === "task")
 
-      expect(task?.jsonSchema).toBeDefined()
-      expect((task?.jsonSchema?.properties as Record<string, unknown> | undefined)?.background).toBeUndefined()
+      expect(task).toBeDefined()
+      const schema = ToolJsonSchema.fromTool(task!)
+      const properties = (schema.properties ?? {}) as Record<string, unknown>
+      expect(properties.background).toBeUndefined()
+      expect(properties.wait).toBeDefined()
     }),
   )
 
