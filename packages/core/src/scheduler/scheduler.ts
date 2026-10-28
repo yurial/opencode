@@ -207,6 +207,13 @@ const layer = Layer.effect(
     // case a V1-routed fire fails and retries (R8.5).
     let v1Prompt: SchedulerV1Prompt.Interface | undefined
 
+    // Diagnostic identity of this service instance (R8.1): one process must
+    // hold exactly one scheduler/service. Two different instance ids in one
+    // process mean the host built a second application-services graph — the
+    // logs below date that topology failure.
+    const instance = crypto.randomUUID().slice(0, 8)
+    const identity = { schedulerInstance: instance, pid: process.pid }
+
     const loadedAt = yield* Clock.currentTimeMillis
     // Serializes tool mutations with fire deliveries (R8.3, I6).
     const writes = yield* Semaphore.make(1)
@@ -627,12 +634,22 @@ const layer = Layer.effect(
         if (failed) yield* Effect.sleep(RETRY_DELAY_MILLIS)
       }),
     )
+    yield* Effect.logInfo("Scheduler delivery loop started").pipe(Effect.annotateLogs(identity))
     yield* runLoop.pipe(Effect.forkScoped)
 
     return Service.of({
       attachV1Prompt: Effect.fn("Scheduler.attachV1Prompt")(function* (attached) {
-        if (v1Prompt !== undefined) return false
+        if (v1Prompt !== undefined) {
+          // A second admission binding reaching this instance means the host
+          // built a second SchedulerV1PromptLocal graph node in this process
+          // (R8.1); the binding is refused softly, but the topology is broken.
+          yield* Effect.logWarning(
+            "Scheduler V1 prompt admission attach refused; this process already holds one — more than one application-services graph was built",
+          ).pipe(Effect.annotateLogs(identity))
+          return false
+        }
         v1Prompt = attached
+        yield* Effect.logInfo("Scheduler V1 prompt admission attached").pipe(Effect.annotateLogs(identity))
         return true
       }),
       add: Effect.fn("Scheduler.add")(function* (input) {

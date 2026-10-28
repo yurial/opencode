@@ -21,8 +21,11 @@ import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { ScheduleID } from "@opencode-ai/core/scheduler/schema"
 import { ScheduleTable } from "@opencode-ai/core/scheduler/sql"
 import { eq } from "drizzle-orm"
-import { describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { describe, expect, test } from "bun:test"
+import { Cause, Context, Effect, Exit, Fiber, Layer, Scope } from "effect"
+import * as TestConsole from "effect/testing/TestConsole"
+import { memoMap } from "@opencode-ai/core/effect/memo-map"
+import { SchedulerV1Prompt } from "@opencode-ai/core/scheduler/v1-prompt"
 import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { Command } from "../../src/command"
@@ -321,6 +324,221 @@ describe("scheduler V1 prompt adapter", () => {
               }),
               "the fired model turn never completed",
             )
+          }),
+        )
+      }),
+    30_000,
+  )
+})
+
+// Runtime graph topology (specs/scheduler.md R8.1, R8.3): one process must
+// hold exactly one scheduler/service with its single delivery loop, and the
+// V1 prompt admission it fires into must be the one SessionPrompt/SessionRunState
+// graph that owns the session's active runners. A host process that serves a
+// session through two graphs (for example a listener plus AppRuntime) gets a
+// second delivery loop — every fire is delivered twice — and a forked prompt
+// loop that cannot see the active runner.
+
+const hostGraphLayer = () => Layer.provideMerge(AppNodeBuilder.build(root, replacements), TestConsole.layer)
+
+/** Runs a body against one host graph built through the process-shared memoMap. */
+const runShared = <A, E>(body: Effect.Effect<A, E, Scope.Scope>) =>
+  Effect.gen(function* () {
+    const exit = yield* Effect.scoped(body).pipe(Effect.exit)
+    if (Exit.isFailure(exit)) {
+      for (const error of Cause.prettyErrors(exit.cause)) yield* Effect.logError(error)
+    }
+    return yield* exit
+  }).pipe(Effect.runPromise)
+
+/** LLM hits excluding the forked title-generation request of a turn. */
+const turnHits = (llm: TestLLMServer["Service"]) =>
+  Effect.gen(function* () {
+    const hits = yield* llm.hits
+    return hits.filter((hit: { body: unknown }) => !JSON.stringify(hit.body).includes("Generate a title"))
+  })
+
+describe("scheduler runtime graph topology", () => {
+  test(
+    "two host graphs in one process share one scheduler runtime and deliver a fire exactly once",
+    () =>
+      runShared(
+        Effect.gen(function* () {
+          const scopeA = yield* Scope.make()
+          yield* Effect.addFinalizer(() => Scope.close(scopeA, Exit.void))
+          const scopeB = yield* Scope.make()
+          yield* Effect.addFinalizer(() => Scope.close(scopeB, Exit.void))
+
+          // Two independent compiles of the same nodes, built the way the
+          // listener graph and the AppRuntime graph of one process are built:
+          // through the process-shared memoMap (Server.startListener,
+          // AppRuntime). The memoMap join is what keeps one instance set.
+          const ctxA = yield* Layer.buildWithMemoMap(hostGraphLayer(), memoMap, scopeA)
+          const ctxB = yield* Layer.buildWithMemoMap(hostGraphLayer(), memoMap, scopeB)
+
+          expect(Context.get(ctxB, Scheduler.Service)).toBe(Context.get(ctxA, Scheduler.Service))
+          expect(Context.get(ctxB, SessionPrompt.Service)).toBe(Context.get(ctxA, SessionPrompt.Service))
+          expect(Context.get(ctxB, SessionRunState.Service)).toBe(Context.get(ctxA, SessionRunState.Service))
+          expect(Context.get(ctxB, SchedulerV1Prompt.Service)).toBe(Context.get(ctxA, SchedulerV1Prompt.Service))
+
+          const llm = Context.get(ctxA, TestLLMServer)
+          const dir = yield* Effect.acquireRelease(
+            Effect.promise(() => tmpdir({ config: providerCfg(llm.url) })),
+            (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.ignore),
+          )
+
+          const instances = Context.get(ctxB, InstanceStore.Service)
+          const sessions = Context.get(ctxB, Session.Service)
+          const schedulerB = Context.get(ctxB, Scheduler.Service)
+          yield* instances.provide(
+            { directory: dir.path },
+            Effect.gen(function* () {
+              yield* clearSchedules
+              const session = yield* sessions.create({ title: "graph topology" })
+
+              // Schedule through graph A; the fire must be served by the one
+              // joined scheduler, not once per graph.
+              const added = yield* Context.get(ctxA, Scheduler.Service).add({
+                sessionID: session.id,
+                message: "fire me",
+                spec: { at: Date.now() + 200 },
+              })
+              yield* pollWithTimeout(
+                Effect.gen(function* () {
+                  const row = yield* scheduleRow(added.id)
+                  return row === undefined ? (true as const) : undefined
+                }),
+                "the scheduler fire never completed",
+              )
+
+              // A second graph would deliver its own copy of the fire
+              // moments later; give it the chance, then require exactly one.
+              yield* Effect.sleep(500)
+              const messages = yield* sessions.messages({ sessionID: session.id }).pipe(Effect.orDie)
+              const fired = messages
+                .filter((message) => message.info.role === "user")
+                .flatMap((message) => message.parts)
+                .filter(
+                  (part): part is Extract<typeof part, { type: "text" }> =>
+                    part.type === "text" && part.synthetic === true && part.text.includes("fired schedule id"),
+                )
+              expect(fired).toHaveLength(1)
+              expect(fired[0]?.text.includes("fire me")).toBe(true)
+
+              // The joined runtime serves the fire with a real model turn of
+              // the one shared prompt path.
+              yield* pollWithTimeout(
+                Effect.gen(function* () {
+                  return (yield* turnHits(llm)).length >= 1 ? (true as const) : undefined
+                }),
+                "the fired model turn never reached the LLM server",
+              )
+              expect(schedulerB).toBe(Context.get(ctxA, Scheduler.Service))
+
+              // The process holds exactly one admission binding: the real
+              // V1 prompt attached during the layer build, so a second attach
+              // on the shared scheduler is refused (R8.1).
+              const refused = yield* schedulerB.attachV1Prompt(
+                SchedulerV1Prompt.Service.of({ prompt: () => Effect.void }),
+              )
+              expect(refused).toBe(false)
+            }).pipe(Effect.provide(ctxB)),
+          )
+        }),
+      ),
+    30_000,
+  )
+
+  it.live(
+    "a fire during an active V1 run joins the active runner and is served on the next loop iteration",
+    () =>
+      Effect.gen(function* () {
+        const llm = yield* TestLLMServer
+        const dir = yield* Effect.acquireRelease(
+          Effect.promise(() => tmpdir({ config: providerCfg(llm.url) })),
+          (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.ignore),
+        )
+        yield* clearSchedules
+
+        const instances = yield* InstanceStore.Service
+        yield* instances.provide(
+          { directory: dir.path },
+          Effect.gen(function* () {
+            const scheduler = yield* Scheduler.Service
+            const sessions = yield* Session.Service
+            const prompt = yield* SessionPrompt.Service
+            const session = yield* sessions.create({ title: "scheduler fire joins active run" })
+
+            // Hold the active turn's model reply: the session runner stays
+            // busy while the gate holds.
+            const gate = defer<void>()
+            yield* llm.hold("first", gate.promise)
+            const active = yield* prompt
+              .prompt({ sessionID: session.id, parts: [{ type: "text", text: "start" }] })
+              .pipe(Effect.forkChild)
+            yield* llm.wait(1)
+
+            // Fire while the run is active: the delivery completes with the
+            // durable admission of the synthetic part.
+            const added = yield* scheduler.add({
+              sessionID: session.id,
+              message: "fire me",
+              spec: { at: Date.now() + 100 },
+            })
+            yield* pollWithTimeout(
+              Effect.gen(function* () {
+                const row = yield* scheduleRow(added.id)
+                return row === undefined ? (true as const) : undefined
+              }),
+              "the scheduler fire never completed",
+            )
+            const messages = yield* sessions.messages({ sessionID: session.id }).pipe(Effect.orDie)
+            const admitted = messages
+              .filter((message) => message.info.role === "user")
+              .flatMap((message) => message.parts)
+              .find(
+                (part): part is Extract<typeof part, { type: "text" }> =>
+                  part.type === "text" && part.synthetic === true && part.text.includes("fire me"),
+              )
+            expect(admitted).toBeDefined()
+
+            // The forked loop joined the active runner: no second runLoop
+            // started, so the only model request is the held one.
+            expect(yield* turnHits(llm)).toHaveLength(1)
+            yield* Effect.sleep(200)
+            expect(yield* turnHits(llm)).toHaveLength(1)
+
+            // Release the held turn; the joined loop continues on its next
+            // iteration with the synthetic message as the newest user input.
+            gate.resolve(undefined)
+            yield* pollWithTimeout(
+              Effect.gen(function* () {
+                return (yield* turnHits(llm)).length >= 2 ? (true as const) : undefined
+              }),
+              "the joined loop never processed the fired message",
+            )
+            const turns = yield* turnHits(llm)
+            const continued = JSON.stringify(turns.at(-1)?.body.messages)
+            expect(continued).toContain("fire me")
+
+            yield* pollWithTimeout(
+              Effect.gen(function* () {
+                const texts = yield* assistantTexts(session.id)
+                return texts.includes("first") && texts.length >= 2 ? (true as const) : undefined
+              }),
+              "the fired message was never answered",
+            )
+            yield* Fiber.await(active)
+
+            const settled = yield* sessions.messages({ sessionID: session.id }).pipe(Effect.orDie)
+            const synthetics = settled
+              .filter((message) => message.info.role === "user")
+              .flatMap((message) => message.parts)
+              .filter(
+                (part): part is Extract<typeof part, { type: "text" }> =>
+                  part.type === "text" && part.synthetic === true && part.text.includes("fired schedule id"),
+              )
+            expect(synthetics).toHaveLength(1)
           }),
         )
       }),

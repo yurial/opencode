@@ -6,6 +6,7 @@ import { ConfigProvider, Context, Effect, Exit, Layer, Scope } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { OpenApi } from "effect/unstable/httpapi"
 import { createServer } from "node:http"
+import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { MDNS } from "./mdns"
 import { HttpApiApp } from "./routes/instance/httpapi/server"
 import { disposeMiddleware } from "./routes/instance/httpapi/lifecycle"
@@ -123,7 +124,14 @@ function startWithPortFallback(opts: ListenOptions) {
 
 function startListener(opts: ListenOptions, port: number) {
   const scope = Scope.makeUnsafe()
-  return Layer.buildWithMemoMap(listenerLayer(opts, port), Layer.makeMemoMapUnsafe(), scope).pipe(
+  // Build through the process-shared memoMap (specs/scheduler.md R8.1, R8.3):
+  // the listener's application-services graph must join the instances already
+  // held by AppRuntime and Server.Default in this process, so exactly one
+  // scheduler/service (one delivery loop), SessionPrompt and SessionRunState
+  // exist per process. A fresh memoMap here builds a second graph — its
+  // scheduler forks a second delivery loop (double fire delivery) and its
+  // prompt path cannot see the active runners of the shared one.
+  return Layer.buildWithMemoMap(listenerLayer(opts, port), memoMap, scope).pipe(
     Effect.provide(HttpApiApp.context),
     Effect.onError(() => Scope.close(scope, Exit.void).pipe(Effect.ignore)),
     Effect.map(
