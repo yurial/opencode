@@ -736,5 +736,5 @@ These represent invariant violations, not operator-recoverable conditions.
   and in the V1 history replay boundary; the drain-start failing of
   abandoned tools stays here unchanged.
 - tool-task — the completion message of an asynchronously launched subagent
-  run is admitted through the V1 prompt boundary of the legacy runtime
-  section.
+  run and the continuation prompt of a resumed run are admitted through the
+  V1 prompt boundary of the legacy runtime section.

@@ -470,6 +470,9 @@ the passive WAL checkpoint are qualitative startup pragmas (R2).
   R14), migration registration (R10), the durable publish transaction for
   fired events (R15–R18); its single delivery loop assumes the
   single-writer constraint of Constraints.
+- tool-task — the task_run table follows its table-ownership and column
+  conventions (R11, R12, R14) and registers through its generated migration
+  pipeline (R10).
 
 ## Verification
 
