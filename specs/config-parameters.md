@@ -333,7 +333,6 @@ paths/globs (from cwd) or URLs.
 | `OPENCODE_EXPERIMENTAL` | Master switch for `*_WORKSPACES`-style flags below | `false` |
 | `OPENCODE_EXPERIMENTAL_REFERENCES` | Enable references feature | with master |
 | `OPENCODE_EXPERIMENTAL_WORKSPACES` | Enable workspaces | with master |
-| `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS` | Background subagents | with master |
 | `OPENCODE_EXPERIMENTAL_LSP_TOOL` / `_LSP_TY` / `_OXFMT` / `_PLAN_MODE` / `_CODE_MODE` / `_EVENT_SYSTEM` / `_ICON_DISCOVERY` | Feature gates | with master (some direct) |
 | `OPENCODE_EXPERIMENTAL_NATIVE_LLM`, `OPENCODE_EXPERIMENTAL_WEBSOCKETS`, `OPENCODE_EXPERIMENTAL_FILEWATCHER`, `OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER` | Direct experimental gates | `false` |
 | `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` | Positive int output token cap | unset |
