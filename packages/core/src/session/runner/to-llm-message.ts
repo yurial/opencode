@@ -10,6 +10,12 @@ import {
 import { SessionMessage } from "../message"
 import type { FileAttachment } from "../prompt"
 
+// specs/session-llm-serialization.md Configuration (R2.1): the fixed
+// provider-facing result text of an unsettled tool call, shared verbatim by
+// the V1 history replay and this V2 lowering so the two cannot drift (J2).
+export const PENDING_TOOL_RESULT_PLACEHOLDER =
+  "[Tool execution is still in progress; this message is a placeholder, not the call's outcome. Do not treat it as a failure, an interruption, or a completion, and do not retry or duplicate the call.]"
+
 // Projection-only part-id marker (specs/discard-context.md R8): carried on
 // flag-enabled provider turns only; durable history, session reads, marker
 // surfaces, and transcripts never contain it.
@@ -75,6 +81,19 @@ const toolResult = (tool: SessionMessage.AssistantTool, providerMetadata: Provid
       providerMetadata,
     })
   }
+  // specs/session-llm-serialization.md R2.1/R3.2: an unsettled (pending or
+  // running) tool call serializes to the pending-result-placeholder as a
+  // successful result — the request carries exactly one result per tool call
+  // and the text asserts no outcome. Projection-only: no durable write, the
+  // recorded settlement state keeps its pending or running value (I3).
+  return ToolResultPart.make({
+    id: tool.id,
+    name: tool.name,
+    result: PENDING_TOOL_RESULT_PLACEHOLDER,
+    resultType: "text",
+    providerExecuted: tool.provider?.executed,
+    providerMetadata,
+  })
 }
 
 const assistant = (message: SessionMessage.Assistant, model: Model, markers: boolean) => {
@@ -101,11 +120,10 @@ const assistant = (message: SessionMessage.Assistant, model: Model, markers: boo
           : []
     const call = toolCall(item, reuseProviderMetadata ? item.provider?.metadata : undefined)
     if (item.provider?.executed !== true) return [call]
-    const result = toolResult(
-      item,
-      reuseProviderMetadata ? (item.provider.resultMetadata ?? item.provider.metadata) : undefined,
-    )
-    return result ? [call, result] : [call]
+    return [
+      call,
+      toolResult(item, reuseProviderMetadata ? (item.provider.resultMetadata ?? item.provider.metadata) : undefined),
+    ]
   })
   const meaningful = content.filter((part) => {
     if (part.type === "text") return part.text !== ""
@@ -117,7 +135,6 @@ const assistant = (message: SessionMessage.Assistant, model: Model, markers: boo
     .map((item) =>
       toolResult(item, reuseProviderMetadata ? (item.provider?.resultMetadata ?? item.provider?.metadata) : undefined),
     )
-    .filter((message) => message !== undefined)
     .map(Message.tool)
   if (meaningful.length === 0) return results
   return [

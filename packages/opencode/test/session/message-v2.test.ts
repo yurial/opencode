@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { PENDING_TOOL_RESULT_PLACEHOLDER } from "@opencode-ai/core/session/runner/to-llm-message"
 import { APICallError } from "ai"
 import { MessageV2 } from "../../src/session/message-v2"
 import { ProviderTransform } from "@/provider/transform"
@@ -1245,7 +1246,7 @@ describe("session.message-v2.toModelMessage", () => {
     expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
-  test("converts pending/running tool calls to error results to prevent dangling tool_use", async () => {
+  test("serializes pending/running tool calls with the pending-result-placeholder as a successful result (R2.1, R3.1)", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -1291,6 +1292,9 @@ describe("session.message-v2.toModelMessage", () => {
 
     const result = await MessageV2.toModelMessages(input, model)
 
+    // R1.1: exactly one result per serialized tool call, the unsettled calls
+    // included; R2.1/R2.2: the result is the successful placeholder text, not
+    // an error marker asserting an outcome the recorded state does not hold.
     expect(result).toStrictEqual([
       {
         role: "user",
@@ -1322,17 +1326,216 @@ describe("session.message-v2.toModelMessage", () => {
             type: "tool-result",
             toolCallId: "call-pending",
             toolName: "bash",
-            output: { type: "error-text", value: "[Tool execution was interrupted]" },
+            output: { type: "text", value: PENDING_TOOL_RESULT_PLACEHOLDER },
           },
           {
             type: "tool-result",
             toolCallId: "call-running",
             toolName: "read",
-            output: { type: "error-text", value: "[Tool execution was interrupted]" },
+            output: { type: "text", value: PENDING_TOOL_RESULT_PLACEHOLDER },
           },
         ],
       },
     ])
+  })
+
+  test("serializes the fixed pending-result-placeholder literal whose wording asserts no outcome (T2.1)", async () => {
+    // The literal is fixed byte for byte in the spec Configuration; its
+    // wording states the call is still executing, that the message is a
+    // placeholder and not the outcome, forbids retrying or duplicating, and
+    // asserts neither failure, interruption, nor completion (R2.2).
+    expect(PENDING_TOOL_RESULT_PLACEHOLDER).toBe(
+      "[Tool execution is still in progress; this message is a placeholder, not the call's outcome. Do not treat it as a failure, an interruption, or a completion, and do not retry or duplicate the call.]",
+    )
+  })
+
+  test("keeps providerExecuted on unsettled tool results and drops metadata across models (R3.1)", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+
+    const input: SessionV1.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run tool",
+          },
+        ] as SessionV1.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID, undefined, { providerID: "other", modelID: "other-model" }),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-pending",
+            tool: "bash",
+            state: {
+              status: "pending",
+              input: { cmd: "ls" },
+              raw: "",
+            },
+            metadata: { providerExecuted: true },
+          },
+          {
+            ...basePart(assistantID, "a2"),
+            type: "tool",
+            callID: "call-running",
+            tool: "web_search",
+            state: {
+              status: "running",
+              input: { query: "Effect" },
+              time: { start: 0 },
+            },
+            metadata: { providerExecuted: true, openai: { tool: "meta" } },
+          },
+        ] as SessionV1.Part[],
+      },
+    ]
+
+    const result = await MessageV2.toModelMessages(input, model)
+
+    // Provider-executed calls keep their result inline next to the tool call:
+    // both unsettled calls serialize the placeholder as a successful result
+    // with providerExecuted preserved, and the cross-model assistant drops
+    // callProviderMetadata entirely.
+    expect(result).toStrictEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "run tool" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-pending",
+            toolName: "bash",
+            input: { cmd: "ls" },
+            providerExecuted: true,
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-pending",
+            toolName: "bash",
+            output: { type: "text", value: PENDING_TOOL_RESULT_PLACEHOLDER },
+          },
+          {
+            type: "tool-call",
+            toolCallId: "call-running",
+            toolName: "web_search",
+            input: { query: "Effect" },
+            providerExecuted: true,
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-running",
+            toolName: "web_search",
+            output: { type: "text", value: PENDING_TOOL_RESULT_PLACEHOLDER },
+          },
+        ],
+      },
+    ])
+  })
+
+  test("lowers settled tool calls to their recorded output and error without the placeholder (T2.3)", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+
+    const input: SessionV1.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run tool",
+          },
+        ] as SessionV1.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-completed",
+            tool: "bash",
+            state: {
+              status: "completed",
+              input: { cmd: "ls" },
+              output: "file.txt",
+              title: "Bash",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+          {
+            ...basePart(assistantID, "a2"),
+            type: "tool",
+            callID: "call-errored",
+            tool: "read",
+            state: {
+              status: "error",
+              input: { path: "/tmp" },
+              error: "nope",
+              time: { start: 0, end: 1 },
+              metadata: {},
+            },
+          },
+        ] as SessionV1.Part[],
+      },
+    ]
+
+    const result = await MessageV2.toModelMessages(input, model)
+
+    // R2.3: a completed call serializes to its recorded output and an errored
+    // call to its recorded error text; neither carries the placeholder.
+    expect(result).toStrictEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "run tool" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-completed",
+            toolName: "bash",
+            input: { cmd: "ls" },
+            providerExecuted: undefined,
+          },
+          {
+            type: "tool-call",
+            toolCallId: "call-errored",
+            toolName: "read",
+            input: { path: "/tmp" },
+            providerExecuted: undefined,
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-completed",
+            toolName: "bash",
+            output: { type: "text", value: "file.txt" },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-errored",
+            toolName: "read",
+            output: { type: "error-text", value: "nope" },
+          },
+        ],
+      },
+    ])
+    expect(JSON.stringify(result)).not.toContain(PENDING_TOOL_RESULT_PLACEHOLDER)
   })
 
   test("substitutes space for empty text between signed reasoning blocks", async () => {

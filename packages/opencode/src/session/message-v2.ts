@@ -19,6 +19,7 @@ import {
 import { NamedError } from "@opencode-ai/core/util/error"
 import { APICallError, convertToModelMessages, LoadAPIKeyError, type ModelMessage, type UIMessage } from "ai"
 import { Database } from "@opencode-ai/core/database/database"
+import { PENDING_TOOL_RESULT_PLACEHOLDER } from "@opencode-ai/core/session/runner/to-llm-message"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { NotFoundError } from "@/storage/storage"
 import { and } from "drizzle-orm"
@@ -361,15 +362,19 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
               })
             }
           }
-          // Handle pending/running tool calls to prevent dangling tool_use blocks
-          // Anthropic/Claude APIs require every tool_use to have a corresponding tool_result
+          // specs/session-llm-serialization.md R2.1/R3.1: an unsettled (pending
+          // or running) tool call serializes to the pending-result-placeholder
+          // as a successful result — the request carries exactly one result per
+          // tool call and the text asserts no failure, interruption, or
+          // completion. Projection-only: the recorded settlement state stays
+          // untouched (I3).
           if (part.state.status === "pending" || part.state.status === "running")
             assistantMessage.parts.push({
               type: ("tool-" + part.tool) as `tool-${string}`,
-              state: "output-error",
+              state: "output-available",
               toolCallId: part.callID,
               input: part.state.input,
-              errorText: "[Tool execution was interrupted]",
+              output: PENDING_TOOL_RESULT_PLACEHOLDER,
               ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
               ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
             })
