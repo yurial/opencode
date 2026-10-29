@@ -397,9 +397,9 @@ A `workdir` outside the instance always adds the `external_directory` ask.
   asks `task` unless `bypassAgentCheck`; derives the child session ruleset
   (`deriveSubagentSessionPermission`: parent's `external_directory` + deny
   rules, plus default `todowrite`/`task` denies unless the subagent grants
-  them, plus `experimental.primary_tools` denies); launch modes and
-  completion delivery — asynchronous by default, optional blocking wait,
-  synthetic completion message — are specified by `tool-task`.
+  them, plus `experimental.primary_tools` denies); launch and completion
+  delivery — always-asynchronous launch, synthetic completion message — are
+  specified by `tool-task`.
 - `webfetch`: http(s) only; format-negotiated Accept header; Cloudflare
   challenge 403 retried with honest UA; 30 s default / 120 s max timeout;
   5 MiB cap; html→markdown/text via turndown/htmlparser2; images attach.

@@ -2,11 +2,11 @@
 
 Status: draft
 Reference: tool-task
-Spec source of truth for: the V1 `task` tool launch, resume, and completion contract — asynchronous launch by default with an immediate running result, the optional blocking `wait` argument, the `task_id` semantics of the status-only call, the live-run extension, and the continuation of a settled or interrupted run over the durable task-run registry, completion delivery into the parent session as exactly one synthetic user message through the ordinary prompt admission of the host's single runtime graph, the read-only `task_status` tool, the argumentless read-only `task_list` tool, the `task_abort` stop tool, and the session-scoped HTTP surfaces for run status and continuation.
+Spec source of truth for: the V1 `task` tool launch, resume, and completion contract — an always-asynchronous launch with an immediate running result, the `task_id` semantics of the status-only call, the live-run extension, and the continuation of a settled or interrupted run over the durable task-run registry, completion delivery into the parent session as exactly one synthetic user message through the ordinary prompt admission of the host's single runtime graph, the read-only `task_status` tool, the argumentless read-only `task_list` tool, the `task_abort` stop tool, and the session-scoped HTTP surfaces for run status and continuation.
 
 ## Overview
 
-The `task` tool delegates work to a subagent session. This spec fixes the launch modes, the resume semantics, and the completion-delivery contract: a launch returns immediately with a running result identifying the run and promising a completion message; when the run settles, the parent session receives exactly one synthetic user message carrying the outcome. Blocking settlement remains available through an explicit argument.
+The `task` tool delegates work to a subagent session. This spec fixes the launch contract, the resume semantics, and the completion-delivery contract: a launch is always asynchronous — it returns immediately with a running result identifying the run and promising a completion message — and when the run settles, the parent session receives exactly one synthetic user message carrying the outcome; no argument requests blocking settlement, and the completion message is the only channel through which a settled outcome reaches the parent session.
 
 A `task_id` addresses an existing subagent-run. Without a prompt the call reads status: it returns a snapshot and performs no action. With a prompt the call writes work into the run: a live job receives the prompt as additional input, and a run without a live job — settled, paused, or interrupted by a restart — receives the prompt as a continuation of its durable conversation, with prior exchange history in context. A fresh run is a launch without `task_id`. The status surfaces read the registry — the task tool status call, `task_status`, `task_list`, and the HTTP endpoints — while the one control surface, `task_abort`, stops an addressed run: a live job is cancelled together with its child session's work, a stored `running` row without a live job is re-marked `cancelled`, and a settled run is confirmed unchanged.
 
@@ -18,8 +18,8 @@ Completion delivery presupposes the process topology of the host: the synthetic 
 
 In:
 
-- Launch modes: the asynchronous default with its immediate running result, and the `wait` argument requesting blocking settlement.
-- The result grammar of a launch result and of a blocking settlement result.
+- The asynchronous launch with its immediate running result.
+- The result grammar of a launch result.
 - The `task_id` semantics: the status-only call, the live-run extension, and the continuation of a run with no live job.
 - The completion message: its grammar, its synthetic admission into the parent session, and exactly-once delivery per settled run.
 - The process-topology precondition of completion delivery, citing the single-delivery-loop property of scheduler R8.3.
@@ -42,7 +42,6 @@ Out (non-goals):
 ## Definitions
 
 - **tool-task/subagent-run**: one execution of a subagent session launched through the task tool, identified by its child session id (the run id, the `task_id` handle of status and continuation calls).
-- **tool-task/blocking-wait**: the `wait` argument value `true`, requesting that a launch return only after its subagent-run settles.
 - **tool-task/completion-message**: the synthetic user message a settled subagent-run delivers into the parent session, following the completion grammar of the Interface section.
 - **tool-task/task-run-registry**: the durable registry of subagent-runs — the `task_run` rows of the host database, one row per subagent-run, surviving process restarts.
 - **tool-task/live-job-registry**: the process-memory registry of live subagent-run jobs of one host process; the sole source of a live run's status.
@@ -59,11 +58,10 @@ Out (non-goals):
 
 | Argument | Allowed values | Meaning |
 |---|---|---|
-| `wait` | optional boolean, default `false` | `true` requests blocking settlement of the launched run (R1.3); the default launches asynchronously (R1.1) |
 | `task_id` | optional run id of a prior subagent-run | addresses an existing subagent-run of the calling session: without `prompt`, a status-only call (R1.5); with `prompt`, a live-run-extension or a continuation (R1.6, R1.7) |
 | `prompt` | optional string when `task_id` is present, required otherwise | the launch prompt of a fresh run, or the message delivered to the addressed run |
 
-The remaining launch arguments (`description`, `subagent_type`, `command`) and the permission gating stay with the core-tools-permissions tool contract; a call carrying `task_id` requires none of them. The former experimental `background` argument is removed: immediate return with a running result and completion by notification are the default behavior.
+The remaining launch arguments (`description`, `subagent_type`, `command`) and the permission gating stay with the core-tools-permissions tool contract; a call carrying `task_id` requires none of them. The former experimental `background` argument is removed, and the tool defines no blocking argument: immediate return with a running result and completion by notification are the behavior of every launch (R1.1, R1.9).
 
 A `task_id` resolves for the calling session when the task-run-registry holds a row whose `id` equals it and whose `parent_session` is the calling session; any other `task_id` value fails the call with `task-not-found` (R1.8).
 
@@ -84,7 +82,6 @@ Error results of this spec (the complete set; semantics in Error handling):
 
 - A launch result carries `state="running"`, the run id, and text stating that completion will arrive as a separate session message.
 - A live-run-extension result and a continuation result carry the same running state and run id, with text stating that the prompt was delivered to the run.
-- A blocking-wait result carries the settled state, the run id, and the final output text (`task_result`) or the failure text (`task_error`).
 - The completion message body follows the same grammar with the settled state, a summary naming the run, and the final or failure text.
 
 ### Status snapshot grammar
@@ -102,7 +99,7 @@ launched <created-at>[, settled <settled-at>]
 
 ### Description contract
 
-The task tool description states that launches run asynchronously by default and return immediately with a running result, that completion arrives as a separate session message, that a launch needing the result before continuing passes `wait`, and the `task_id` semantics: without `prompt` a call reads status, with `prompt` it extends a live run or continues a run with no live job (R3.1, R3.2). The task_status tool description states its read-only role and its detail form (R3.3). The task_list tool description states its read-only role and its newest-first list (R3.4). The task_abort tool description states the stop semantics — the cancellation of a live job together with its child run, the re-marking of an interrupted run, the idempotent confirmation of a settled run — and that no completion message arrives (R3.5).
+The task tool description states that every launch runs asynchronously and returns immediately with a running result, that completion arrives as a separate session message — the only channel of the settled outcome, so a launch needing the result before continuing receives it through that message — and the `task_id` semantics: without `prompt` a call reads status, with `prompt` it extends a live run or continues a run with no live job (R3.1, R3.2). The task_status tool description states its read-only role and its detail form (R3.3). The task_list tool description states its read-only role and its newest-first list (R3.4). The task_abort tool description states the stop semantics — the cancellation of a live job together with its child run, the re-marking of an interrupted run, the idempotent confirmation of a settled run — and that no completion message arrives (R3.5).
 
 ### task_status tool
 
@@ -180,22 +177,21 @@ Error results (the complete set; semantics in Error handling):
 ## Requirements
 
 - R1. Launch and address modes:
-- R1.1. verification=automated; A launch without `wait` starts its subagent-run and returns a tool result without waiting for the run's settlement.
-- R1.2. verification=automated; An asynchronous launch result carries the run id and the running state and states that completion will arrive as a separate session message.
-- R1.3. verification=automated; A launch with `wait` of `true` returns only after its subagent-run settles, carrying the run's final output on completion or the run's failure text on error.
-- R1.4. verification=automated; Asynchronous launch is the default path of the tool, and no experimental flag gates it.
+- R1.1. verification=automated; Every launch is asynchronous: it starts its subagent-run and returns its tool result before the run settles.
+- R1.2. verification=automated; A launch result carries the run id and the running state and states that completion will arrive as a separate session message.
 - R1.5. verification=automated; A task tool call carrying `task_id` without `prompt` performs no launch, no continuation, and no registry write, asks no permission, and returns the status snapshot of the addressed subagent-run.
 - R1.6. verification=automated; A task tool call carrying `task_id` and `prompt` whose addressed subagent-run has a live job delivers the prompt to the live run as additional input, starts no new run, and returns the running result.
 - R1.7. verification=automated; A task tool call carrying `task_id` and `prompt` whose addressed subagent-run has no live job admits the prompt into the durable subagent session as the next message of its conversation, with prior exchange history in context, and returns the running result.
 - R1.8. verification=automated; A task tool call whose `task_id` resolves to no subagent-run of the calling session fails with `task-not-found` and performs no action.
+- R1.9. verification=automated; The task tool defines no argument that requests blocking settlement, and a run's settled outcome reaches the parent session only through the completion message.
 - R2. Completion delivery:
-- R2.1. verification=automated; When an asynchronously launched subagent-run settles, the parent session receives exactly one synthetic user message following the completion grammar, carrying the run id and the settled state.
+- R2.1. verification=automated; When a launched subagent-run settles, the parent session receives exactly one synthetic user message following the completion grammar, carrying the run id and the settled state.
 - R2.2. verification=automated; The completion message is admitted through the ordinary prompt admission path of the parent session's runtime.
 - R2.3. verification=scenario; Completion delivery rides the single runtime service graph of the host process — the process-global serialization property fixed by scheduler R8.3 for fire deliveries — and the task tool defines no second delivery path.
 - R2.4. verification=automated; A live-run-extension or a continuation keeps the completion contract of the original launch: when the extended or continued work settles, the parent session receives exactly one completion message carrying the same run id and the settled state.
 - R2.5. verification=automated; A cancelled subagent-run delivers no completion message.
 - R3. Model-facing contract:
-- R3.1. verification=automated; The task tool description documents the asynchronous default, the completion notification, and the `wait` argument.
+- R3.1. verification=automated; The task tool description documents the asynchronous launch, the completion notification, and that a settled outcome arrives only through the completion message.
 - R3.2. verification=automated; The task tool description documents the `task_id` semantics: the status-only call without `prompt`, the extension of a live run, and the continuation of a run with no live job.
 - R3.3. verification=automated; The task_status tool description documents its read-only role and its detail form.
 - R3.4. verification=automated; The task_list tool description documents its read-only role and its newest-first list of the calling session's subagent-runs.
@@ -238,9 +234,9 @@ Error results (the complete set; semantics in Error handling):
 
 ## Implementation
 
-- I1. The existing background mechanism becomes the main path: the job start, the completion watcher, and the synthetic injection of the completion message (`packages/opencode/src/tool/task.ts`); the blocking branch keeps its acquire-use-release wait as the implementation of `wait`.
+- I1. The background mechanism is the only path: the job start, the completion watcher, and the synthetic injection of the completion message (`packages/opencode/src/tool/task.ts`).
 - I2. The `background` argument, its experimental flag, and its description gating are removed; the background guidance text merges into the base description per R3.1.
-- I3. The completion message renders through the same result grammar as a blocking result, so the model reads one shape on both paths.
+- I3. The completion message renders through the same result grammar as the launch result, so the model reads one shape on both surfaces.
 - I4. Registry writes live in the task tool paths: the launch inserts the row, the completion watcher writes the settle state before admitting the completion message, the cancel path writes `cancelled`, and the continuation branch re-marks `running` before the prompt is admitted (`packages/opencode/src/tool/task.ts`).
 - I5. Liveness reads from the existing background job registry of the host process keyed by session id (`packages/opencode/src/background/job.ts`); the derived `interrupted` state is computed at read time, and no background job mutates rows.
 - I6. The continuation branch reuses the ordinary prompt admission path of the subagent session — the same prompt ops as the launch — after the parent-binding check against the task_run row.
@@ -253,12 +249,12 @@ Error results (the complete set; semantics in Error handling):
 ## Examples
 
 - E1. Launch and address modes:
-- E1.1. A launch of `description: "fix tests"` with a registered subagent type and no `wait` returns immediately, carrying `state="running"`, the run id, and the notification promise; the parent model continues other work.
-- E1.3. The same launch with `wait: true` returns after the run settles, carrying the final output text, or the failure text when the run errors.
+- E1.1. A launch of `description: "fix tests"` with a registered subagent type returns immediately, carrying `state="running"`, the run id, and the notification promise; the parent model continues other work.
 - E1.5. After E1.1, a call carrying its `task_id` and no `prompt` returns the snapshot of that run — `state="running"` with the launch instant — starts nothing, and asks nothing.
 - E1.6. While the run of E1.1 is live, a call carrying its `task_id` and `prompt: "also run the linter"` returns the running result for the same run id, and no new run starts.
 - E1.7. After the run of E1.1 settles, a call carrying its `task_id` and `prompt: "extend the fix to the sister module"` admits the prompt into the same subagent session with the earlier exchange in context, re-marks the registry row `running`, and returns the running result.
 - E1.8. A call carrying the `task_id` of another session's run fails with `task-not-found` and performs nothing.
+- E1.9. The launch of E1.1 passes no blocking argument — none exists — and the run's settled outcome reaches the parent session only through the completion message of E2.1.
 - E2. Completion delivery:
 - E2.1. The run of E1.1 settling with a summary delivers exactly one synthetic user message with `state="completed"` and the final text into the parent session, and nothing else is delivered for that run.
 - E2.4. The continuation of E1.7 settling with a summary delivers exactly one completion message with the same run id and `state="completed"`, and nothing else is delivered for that settlement.
@@ -284,27 +280,26 @@ Error results (the complete set; semantics in Error handling):
 ## Tests
 
 - T1. Launch and address modes:
-- T1.1. R-ID=R1.1, R1.4; procedure=task tool launch test with no flags and no `wait`; conditions=a registered subagent type; expected=the tool result returns before the run settles, carrying the running state, with no experimental flag set.
-- T1.2. R-ID=R1.2; procedure=launch result content test; conditions=an asynchronous launch; expected=the result follows the result grammar with the run id and `state="running"` and states that completion will arrive as a separate session message.
-- T1.3. R-ID=R1.3; procedure=blocking launch test with `wait: true`; conditions=a run that settles successfully and a run that errors; expected=the result carries the final output text or the failure text, and only after settlement.
+- T1.1. R-ID=R1.1, R1.9; procedure=task tool launch test against the advertised schema and the run timeline; conditions=a registered subagent type; expected=the tool result returns before the run settles, carrying the running state, the schema exposes no blocking argument, and the settled outcome arrives only through the completion message.
+- T1.2. R-ID=R1.2; procedure=launch result content test; conditions=a launch; expected=the result follows the result grammar with the run id and `state="running"` and states that completion will arrive as a separate session message.
 - T1.5. R-ID=R1.5; procedure=status-only call test; conditions=a call carrying the `task_id` of an existing run and no `prompt`; expected=the call returns the status snapshot of that run and performs no launch, no continuation, no registry write, and no permission ask.
 - T1.6. R-ID=R1.6; procedure=live-extension test; conditions=a call carrying `task_id` and `prompt` while the run's job is live; expected=the prompt reaches the live run, no new run starts, and the result is the running result for the same run id.
 - T1.7. R-ID=R1.7; procedure=continuation test after settlement; conditions=a call carrying `task_id` and `prompt` against a settled run; expected=the prompt is admitted into the same subagent session with prior history in context and the result is the running result for the same run id.
 - T1.8. R-ID=R1.8; procedure=unknown and foreign `task_id` test; conditions=calls carrying a `task_id` of no run and a `task_id` of another session's run; expected=both fail with `task-not-found` and perform no action.
 - T2. Completion delivery:
-- T2.1. R-ID=R2.1, R2.2; procedure=completion delivery test; conditions=an asynchronously launched run settling while the parent session is idle; expected=exactly one synthetic user message following the completion grammar appears in the parent session through the ordinary prompt admission path.
-- T2.3. R-ID=R2.3; procedure=host-topology scenario against one host process serving the parent session through a single runtime graph; conditions=an asynchronously launched run settling; expected=the completion message reaches the owning runner and drives the parent's next turn, with no second delivery path involved.
+- T2.1. R-ID=R2.1, R2.2; procedure=completion delivery test; conditions=a launched run settling while the parent session is idle; expected=exactly one synthetic user message following the completion grammar appears in the parent session through the ordinary prompt admission path.
+- T2.3. R-ID=R2.3; procedure=host-topology scenario against one host process serving the parent session through a single runtime graph; conditions=a launched run settling; expected=the completion message reaches the owning runner and drives the parent's next turn, with no second delivery path involved.
 - T2.4. R-ID=R2.4; procedure=continuation completion test; conditions=a continued run settling while the parent session is idle; expected=exactly one completion message with the same run id and the settled state arrives through the ordinary prompt admission path.
 - T2.5. R-ID=R2.5; procedure=cancel delivery test; conditions=a run cancelled before settlement; expected=no completion message is delivered and the registry row reads `cancelled`.
 - T3. Model-facing contract:
-- T3.1. R-ID=R3.1; procedure=description content check at registry build; conditions=the composed tool description; expected=it names the asynchronous default, the completion notification, and the `wait` argument.
+- T3.1. R-ID=R3.1; procedure=description content check at registry build; conditions=the composed tool description; expected=it names the asynchronous launch, the completion notification, and that a settled outcome arrives only through the completion message.
 - T3.2. R-ID=R3.2; procedure=description content check at registry build; conditions=the composed task tool description; expected=it names the status-only call, the live-run extension, and the continuation.
 - T3.3. R-ID=R3.3; procedure=description content check of task_status; conditions=the composed task_status description; expected=it names the read-only role and the detail form.
 - T3.4. R-ID=R3.4; procedure=description content check of task_list; conditions=the composed task_list description; expected=it names the read-only role and the newest-first list.
 - T3.5. R-ID=R3.5; procedure=description content check of task_abort; conditions=the composed task_abort description; expected=it names the live-job cancellation, the interrupted re-mark, the idempotent settled confirmation, and the absence of a completion message.
 - T4. Durable run registry:
 - T4.1. R-ID=R4.1, R4.2; procedure=table and row-uniqueness test; conditions=launches of two subagent-runs and a continuation of one of them; expected=the task_run table holds snake_case columns and exactly one row per subagent session, its `id` equal to the child session id.
-- T4.2. R-ID=R4.3; procedure=launch-insert test; conditions=an asynchronous launch; expected=the row is inserted with state `running` and the launch time.
+- T4.2. R-ID=R4.3; procedure=launch-insert test; conditions=a launch; expected=the row is inserted with state `running` and the launch time.
 - T4.3. R-ID=R4.4; procedure=continuation re-mark test; conditions=a continuation of a settled run; expected=the row state returns to `running` before the prompt is admitted.
 - T4.4. R-ID=R4.5, R4.6; procedure=settle and cancel write test; conditions=runs that complete, error, and are cancelled; expected=the states become `completed` and `error` with the settle time recorded, and `cancelled` with the settle time recorded.
 - T4.5. R-ID=R4.7; procedure=restart survival test; conditions=a database reopen after launches and settles; expected=every task_run row persists with its state.
@@ -338,9 +333,9 @@ Error results (the complete set; semantics in Error handling):
 
 ## Justification
 
-- J1. Why asynchronous by default (R1.1, R1.4): a blocking default parks the parent model behind each subagent and invites duplicate work whenever history serialization misrepresents a live call as interrupted; an immediate running result with a promised completion message keeps the parent productive and honest about the run's liveness.
+- J1. Why every launch is asynchronous (R1.1, R1.9): a blocking launch parks the parent model behind each subagent and invites duplicate work whenever history serialization misrepresents a live call as interrupted; an immediate running result with a promised completion message keeps the parent productive and honest about the run's liveness.
 - J2. Why completion rides the ordinary prompt admission of the single runtime graph (R2.2, R2.3): a delivery path outside the owning runner reproduces the double-delivery divergence class that the scheduler single-delivery-loop property (scheduler R8.3) exists to prevent.
-- J3. Why `wait` instead of the former `background` (Interface): the default inverted, so the opt-in names the exceptional mode — blocking — and the description stops advertising an argument whose former meaning is the default.
+- J3. Why no blocking argument exists (R1.9): an optional blocking path reintroduces the parked-parent failure this contract exists to avoid — a production incident had the model choose blocking settlement and lock its session behind one subagent — so the launch offers no synchronous result path, and the completion message stays the single channel of the settled outcome.
 - J4. Why the run registry is durable (R4.1-R4.7): a status surface on process memory alone reports every restarted run as vanished and invites duplicate launches; one durable row per run carries the last known fact across restarts at constant storage cost.
 - J5. Why the interrupted reading is derived instead of written at startup (R4.11): the process cannot observe the outcome of a run that died with its predecessor, and a startup write would assert a fact nobody saw while racing an immediate continuation; deriving at read keeps registry writes to observed transitions only.
 - J6. Why completion messages never cross process-lifetime boundaries (R4.12): the completion watcher lives in the process that owns the live job; after its death the settlement is unknowable, and startup replay would deliver messages for work that never settled — status plus continuation is the honest recovery path.
