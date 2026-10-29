@@ -58,10 +58,14 @@ export class NotFound extends Schema.TaggedErrorClass<NotFound>()("TaskRun.NotFo
  * starts its live job, applying the same liveness decision tree as the task
  * tool. Core declares the capability; hosts provide the implementation
  * because the V1 prompt runtime lives above core — the same topology the
- * scheduler solves with `attachV1Prompt` (specs/scheduler.md I4). The
- * capability is attached to the service with `attachRunner`; before an
- * attach, a continuation via `continue` dies — the host topology is broken,
- * and the HTTP boundary surfaces the defect as `UnknownError`.
+ * scheduler solves with `attachV1Prompt` (specs/scheduler.md I4). Ordinary
+ * continuation failures (for example the run's agent no longer resolving)
+ * flow through the error channel to the HTTP boundary as recoverable
+ * errors; topology problems — no attached runner, a vanished parent session
+ * — stay defects. The capability is attached to the service with
+ * `attachRunner`; before an attach, a continuation via `continue` dies —
+ * the host topology is broken, and the HTTP boundary surfaces the defect as
+ * `UnknownError`.
  */
 /**
  * The liveness reader of the host process (specs/tool-task.md R4.10, R4.11):
@@ -80,7 +84,7 @@ export interface Runner {
     readonly parentSession: SessionSchema.ID
     readonly description: string
     readonly message: string
-  }) => Effect.Effect<void>
+  }) => Effect.Effect<void, Error>
 }
 
 export interface Interface {
@@ -123,13 +127,16 @@ export interface Interface {
   /**
    * Resolves the addressed subagent-run of `sessionID` and applies the host
    * continuation for `message` (R5.7); fails with `NotFound` when no row of
-   * the session carries the id (R5.12) and performs nothing in that case.
+   * the session carries the id (R5.12) and performs nothing in that case,
+   * including when the run's session disappears between the row lookup and
+   * the entry refresh. Host continuation failures flow through the error
+   * channel as recoverable errors.
    */
   readonly continue: (input: {
     readonly sessionID: SessionSchema.ID
     readonly taskID: SessionSchema.ID
     readonly message: string
-  }) => Effect.Effect<Entry, NotFound>
+  }) => Effect.Effect<Entry, NotFound | Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/TaskRun") {}
@@ -270,8 +277,13 @@ const layer = Layer.effect(
           description: row.description,
           message: input.message,
         })
+        // A session deleted between the row lookup and this refresh cascades
+        // its task_run row away: the addressed run no longer exists, so the
+        // call fails with NotFound instead of surfacing a missing entry as a
+        // downstream defect (R5.12).
         const entry = yield* get(input.sessionID, input.taskID)
-        return entry!
+        if (!entry) return yield* new NotFound({ sessionID: input.sessionID, taskID: input.taskID })
+        return entry
       }),
     })
   }),

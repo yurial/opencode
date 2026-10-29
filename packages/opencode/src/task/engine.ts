@@ -4,10 +4,27 @@ import { Context, Effect, Layer, Scope } from "effect"
 import { BackgroundJob } from "@/background/job"
 import { Session } from "@/session/session"
 import { MessageID, SessionID } from "@/session/schema"
+import { KeyedMutex } from "@opencode-ai/core/effect/keyed-mutex"
 import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import type { SessionPrompt } from "@/session/prompt"
 import type { TaskPromptOps } from "@/tool/task"
+
+/**
+ * Escaping contract of the result and snapshot grammars (specs/tool-task.md
+ * Result grammar, Status snapshot grammar): the model parses these blocks by
+ * their tags, and the interpolated fields carry untrusted text — the run
+ * description comes from the calling model, and the result text from the
+ * subagent's output. Attribute values escape `&`, `<`, `>`, and `"` — a raw
+ * quote would close the attribute and let the description forge attributes or
+ * elements. Text bodies neutralize `</task` case-insensitively — a raw one
+ * would close the task element early and let child output forge the
+ * completion boundary.
+ */
+const escapeAttribute = (value: string) =>
+  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
+
+const escapeText = (value: string) => value.replaceAll(/<\/task/gi, "&lt;/task")
 
 /**
  * The result grammar of a launch result and of a blocking settlement result
@@ -22,10 +39,10 @@ export const renderOutput = (input: {
 }) => {
   const tag = input.state === "error" ? "task_error" : "task_result"
   return [
-    `<task id="${input.sessionID}" state="${input.state}">`,
-    ...(input.summary ? [`<summary>${input.summary}</summary>`] : []),
+    `<task id="${escapeAttribute(input.sessionID)}" state="${input.state}">`,
+    ...(input.summary ? [`<summary>${escapeText(input.summary)}</summary>`] : []),
     `<${tag}>`,
-    input.text,
+    escapeText(input.text),
     `</${tag}>`,
     "</task>",
   ].join("\n")
@@ -45,7 +62,7 @@ export const renderSnapshot = (row: {
   settledAt: number | null
 }) =>
   [
-    `<task id="${row.id}" state="${row.state}" description="${row.description}">`,
+    `<task id="${escapeAttribute(row.id)}" state="${row.state}" description="${escapeAttribute(row.description)}">`,
     row.settledAt === null
       ? `launched ${new Date(row.createdAt).toISOString()}`
       : `launched ${new Date(row.createdAt).toISOString()}, settled ${new Date(row.settledAt).toISOString()}`,
@@ -144,8 +161,20 @@ const layer = Layer.effect(
     const sessions = yield* Session.Service
     const scope = yield* Scope.Scope
 
-    // One live watcher per run keeps completion delivery exactly-once (R2.4):
-    // a resume or extension attaches nothing when a watcher already exists.
+    // Per-run serialization of the continuation decision (R1.7): two
+    // concurrent task_id+prompt calls must not both read "no live job" — the
+    // second background.start would no-op on the first's running job and
+    // silently drop its prompt. The same lock serializes a finishing
+    // watcher's settle-and-deliver section against a continuation's
+    // re-mark-and-start: an old watcher can neither overwrite a re-marked
+    // running row nor have its registration removed while a newer watcher
+    // attaches, because the cooperative scheduler runs each lock holder
+    // atomically once entered.
+    const addressLocks = KeyedMutex.makeUnsafe<SessionID>()
+
+    // One live watcher per run keeps completion delivery exactly-once
+    // (R2.4): a resume or extension attaches nothing when a watcher already
+    // exists.
     const watchers = new Set<string>()
 
     const injectCompletion = Effect.fn("TaskEngine.injectCompletion")(function* (input: {
@@ -191,34 +220,39 @@ const layer = Layer.effect(
       if (watchers.has(input.runID)) return
       watchers.add(input.runID)
       yield* background.wait({ id: input.runID }).pipe(
-        Effect.flatMap((result) => {
-          const status = result.info?.status
-          if (status !== "completed" && status !== "error" && status !== "cancelled") return Effect.void
-          // I4: the settle state is written before anything is delivered.
-          return registry.settle({ id: input.runID, state: status }).pipe(
-            Effect.andThen(
+        // The settle-and-deliver section runs under the run's address lock:
+        // a continuation's re-mark-and-start is mutually exclusive with it,
+        // so the settle write cannot overwrite a re-marked running row, and
+        // this watcher's registration is already gone (the teardown below
+        // precedes the continuation's attach) when the continuation checks.
+        Effect.flatMap((result) =>
+          addressLocks.withLock(input.runID)(
+            Effect.gen(function* () {
+              const status = result.info?.status
+              if (status !== "completed" && status !== "error" && status !== "cancelled") return
+              // I4: the settle state is written before anything is delivered.
+              yield* registry.settle({ id: input.runID, state: status })
               // R2.5: a cancelled run delivers no completion message — the
               // surface that cancelled it already knows.
-              status === "cancelled"
-                ? Effect.void
-                : injectCompletion({
-                    ops: input.ops,
-                    parentSession: input.parentSession,
-                    variant: input.variant,
-                    runID: input.runID,
-                    summary: status === "completed" ? `Task completed: ${input.description}` : `Task failed: ${input.description}`,
-                    text: status === "completed" ? (result.info?.output ?? "") : (result.info?.error ?? ""),
-                    state: status,
-                  }),
-            ),
-          )
-        }),
+              if (status === "cancelled") return
+              yield* injectCompletion({
+                ops: input.ops,
+                parentSession: input.parentSession,
+                variant: input.variant,
+                runID: input.runID,
+                summary: status === "completed" ? `Task completed: ${input.description}` : `Task failed: ${input.description}`,
+                text: status === "completed" ? (result.info?.output ?? "") : (result.info?.error ?? ""),
+                state: status,
+              })
+            }),
+          ),
+        ),
         Effect.ensuring(Effect.sync(() => watchers.delete(input.runID))),
         Effect.forkIn(scope, { startImmediately: true }),
       )
     })
 
-    const address: Interface["address"] = Effect.fn("TaskEngine.address")(function* (input) {
+    const addressDecision = Effect.fn("TaskEngine.address")(function* (input: Parameters<Interface["address"]>[0]) {
       const childRun = () =>
         runChild({
           ops: input.ops,
@@ -235,11 +269,13 @@ const layer = Layer.effect(
         // The extended run keeps the original launch's completion contract:
         // this watcher owns its exactly-once delivery (R2.4).
         yield* watch(input)
-        return "extended"
+        return "extended" as const
       }
 
       // R4.4: the row is re-marked running before the continuation prompt is
-      // admitted; the admission happens inside the started job.
+      // admitted; the admission happens inside the started job. The whole
+      // decision runs under the run's lock, so a concurrent continue sees
+      // this job as live and extends instead of racing the start.
       yield* registry.markRunning(input.runID)
       yield* background.start({
         id: input.runID,
@@ -249,8 +285,10 @@ const layer = Layer.effect(
         run: childRun().pipe(Effect.onInterrupt(() => input.ops.cancel(input.runID))),
       })
       yield* watch(input)
-      return "continued"
+      return "continued" as const
     })
+
+    const address: Interface["address"] = (input) => addressLocks.withLock(input.runID)(addressDecision(input))
 
     return Service.of({ address, watch })
   }),

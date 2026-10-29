@@ -262,6 +262,31 @@ describe("TaskRun registry", () => {
     }),
   )
 
+  it.live("continue fails with NotFound when the run's session is deleted before the entry refresh", () =>
+    Effect.gen(function* () {
+      const taskRun = yield* TaskRun.Service
+      const database = yield* Database.Service
+      const parent = sessionID("parent")
+      const id = sessionID("vanishing")
+      yield* launch({ id, parentSession: parent, description: "vanishes mid-continue" })
+      yield* taskRun.attachRunner({
+        continue: (input) =>
+          // The concurrent deletion between the row lookup and the entry
+          // refresh cascades the task_run row away.
+          database.db.delete(SessionTable).where(eq(SessionTable.id, input.runID)).run().pipe(Effect.asVoid, Effect.orDie),
+      })
+
+      const exit = yield* taskRun.continue({ sessionID: parent, taskID: id, message: "hi" }).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) throw new Error("expected NotFound")
+      expect(Cause.hasDies(exit.cause)).toBe(false)
+      const failure = Cause.squash(exit.cause)
+      expect(failure).toBeInstanceOf(TaskRun.NotFound)
+      if (!(failure instanceof TaskRun.NotFound)) throw new Error("expected TaskRun.NotFound")
+      expect(failure.taskID).toBe(id)
+    }),
+  )
+
   it.live("continue delegates to the attached runner and returns the refreshed running entry", () =>
     Effect.gen(function* () {
       const taskRun = yield* TaskRun.Service

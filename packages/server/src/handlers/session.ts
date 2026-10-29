@@ -505,6 +505,15 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                   }),
                 ),
               ),
+              // The host runner's ordinary continuation failures (for example
+              // the run's agent no longer resolving) surface as the declared
+              // UnknownError with a correlating ref, like defects do. Tagged
+              // errors are declared results (the TaskNotFoundError above) and
+              // must pass through untouched.
+              Effect.catchIf(
+                (error): error is Error => error instanceof Error && !("_tag" in error),
+                (error) => unknownDefect("failed to continue session task", ctx.params.sessionID, error),
+              ),
               Effect.catchDefect((defect) =>
                 unknownDefect("failed to continue session task", ctx.params.sessionID, defect),
               ),

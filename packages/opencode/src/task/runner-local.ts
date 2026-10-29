@@ -50,7 +50,14 @@ const layer = Layer.effect(
               Effect.gen(function* () {
                 const child = yield* store.get(input.runID)
                 const next = yield* agents.get(child?.agent ?? "")
-                if (!next) return yield* Effect.die(`task run agent not found: ${child?.agent}`)
+                if (!next) {
+                  // Symmetric with the task tool's addressed path: the run's
+                  // agent no longer resolving is an ordinary continuation
+                  // failure, not a defect.
+                  return yield* Effect.fail(
+                    new Error(`Unknown agent type: ${child?.agent} is not a valid agent type for task ${input.runID}`),
+                  )
+                }
                 const model = next.model ?? (parent.model ? { providerID: parent.model.providerID, modelID: parent.model.id } : undefined)
                 yield* engine.address({
                   ops,
@@ -72,15 +79,15 @@ const layer = Layer.effect(
               }),
             )
             .pipe(
-              // A failed endpoint continuation is surfaced to the HTTP
-              // boundary as a defect (UnknownError there), diagnosable through
-              // the log — the caller only sees the resulting entry when the
-              // continuation was actually applied.
-              Effect.catchCause((cause) =>
+              // Any continuation cause is logged here; ordinary failures
+              // reach the HTTP boundary as recoverable errors (an
+              // UnknownError there), while defects stay defects so a broken
+              // host topology still surfaces as UnknownError after logging.
+              Effect.tapCause((cause) =>
                 Effect.logError("TaskRun continuation failed", {
                   "session.id": input.runID,
                   cause: Cause.pretty(cause),
-                }).pipe(Effect.andThen(Effect.die(cause))),
+                }),
               ),
             )
         }),
