@@ -14,6 +14,8 @@ import { TaskRunnerLocal } from "@/task/runner-local"
 import { InstanceStore } from "@/project/instance-store"
 import { InstanceBootstrap as InstanceBootstrapService } from "../../src/project/bootstrap-service"
 import { TaskStatusTool } from "../../src/tool/task-status"
+import { TaskListTool } from "../../src/tool/task-list"
+import { TaskAbortTool } from "../../src/tool/task-abort"
 import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Config } from "@/config/config"
@@ -27,6 +29,7 @@ import { SessionStatus } from "@/session/status"
 
 import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
 import { ToolJsonSchema } from "@/tool/json-schema"
+import { Tool, type InferParameters } from "@/tool/tool"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -217,6 +220,23 @@ function context(
     agent: "build",
     abort: new AbortController().signal,
     extra: { promptOps },
+    messages: [],
+    metadata: () => Effect.void,
+    ask: () =>
+      Effect.sync(() => {
+        onAsk?.()
+      }),
+  }
+}
+
+/** Tool context for the task_status, task_list, and task_abort surfaces. */
+function readContext(chat: Session.Info, promptOps?: TaskPromptOps, onAsk?: () => void) {
+  return {
+    sessionID: chat.id,
+    messageID: MessageID.ascending(),
+    agent: "build",
+    abort: new AbortController().signal,
+    extra: promptOps ? { promptOps } : {},
     messages: [],
     metadata: () => Effect.void,
     ask: () =>
@@ -1694,31 +1714,26 @@ describe("tool.task", () => {
     }),
   )
 
-  it.instance("task_status lists runs newest first and reads one snapshot by task_id", () =>
+  it.instance("task_status requires task_id and returns the detail snapshot of the addressed run", () =>
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service
       const registry = yield* TaskRun.Service
       const sessions = yield* Session.Service
       const { chat } = yield* seed()
-      const statusDef = yield* (yield* TaskStatusTool).init()
+      const statusDef = yield* Tool.init(yield* TaskStatusTool)
       let asks = 0
-      const statusContext = {
-        sessionID: chat.id,
-        messageID: MessageID.ascending(),
-        agent: "build",
-        abort: new AbortController().signal,
-        extra: {},
-        messages: [],
-        metadata: () => Effect.void,
-        ask: () =>
-          Effect.sync(() => {
-            asks++
-          }),
-      }
 
-      expect(
-        (yield* statusDef.execute({}, statusContext)).output,
-      ).toContain("No tasks have been launched by this session.")
+      // R3.3: the detail-only schema — task_id is required, the argumentless
+      // list mode is gone.
+      expect(ToolJsonSchema.fromTool(statusDef).required).toContain("task_id")
+      const emptyExit = yield* statusDef
+        .execute({} as InferParameters<typeof TaskStatusTool>, readContext(chat, undefined, () => asks++))
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(emptyExit)).toBe(true)
+      if (Exit.isSuccess(emptyExit)) throw new Error("expected the argumentless call to fail")
+      const emptyFailure = Cause.squash(emptyExit.cause)
+      expect(emptyFailure).toBeInstanceOf(Error)
+      if (emptyFailure instanceof Error) expect(emptyFailure.message).toContain("task_id")
 
       const first = (yield* sessions.create({ title: "status first" })).id
       const second = (yield* sessions.create({ title: "status second" })).id
@@ -1733,30 +1748,21 @@ describe("tool.task", () => {
       yield* registry.settle({ id: first, state: "completed" })
       yield* jobs.start({ id: live, type: "task", run: Effect.never })
 
-      // T5.1: the read-only call asks no permission; T5.2: one entry per run,
-      // newest launch first, ties by id ascending.
-      const list = yield* statusDef.execute({}, statusContext)
+      // T5.1: the read-only call asks no permission; T5.3: the detail form
+      // returns the snapshot of the addressed run with its derived state.
+      const detail = yield* statusDef.execute({ task_id: second }, readContext(chat, undefined, () => asks++))
       expect(asks).toBe(0)
-      expect(list.output).toContain(`<task id="${live}" state="running" description="live run">`)
-      expect(list.output).toContain(`<task id="${second}" state="interrupted" description="second run">`)
-      expect(list.output).toContain(`<task id="${first}" state="completed" description="first run">`)
-      expect(list.output.indexOf(live)).toBeLessThan(list.output.indexOf(second))
-      expect(list.output.indexOf(second)).toBeLessThan(list.output.indexOf(first))
-
-      // T5.3: the detail form returns one snapshot; a foreign or unknown id
-      // fails with task-not-found.
-      const detail = yield* statusDef.execute({ task_id: second }, statusContext)
       expect(detail.output).toContain(`<task id="${second}" state="interrupted" description="second run">`)
       expect(detail.output).toContain("launched ")
+      expect(detail.output.split("<task ")).toHaveLength(2)
 
+      // T5.3: a foreign or unknown task_id fails with task-not-found.
       const foreign = yield* sessions.create({ title: "other" })
       const foreignExit = yield* statusDef
-        .execute({ task_id: first }, { ...statusContext, sessionID: foreign.id })
+        .execute({ task_id: first }, readContext(foreign))
         .pipe(Effect.exit)
+      const missingExit = yield* statusDef.execute({ task_id: "ses_missing" }, readContext(chat)).pipe(Effect.exit)
       expect(Exit.isFailure(foreignExit)).toBe(true)
-      const missingExit = yield* statusDef
-        .execute({ task_id: "ses_missing" }, statusContext)
-        .pipe(Effect.exit)
       expect(Exit.isFailure(missingExit)).toBe(true)
       for (const exit of [foreignExit, missingExit]) {
         if (Exit.isFailure(exit)) {
@@ -1766,6 +1772,271 @@ describe("tool.task", () => {
         }
       }
       expect(asks).toBe(0)
+    }),
+  )
+
+  it.instance("task_list lists the session's runs newest first with derived states and mutates nothing", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const sessions = yield* Session.Service
+      const { chat } = yield* seed()
+      const listDef = yield* (yield* TaskListTool).init()
+      let asks = 0
+
+      const empty = yield* listDef.execute({}, readContext(chat, undefined, () => asks++))
+      expect(empty.output).toContain("No tasks have been launched by this session.")
+
+      const first = (yield* sessions.create({ title: "list first" })).id
+      const second = (yield* sessions.create({ title: "list second" })).id
+      const live = (yield* sessions.create({ title: "list live" })).id
+      for (const [id, description] of [
+        [first, "first run"],
+        [second, "second run"],
+        [live, "live run"],
+      ] as const) {
+        yield* registry.launch({ id, parentSession: chat.id, childSession: id, description })
+      }
+      yield* registry.settle({ id: first, state: "completed" })
+      yield* jobs.start({ id: live, type: "task", run: Effect.never })
+      const before = yield* registry.get(chat.id, second)
+
+      // T6.1: the read-only call asks no permission; T6.2: one snapshot block
+      // per run, newest launch first, carrying the derived states (R5.4).
+      const list = yield* listDef.execute({}, readContext(chat, undefined, () => asks++))
+      expect(asks).toBe(0)
+      expect(list.output).toContain(`<task id="${live}" state="running" description="live run">`)
+      expect(list.output).toContain(`<task id="${second}" state="interrupted" description="second run">`)
+      expect(list.output).toContain(`<task id="${first}" state="completed" description="first run">`)
+      expect(list.output.indexOf(live)).toBeLessThan(list.output.indexOf(second))
+      expect(list.output.indexOf(second)).toBeLessThan(list.output.indexOf(first))
+
+      // T6.1: the read mutates no registry row — the interrupted reading is
+      // never written.
+      expect(yield* registry.get(chat.id, second)).toEqual(before)
+    }),
+  )
+
+  it.instance("task_abort stops a live run, cancels the child session's work, and delivers no completion", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const { chat, assistant } = yield* seed()
+      const taskDef = yield* (yield* TaskTool).init()
+      const abortDef = yield* (yield* TaskAbortTool).init()
+      const ready = defer<SessionPrompt.PromptInput>()
+      const cancelled = defer<SessionID>()
+      const parentPrompts: SessionPrompt.PromptInput[] = []
+      let cancels = 0
+      let asks = 0
+      const promptOps: TaskPromptOps = {
+        cancel: (sessionID) =>
+          Effect.sync(() => {
+            cancels++
+            cancelled.resolve(sessionID)
+          }),
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) => {
+          if (input.sessionID === chat.id) {
+            parentPrompts.push(input)
+            return Effect.succeed(reply(input, "delivered"))
+          }
+          ready.resolve(input)
+          return Effect.promise(() => cancelled.promise).pipe(Effect.as(reply(input, "stopped")))
+        },
+      }
+
+      const started = yield* taskDef.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        context(chat, assistant, promptOps),
+      )
+      const runID = started.metadata.sessionId
+      yield* Effect.promise(() => ready.promise)
+
+      // T7.1: the stop asks no permission; T7.2: the live job is cancelled
+      // together with the child session's in-flight work.
+      const result = yield* abortDef.execute({ task_id: runID }, readContext(chat, promptOps, () => asks++))
+      expect(asks).toBe(0)
+      expect(cancels).toBeGreaterThanOrEqual(1)
+      expect(yield* Effect.promise(() => cancelled.promise)).toBe(runID)
+
+      const waited = yield* jobs.wait({ id: runID, timeout: 1_000 })
+      expect(waited.info?.status).toBe("cancelled")
+
+      // R4.6: the registry row records the cancel with its settle time.
+      const row = yield* registry.get(chat.id, runID)
+      expect(row?.state).toBe("cancelled")
+      expect(row?.settledAt).toBeGreaterThan(0)
+
+      // T7.6: the result is the snapshot read after the operation applies.
+      expect(result.output).toContain(`<task id="${runID}" state="cancelled" description="inspect bug">`)
+      expect(result.output).toContain(", settled ")
+
+      // R2.5: a cancelled run delivers no completion message.
+      yield* Effect.yieldNow
+      expect(parentPrompts).toHaveLength(0)
+    }),
+  )
+
+  it.instance("task_abort re-marks an interrupted run cancelled and resumes nothing", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const sessions = yield* Session.Service
+      const { chat } = yield* seed()
+      const abortDef = yield* (yield* TaskAbortTool).init()
+      // A row whose host process died: stored running, no live job in this
+      // process (the interrupted reading).
+      const id = (yield* sessions.create({ title: "interrupted" })).id
+      yield* registry.launch({ id, parentSession: chat.id, childSession: id, description: "died with the process" })
+      let cancels = 0
+      let prompts = 0
+      const promptOps: TaskPromptOps = {
+        cancel: () =>
+          Effect.sync(() => {
+            cancels++
+          }),
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) => {
+          prompts++
+          return Effect.succeed(reply(input, "done"))
+        },
+      }
+
+      // T7.3: the explicit stop re-marks the row cancelled with the settle
+      // time and resumes no execution.
+      const result = yield* abortDef.execute({ task_id: id }, readContext(chat, promptOps))
+      const row = yield* registry.get(chat.id, id)
+      expect(row?.state).toBe("cancelled")
+      expect(row?.settledAt).toBeGreaterThan(0)
+      expect(prompts).toBe(0)
+      expect(cancels).toBe(0)
+      expect(yield* jobs.get(id)).toBeUndefined()
+
+      // T7.6: the result snapshot carries the new cancelled state.
+      expect(result.output).toContain(`<task id="${id}" state="cancelled" description="died with the process">`)
+    }),
+  )
+
+  it.instance("task_abort on a settled run succeeds as an idempotent no-op", () =>
+    Effect.gen(function* () {
+      const registry = yield* TaskRun.Service
+      const sessions = yield* Session.Service
+      const { chat } = yield* seed()
+      const abortDef = yield* (yield* TaskAbortTool).init()
+      const states = ["completed", "error", "cancelled"] as const
+      const ids: SessionID[] = []
+      for (const state of states) {
+        const id = (yield* sessions.create({ title: `settled ${state}` })).id
+        yield* registry.launch({ id, parentSession: chat.id, childSession: id, description: `${state} run` })
+        yield* registry.settle({ id, state })
+        ids.push(id)
+      }
+      const before = yield* Effect.all(ids.map((id) => registry.get(chat.id, id)))
+      let cancels = 0
+      const promptOps: TaskPromptOps = {
+        cancel: () =>
+          Effect.sync(() => {
+            cancels++
+          }),
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) => Effect.succeed(reply(input, "done")),
+      }
+
+      // T7.4: each call succeeds and leaves the row untouched, returning the
+      // stored snapshot.
+      for (const [index, state] of states.entries()) {
+        const result = yield* abortDef.execute({ task_id: ids[index]! }, readContext(chat, promptOps))
+        expect(result.output).toContain(`<task id="${ids[index]}" state="${state}" description="${state} run">`)
+      }
+
+      const after = yield* Effect.all(ids.map((id) => registry.get(chat.id, id)))
+      expect(after).toEqual(before)
+      expect(cancels).toBe(0)
+    }),
+  )
+
+  it.instance("task_abort fails with task-not-found for unknown and foreign ids and performs nothing", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const sessions = yield* Session.Service
+      const { chat } = yield* seed()
+      const abortDef = yield* (yield* TaskAbortTool).init()
+      // A live run of another session: its task_id must not resolve for chat,
+      // and the failed call must not stop it.
+      const second = yield* sessions.create({ title: "Other parent" })
+      const foreign = (yield* sessions.create({ title: "foreign run", parentID: second.id })).id
+      yield* registry.launch({
+        id: foreign,
+        parentSession: second.id,
+        childSession: foreign,
+        description: "foreign run",
+      })
+      yield* jobs.start({ id: foreign, type: "task", run: Effect.never })
+      let cancels = 0
+      const promptOps: TaskPromptOps = {
+        cancel: () =>
+          Effect.sync(() => {
+            cancels++
+          }),
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) => Effect.succeed(reply(input, "done")),
+      }
+
+      const attempts = [
+        abortDef.execute({ task_id: "ses_missing" }, readContext(chat, promptOps)),
+        abortDef.execute({ task_id: foreign }, readContext(chat, promptOps)),
+      ]
+      for (const attempt of attempts) {
+        const exit = yield* attempt.pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isSuccess(exit)) throw new Error("expected task-not-found")
+        const failure = Cause.squash(exit.cause)
+        expect(failure).toBeInstanceOf(Error)
+        if (!(failure instanceof Error)) throw new Error("expected Error defect")
+        expect(failure.message).toContain("task-not-found")
+      }
+
+      // R7.5: the failed calls performed no action — the foreign live run is
+      // untouched.
+      expect(cancels).toBe(0)
+      expect((yield* jobs.get(foreign))?.status).toBe("running")
+      expect((yield* registry.get(second.id, foreign))?.state).toBe("running")
+    }),
+  )
+
+  it.instance("task_status, task_list, and task_abort descriptions document their contracts", () =>
+    Effect.gen(function* () {
+      const agents = yield* Agent.Service
+      const build = yield* agents.get("build")
+      if (!build) throw new Error("build agent not found")
+      const registry = yield* ToolRegistry.Service
+      const tools = yield* registry.tools({ ...ref, agent: build })
+      const descriptionOf = (id: string) => tools.find((tool) => tool.id === id)?.description ?? ""
+
+      // T3.3: the read-only role and the detail form.
+      const status = descriptionOf("task_status")
+      expect(status).toContain("read-only")
+      expect(status).toContain("task_id")
+
+      // T3.4: the read-only role and the newest-first list.
+      const list = descriptionOf("task_list")
+      expect(list).toContain("read-only")
+      expect(list.toLowerCase()).toContain("newest")
+
+      // T3.5: the live-job cancellation, the interrupted re-mark, the
+      // idempotent settled confirmation, and the absence of a completion
+      // message.
+      const abort = descriptionOf("task_abort")
+      expect(abort).toContain("cancelled together with")
+      expect(abort).toContain("re-marked cancelled")
+      expect(abort).toContain("changes nothing")
+      expect(abort).toContain("no completion message")
     }),
   )
 

@@ -13,6 +13,8 @@ import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TaskStatusTool } from "./task-status"
+import { TaskListTool } from "./task-list"
+import { TaskAbortTool } from "./task-abort"
 import { TaskEngine } from "@/task/engine"
 import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 import { Database } from "@opencode-ai/core/database/database"
@@ -114,6 +116,8 @@ const layer = Layer.effect(
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
     const taskStatus = yield* TaskStatusTool
+    const taskList = yield* TaskListTool
+    const taskAbort = yield* TaskAbortTool
     const read = yield* ReadTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
@@ -240,6 +244,8 @@ const layer = Layer.effect(
           write: Tool.init(writetool),
           task: Tool.init(task),
           taskStatus: Tool.init(taskStatus),
+          taskList: Tool.init(taskList),
+          taskAbort: Tool.init(taskAbort),
           fetch: Tool.init(webfetch),
           todo: Tool.init(todo),
           scheduler: Tool.init(schedulerTool),
@@ -269,6 +275,8 @@ const layer = Layer.effect(
             tool.write,
             tool.task,
             tool.taskStatus,
+            tool.taskList,
+            tool.taskAbort,
             tool.fetch,
             tool.todo,
             tool.scheduler,

@@ -169,6 +169,16 @@ describe("tool.registry", () => {
     }),
   )
 
+  it.instance("exposes the task_list and task_abort tools as builtins", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).toContain("task_list")
+      expect(ids).toContain("task_abort")
+    }),
+  )
+
   it.instance("does not expose execute unless code mode is enabled", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

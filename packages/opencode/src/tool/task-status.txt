@@ -1,9 +1,9 @@
-Read the status of subagent tasks that were launched from this session with the task tool.
+Read the status of one subagent task that was launched from this session with the task tool.
 
 This tool is read-only: it mutates nothing and never asks for permission.
 
-Without arguments it lists every task launched by this session, newest launch first, one entry per task. With task_id it returns the status snapshot of that one task. Each entry carries the task id, its state, and its description.
+Pass the task_id of the task to inspect. The result is the status snapshot of that one task, carrying the task id, its state, and its description. To list every task launched by this session, use the task_list tool.
 
 States: running means the task is working right now; completed, error, and cancelled are final states; interrupted means the task was running when its host process ended — it made no progress since, and no completion message will ever arrive for it. An interrupted task can be resumed by calling the task tool with its task_id and a new prompt.
 
-Use this when you need to check on launched tasks without duplicating their work — for example after a context loss or before deciding whether to relaunch. Do not poll it in a loop: completed and failed tasks notify the session by themselves.
+Use this when you need to check on a launched task without duplicating its work — for example after a context loss or before deciding whether to relaunch. Do not poll it in a loop: completed and failed tasks notify the session by themselves.

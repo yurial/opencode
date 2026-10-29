@@ -1,0 +1,9 @@
+Stop a subagent task that was launched from this session with the task tool.
+
+Pass the task_id of the task to stop. Stopping never asks for permission.
+
+- A running task is stopped: its background job is cancelled together with the task's in-flight work, and the task's state becomes cancelled.
+- An interrupted task — one whose host process ended while it ran — is re-marked cancelled; no work resumes.
+- An already settled task (completed, error, or cancelled) is confirmed as-is: the call succeeds and changes nothing.
+
+The result is the task's status snapshot after the stop. A stopped task delivers no completion message.
