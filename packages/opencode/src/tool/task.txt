@@ -2,7 +2,7 @@ Launch a new agent to handle complex, multistep tasks autonomously.
 
 When using the Task tool for a new task, you must specify a subagent_type parameter to select which agent type to use.
 
-Launches run asynchronously by default: the tool returns immediately with a running result while the task keeps working in the background, and the result arrives later as a separate session message. Work according to the instructions in that message; until then, do not sleep, poll for progress, ask the task for status, or duplicate its work. Pass wait=true only when you need the task's result before continuing.
+Launches run asynchronously: the tool returns immediately with a running result while the task keeps working in the background, and the settled result arrives later as a separate session message — the only channel of the task's outcome, so a launch that needs the result before continuing receives it through that message. Work according to the instructions in that message; until then, do not sleep, poll for progress, ask the task for status, or duplicate its work.
 
 Addressing an existing task with task_id (the id every launch result carries):
 - task_id without a prompt is a status-only call: it returns the task's status snapshot and does nothing else. The task_status tool lists all tasks of the session.

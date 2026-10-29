@@ -303,7 +303,7 @@ describe("tool.registry", () => {
     }),
   )
 
-  it.instance("advertises wait and never background in the task schema", () =>
+  it.instance("exposes no blocking argument and never background in the task schema", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const agent = yield* Agent.Service
@@ -319,7 +319,7 @@ describe("tool.registry", () => {
       const schema = ToolJsonSchema.fromTool(task!)
       const properties = (schema.properties ?? {}) as Record<string, unknown>
       expect(properties.background).toBeUndefined()
-      expect(properties.wait).toBeDefined()
+      expect(properties.wait).toBeUndefined()
     }),
   )
 

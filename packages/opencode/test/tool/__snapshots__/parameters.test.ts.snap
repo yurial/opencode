@@ -321,10 +321,6 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
       "description": "The id of a previously launched task. Without a prompt the call reads the task's status; with a prompt it extends the running task or continues its session. A fresh launch passes no task_id.",
       "type": "string",
     },
-    "wait": {
-      "description": "Wait for a newly launched task to finish and return its result in this tool call. Tasks run in the background by default and return immediately; the result arrives later as a separate session message.",
-      "type": "boolean",
-    },
   },
   "type": "object",
 }

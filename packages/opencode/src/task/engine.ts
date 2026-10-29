@@ -27,7 +27,7 @@ const escapeAttribute = (value: string) =>
 const escapeText = (value: string) => value.replaceAll(/<\/task/gi, "&lt;/task")
 
 /**
- * The result grammar of a launch result and of a blocking settlement result
+ * The result grammar of a launch result and of a completion message
  * (specs/tool-task.md Result grammar): one `<task>` element carrying the run
  * id and the state, an optional summary, and the final or failure text.
  */

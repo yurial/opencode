@@ -239,10 +239,6 @@ describe("tool parameters", () => {
       const parsed = parse(Task, { description: "d", prompt: "p", subagent_type: "general" })
       expect(parsed.subagent_type).toBe("general")
     })
-    test("accepts optional wait flag", () => {
-      const parsed = parse(Task, { description: "d", prompt: "p", subagent_type: "general", wait: true })
-      expect(parsed.wait).toBe(true)
-    })
     test("accepts a status-only call with just task_id", () => {
       const parsed = parse(Task, { task_id: "ses_existing" })
       expect(parsed.task_id).toBe("ses_existing")

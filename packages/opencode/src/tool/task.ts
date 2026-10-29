@@ -11,8 +11,7 @@ import { TaskEngine, renderOutput, renderSnapshot, runChild } from "@/task/engin
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
-import { Effect, Exit, Schema, Scope } from "effect"
-import { EffectBridge } from "@/effect/bridge"
+import { Effect, Schema, Scope } from "effect"
 import { Database } from "@opencode-ai/core/database/database"
 import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 
@@ -57,10 +56,6 @@ export const Parameters = Schema.Struct({
       "The id of a previously launched task. Without a prompt the call reads the task's status; with a prompt it extends the running task or continues its session. A fresh launch passes no task_id.",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
-  wait: Schema.optional(Schema.Boolean).annotate({
-    description:
-      "Wait for a newly launched task to finish and return its result in this tool call. Tasks run in the background by default and return immediately; the result arrives later as a separate session message.",
-  }),
 })
 
 export const TaskTool = Tool.define(
@@ -155,64 +150,6 @@ export const TaskTool = Tool.define(
         permission: childPermissionRules(parent, next, cfg),
       })
       return { next, session }
-    })
-
-    const waitForSettlement = Effect.fn("TaskTool.waitForSettlement")(function* (input: {
-      ctx: Tool.Context
-      runID: SessionID
-      cancel: Effect.Effect<void>
-      title: string
-      metadata: {
-        parentSessionId: SessionID
-        sessionId: SessionID
-        model: { modelID: string; providerID: string }
-        background: boolean
-      }
-    }) {
-      const runCancel = yield* EffectBridge.make()
-
-      function onAbort() {
-        runCancel.fork(input.cancel)
-      }
-
-      return yield* Effect.acquireUseRelease(
-        Effect.sync(() => {
-          input.ctx.abort.addEventListener("abort", onAbort)
-        }),
-        () =>
-          Effect.gen(function* () {
-            const result = yield* background.wait({ id: input.runID })
-            if (result.info?.status === "error") {
-              yield* registry.settle({ id: input.runID, state: "error" })
-              return yield* Effect.fail(new Error(result.info.error ?? "Task failed"))
-            }
-            if (result.info?.status === "cancelled") {
-              yield* registry.settle({ id: input.runID, state: "cancelled" })
-              return yield* Effect.fail(new Error("Task cancelled"))
-            }
-            yield* registry.settle({ id: input.runID, state: "completed" })
-            return {
-              title: input.title,
-              metadata: input.metadata,
-              output: renderOutput({ sessionID: input.runID, state: "completed", text: result.info?.output ?? "" }),
-            }
-          }),
-        (_, exit) =>
-          Effect.gen(function* () {
-            if (Exit.hasInterrupts(exit)) {
-              // The abort path cancels the run: record the cancellation with
-              // its settle time (R4.6) before interrupting the child.
-              yield* registry.settle({ id: input.runID, state: "cancelled" })
-              yield* Effect.all([input.cancel, background.cancel(input.runID)], { discard: true })
-            }
-          }).pipe(
-            Effect.ensuring(
-              Effect.sync(() => {
-                input.ctx.abort.removeEventListener("abort", onAbort)
-              }),
-            ),
-          ),
-      )
     })
 
     /** R1.5: the status-only call — no launch, no write, no permission ask. */
@@ -367,16 +304,10 @@ export const TaskTool = Tool.define(
         }).pipe(Effect.onInterrupt(() => ops.cancel(nextSession.id))),
       })
 
-      if (params.wait === true) {
-        return yield* waitForSettlement({
-          ctx,
-          runID: nextSession.id,
-          cancel: ops.cancel(nextSession.id),
-          title: params.description,
-          metadata,
-        })
-      }
-
+      // R1.1: every launch is asynchronous — the watcher is attached and the
+      // running result returns before the run settles (T1.1); the settled
+      // outcome reaches the parent session only through the completion
+      // message (R1.9).
       yield* engine.watch({
         ops,
         parentSession: ctx.sessionID,

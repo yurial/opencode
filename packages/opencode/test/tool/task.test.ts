@@ -325,7 +325,7 @@ describe("tool.task", () => {
   )
 
   it.instance(
-    "description documents the asynchronous default, the completion notification, and wait",
+    "description documents the asynchronous launch, the completion notification, and the single outcome channel",
     () =>
       Effect.gen(function* () {
         const agent = yield* Agent.Service
@@ -334,14 +334,18 @@ describe("tool.task", () => {
         const description =
           (yield* registry.tools({ ...ref, agent: build })).find((tool) => tool.id === TaskTool.id)?.description ?? ""
 
-        expect(description).toContain("asynchronously by default")
+        // T3.1: the asynchronous launch, the completion notification, and the
+        // settled outcome arriving only through the completion message — no
+        // blocking guidance remains.
+        expect(description).toContain("asynchronously")
         expect(description).toContain("separate session message")
-        expect(description).toContain("wait=true")
+        expect(description).toContain("only channel of the task's outcome")
+        expect(description).not.toContain("wait=true")
         expect(description.toLowerCase()).not.toContain("background=true")
       }),
   )
 
-  it.instance("advertises wait and never background in the task schema", () =>
+  it.instance("exposes no blocking argument and never background in the task schema", () =>
     Effect.gen(function* () {
       const agent = yield* Agent.Service
       const build = yield* agent.get("build")
@@ -352,8 +356,9 @@ describe("tool.task", () => {
 
       const schema = ToolJsonSchema.fromTool(task)
       const properties = (schema.properties ?? {}) as Record<string, unknown>
+      // T1.1: the schema exposes no blocking argument.
       expect(properties.background).toBeUndefined()
-      expect(properties.wait).toBeDefined()
+      expect(properties.wait).toBeUndefined()
     }),
   )
 
@@ -395,26 +400,27 @@ describe("tool.task", () => {
     }),
   )
 
-  it.instance("wait=true returns the settled output only after the run settles", () =>
+  it.instance("async launch returns the running result before the run settles", () =>
     Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
       const { chat, assistant } = yield* seed()
       const tool = yield* TaskTool
       const def = yield* tool.init()
-      const gate = defer<void>()
-      const events: string[] = []
+      const streaming = defer<SessionPrompt.PromptInput>()
+      const settle = defer<void>()
       const parentPrompts: SessionPrompt.PromptInput[] = []
+      // Realistic child turn: the prompt stays unresolved until the explicit
+      // settle signal, so the run is mid-flight while the launch result must
+      // already be back.
       const promptOps: TaskPromptOps = {
-        cancel: () => Effect.void,
-        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        ...stubOps(),
         prompt: (input) => {
           if (input.sessionID === chat.id) {
             parentPrompts.push(input)
             return Effect.succeed(reply(input, "delivered"))
           }
-          return Effect.promise(() => gate.promise).pipe(
-            Effect.tap(() => Effect.sync(() => events.push("settled"))),
-            Effect.as(reply(input, "settled output")),
-          )
+          streaming.resolve(input)
+          return Effect.promise(() => settle.promise).pipe(Effect.as(reply(input, "late answer")))
         },
       }
 
@@ -424,120 +430,128 @@ describe("tool.task", () => {
             description: "inspect bug",
             prompt: "look into the cache key path",
             subagent_type: "general",
-            wait: true,
           },
-          {
-            sessionID: chat.id,
-            messageID: assistant.id,
-            agent: "build",
-            abort: new AbortController().signal,
-            extra: { promptOps },
-            messages: [],
-            metadata: () => Effect.void,
-            ask: () => Effect.void,
-          },
+          context(chat, assistant, promptOps),
         )
         .pipe(Effect.forkChild)
+      yield* Effect.promise(() => streaming.promise)
 
-      // The tool result may only arrive once the run settles; resolving the
-      // gate is the only way the blocked wait can observe settlement.
-      gate.resolve()
-      const result = yield* Fiber.join(fiber)
-      events.push("joined")
+      // R1.1: the tool result is available while the child prompt is still
+      // unresolved; a regression that parks the launch on settlement times
+      // out here instead of hanging.
+      const result = yield* Fiber.join(fiber).pipe(Effect.timeoutOption(2_000))
+      if (Option.isNone(result)) throw new Error("async launch did not return before the run settled (R1.1)")
+      const started = result.value
 
-      expect(events).toEqual(["settled", "joined"])
-      expect(result.output).toContain(`<task id="${result.metadata.sessionId}" state="completed">`)
-      expect(result.output).toContain("settled output")
-      expect(parentPrompts).toHaveLength(0)
+      // R1.2: the result carries the run id, the running state, and the
+      // completion promise.
+      expect(started.metadata.background).toBe(true)
+      expect(started.output).toContain(`<task id="${started.metadata.sessionId}" state="running">`)
+      expect(started.output).toContain("Task started")
+      expect(started.output).toContain("separate session message")
+
+      // The run settles only through the explicit signal, and the completion
+      // contract survives the early result.
+      settle.resolve()
+      const waited = yield* jobs.wait({ id: started.metadata.sessionId, timeout: 2_000 })
+      expect(waited.info?.status).toBe("completed")
+      expect(waited.info?.output).toBe("late answer")
+      yield* pollWithTimeout(
+        Effect.sync(() => (parentPrompts.length > 0 ? (true as const) : undefined)),
+        "completion message never delivered",
+      )
+      const part = parentPrompts[0]?.parts[0]
+      expect(part?.type).toBe("text")
+      if (part?.type === "text") {
+        expect(part.text).toContain(`<task id="${started.metadata.sessionId}" state="completed">`)
+        expect(part.text).toContain("late answer")
+      }
     }),
   )
 
-  it.instance("wait=true surfaces child errors with a resumable task_id", () =>
+  it.instance("a failed run surfaces the child error with a resumable task_id", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
       const tool = yield* TaskTool
       const def = yield* tool.init()
+      const injected = defer<SessionPrompt.PromptInput>()
+      const promptOps: TaskPromptOps = {
+        ...stubOps({
+          text: "",
+          error: new SessionV1.APIError({ message: "Network connection lost", isRetryable: false }).toObject(),
+        }),
+        prompt: (input) => {
+          if (input.sessionID !== chat.id) {
+            return Effect.succeed(
+              reply(
+                input,
+                "",
+                new SessionV1.APIError({ message: "Network connection lost", isRetryable: false }).toObject(),
+              ),
+            )
+          }
+          injected.resolve(input)
+          return Effect.succeed(reply(input, "delivered"))
+        },
+      }
 
-      const exit = yield* def
-        .execute(
-          {
-            description: "inspect bug",
-            prompt: "look into the cache key path",
-            subagent_type: "general",
-            wait: true,
-          },
-          {
-            sessionID: chat.id,
-            messageID: assistant.id,
-            agent: "build",
-            abort: new AbortController().signal,
-            extra: {
-              promptOps: stubOps({
-                text: "",
-                error: new SessionV1.APIError({ message: "Network connection lost", isRetryable: false }).toObject(),
-              }),
-            },
-            messages: [],
-            metadata: () => Effect.void,
-            ask: () => Effect.void,
-          },
-        )
-        .pipe(Effect.exit)
+      const result = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        context(chat, assistant, promptOps),
+      )
+      const notification = yield* Effect.promise(() => injected.promise)
 
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isSuccess(exit)) throw new Error("expected task failure")
       const child = (yield* sessions.children(chat.id))[0]
       expect(child).toBeDefined()
-      const failure = Cause.squash(exit.cause)
-      expect(failure).toBeInstanceOf(Error)
-      if (!(failure instanceof Error)) throw new Error("expected Error defect")
-      expect(failure.message).toBe(`Subagent failed (task_id: ${child?.id}): Network connection lost`)
+      const part = notification.parts[0]
+      expect(part?.type).toBe("text")
+      if (part?.type === "text") {
+        expect(part.text).toContain(`<task id="${result.metadata.sessionId}" state="error">`)
+        expect(part.text).toContain(`Subagent failed (task_id: ${child?.id}): Network connection lost`)
+      }
     }),
   )
 
-  it.instance("wait=true surfaces terminal child tool errors with a resumable task_id", () =>
+  it.instance("a failed run surfaces the child tool error with a resumable task_id", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
       const tool = yield* TaskTool
       const def = yield* tool.init()
+      const injected = defer<SessionPrompt.PromptInput>()
+      const promptOps = stubOps({
+        text: "I will inspect the directory.",
+        toolError: "The user rejected permission to use this specific tool call.",
+        onPrompt: (input) => {
+          if (input.sessionID === chat.id) injected.resolve(input)
+        },
+      })
 
-      const exit = yield* def
-        .execute(
-          {
-            description: "inspect external directory",
-            prompt: "read the external directory",
-            subagent_type: "general",
-            wait: true,
-          },
-          {
-            sessionID: chat.id,
-            messageID: assistant.id,
-            agent: "build",
-            abort: new AbortController().signal,
-            extra: {
-              promptOps: stubOps({
-                text: "I will inspect the directory.",
-                toolError: "The user rejected permission to use this specific tool call.",
-              }),
-            },
-            messages: [],
-            metadata: () => Effect.void,
-            ask: () => Effect.void,
-          },
-        )
-        .pipe(Effect.exit)
-
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isSuccess(exit)) throw new Error("expected task failure")
-      const child = (yield* sessions.children(chat.id))[0]
-      const failure = Cause.squash(exit.cause)
-      expect(failure).toBeInstanceOf(Error)
-      if (!(failure instanceof Error)) throw new Error("expected Error defect")
-      expect(failure.message).toBe(
-        `Subagent failed (task_id: ${child?.id}): The user rejected permission to use this specific tool call.`,
+      const result = yield* def.execute(
+        {
+          description: "inspect external directory",
+          prompt: "read the external directory",
+          subagent_type: "general",
+        },
+        context(chat, assistant, promptOps),
       )
+      const notification = yield* Effect.promise(() => injected.promise)
+
+      const child = (yield* sessions.children(chat.id))[0]
+      expect(child).toBeDefined()
+      const part = notification.parts[0]
+      expect(part?.type).toBe("text")
+      if (part?.type === "text") {
+        expect(part.text).toContain(`<task id="${result.metadata.sessionId}" state="error">`)
+        expect(part.text).toContain(
+          `Subagent failed (task_id: ${child?.id}): The user rejected permission to use this specific tool call.`,
+        )
+      }
     }),
   )
 
@@ -843,98 +857,6 @@ describe("tool.task", () => {
       if (notification.parts[0]?.type === "text") expect(notification.parts[0].text).toContain("second done")
     }),
   )
-
-  it.instance("extend of a wait-launched run attaches the completion watcher for its parent", () =>
-    Effect.gen(function* () {
-      const jobs = yield* BackgroundJob.Service
-      const { chat, assistant } = yield* seed()
-      const tool = yield* TaskTool
-      const def = yield* tool.init()
-      const first = defer<void>()
-      const secondRun = defer<void>()
-      const seenChild = defer<SessionPrompt.PromptInput>()
-      const seenExtension = defer<SessionPrompt.PromptInput>()
-      const parentPrompts: SessionPrompt.PromptInput[] = []
-      let prompts = 0
-      const promptOps: TaskPromptOps = {
-        ...stubOps(),
-        prompt: (input) => {
-          if (input.sessionID === chat.id) {
-            parentPrompts.push(input)
-            return Effect.succeed(reply(input, "delivered"))
-          }
-          prompts++
-          if (prompts === 1)
-            return Effect.sync(() => seenChild.resolve(input)).pipe(
-              Effect.andThen(Effect.promise(() => first.promise)),
-              Effect.as(reply(input, "first done")),
-            )
-          return Effect.sync(() => seenExtension.resolve(input)).pipe(
-            Effect.andThen(Effect.promise(() => secondRun.promise)),
-            Effect.as(reply(input, "second done")),
-          )
-        },
-      }
-      // The original launch blocks in wait=true, so its result will arrive
-      // through the tool call; no completion watcher exists for the job yet.
-      const fiber = yield* def
-        .execute(
-          {
-            description: "inspect bug",
-            prompt: "look into the cache key path",
-            subagent_type: "general",
-            wait: true,
-          },
-          context(chat, assistant, promptOps),
-        )
-        .pipe(Effect.forkChild)
-      const started = yield* Effect.promise(() => seenChild.promise).pipe(Effect.timeoutOption(2_000))
-      const childID = Option.getOrThrow(started).sessionID
-      const resumed = yield* def.execute(
-        {
-          task_id: childID,
-          prompt: "also inspect cancellation",
-        },
-        context(chat, assistant, promptOps),
-      )
-
-      expect(resumed.metadata.sessionId).toBe(childID)
-      expect(resumed.output).toContain(`state="running"`)
-      expect(resumed.output).toContain("Additional context sent to the running task")
-
-      first.resolve()
-      yield* Effect.promise(() => seenExtension.promise).pipe(Effect.timeoutOption(2_000))
-      expect((yield* jobs.get(resumed.metadata.sessionId))?.status).toBe("running")
-
-      secondRun.resolve()
-      const waited = yield* jobs.wait({ id: resumed.metadata.sessionId, timeout: 1_000 })
-      expect(waited.info?.status).toBe("completed")
-      expect(waited.info?.output).toBe("second done")
-
-      // The parent receives exactly one synthetic completion message for the
-      // settlement; the blocked wait call settles through its tool result.
-      yield* pollWithTimeout(
-        Effect.sync(() => (parentPrompts.length > 0 ? (true as const) : undefined)),
-        "completion message never delivered",
-      )
-      const settled = yield* Fiber.join(fiber)
-      expect(settled.output).toContain(`state="completed"`)
-      expect(settled.output).toContain("second done")
-      expect(parentPrompts).toHaveLength(1)
-      expect(parentPrompts[0]?.sessionID).toBe(chat.id)
-      const part = parentPrompts[0]?.parts[0]
-      expect(part?.type).toBe("text")
-      if (part?.type === "text") {
-        expect(part.synthetic).toBe(true)
-        expect(part.text).toContain(`<task id="${resumed.metadata.sessionId}" state="completed">`)
-        expect(part.text).toContain("second done")
-      }
-
-      yield* Effect.yieldNow
-      expect(parentPrompts).toHaveLength(1)
-    }),
-  )
-
   it.instance("resume after settlement starts a fresh run with its own completion", () =>
     Effect.gen(function* () {
       const { chat, assistant } = yield* seed()
@@ -1623,97 +1545,6 @@ describe("tool.task", () => {
       expect(failure.message).toContain("Unknown agent type: ghost")
     }),
   )
-
-  it.instance("a wait-launched run cancelled through the job registry records cancelled", () =>
-    Effect.gen(function* () {
-      const jobs = yield* BackgroundJob.Service
-      const registry = yield* TaskRun.Service
-      const { chat, assistant } = yield* seed()
-      const tool = yield* TaskTool
-      const def = yield* tool.init()
-      const gate = defer<void>()
-      let prompts = 0
-      const promptOps: TaskPromptOps = {
-        ...stubOps(),
-        prompt: (input) => {
-          if (input.sessionID === chat.id) return Effect.succeed(reply(input, "delivered"))
-          prompts++
-          return Effect.promise(() => gate.promise).pipe(Effect.as(reply(input, "slow work")))
-        },
-      }
-
-      const fiber = yield* def
-        .execute(
-          {
-            description: "inspect bug",
-            prompt: "look into the cache key path",
-            subagent_type: "general",
-            wait: true,
-          },
-          context(chat, assistant, promptOps),
-        )
-        .pipe(Effect.forkChild)
-      yield* pollWithTimeout(
-        Effect.sync(() => (prompts > 0 ? (true as const) : undefined)),
-        "child prompt never started",
-      )
-
-      yield* jobs.cancel((yield* jobs.list()).find((job) => job.type === "task")!.id)
-      const exit = yield* Fiber.await(fiber)
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isSuccess(exit)) throw new Error("expected task-cancelled failure")
-      const failure = Cause.squash(exit.cause)
-      if (!(failure instanceof Error)) throw new Error("expected Error defect")
-      expect(failure.message).toBe("Task cancelled")
-
-      const row = yield* registry.get(chat.id, (yield* registry.list(chat.id))[0]!.id)
-      expect(row?.state).toBe("cancelled")
-      expect(row?.settledAt).toBeGreaterThan(0)
-    }),
-  )
-
-  it.instance("interrupting a waiting launch records the cancelled state", () =>
-    Effect.gen(function* () {
-      const registry = yield* TaskRun.Service
-      const { chat, assistant } = yield* seed()
-      const tool = yield* TaskTool
-      const def = yield* tool.init()
-      const gate = defer<void>()
-      let prompts = 0
-      const promptOps: TaskPromptOps = {
-        ...stubOps(),
-        prompt: (input) => {
-          if (input.sessionID === chat.id) return Effect.succeed(reply(input, "delivered"))
-          prompts++
-          return Effect.promise(() => gate.promise).pipe(Effect.as(reply(input, "slow work")))
-        },
-      }
-
-      const fiber = yield* def
-        .execute(
-          {
-            description: "inspect bug",
-            prompt: "look into the cache key path",
-            subagent_type: "general",
-            wait: true,
-          },
-          context(chat, assistant, promptOps),
-        )
-        .pipe(Effect.forkChild)
-      yield* pollWithTimeout(
-        Effect.sync(() => (prompts > 0 ? (true as const) : undefined)),
-        "child prompt never started",
-      )
-
-      yield* Fiber.interrupt(fiber)
-      gate.resolve()
-
-      const row = yield* registry.get(chat.id, (yield* registry.list(chat.id))[0]!.id)
-      expect(row?.state).toBe("cancelled")
-      expect(row?.settledAt).toBeGreaterThan(0)
-    }),
-  )
-
   it.instance("task_status requires task_id and returns the detail snapshot of the addressed run", () =>
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service
@@ -2085,58 +1916,6 @@ describe("tool.task", () => {
       })
     }),
   )
-
-  it.instance("wait=true cancels the child session when the abort signal fires", () =>
-    Effect.gen(function* () {
-      const { chat, assistant } = yield* seed()
-      const tool = yield* TaskTool
-      const def = yield* tool.init()
-      const ready = defer<SessionPrompt.PromptInput>()
-      const cancelled = defer<SessionID>()
-      const abort = new AbortController()
-      const promptOps: TaskPromptOps = {
-        cancel: (sessionID) =>
-          Effect.sync(() => {
-            cancelled.resolve(sessionID)
-          }),
-        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
-        prompt: (input) =>
-          Effect.promise(() => {
-            ready.resolve(input)
-            return cancelled.promise
-          }).pipe(Effect.as(reply(input, "cancelled"))),
-      }
-
-      const fiber = yield* def
-        .execute(
-          {
-            description: "inspect bug",
-            prompt: "look into the cache key path",
-            subagent_type: "general",
-            wait: true,
-          },
-          {
-            sessionID: chat.id,
-            messageID: assistant.id,
-            agent: "build",
-            abort: abort.signal,
-            extra: { promptOps },
-            messages: [],
-            metadata: () => Effect.void,
-            ask: () => Effect.void,
-          },
-        )
-        .pipe(Effect.forkChild)
-
-      const input = yield* Effect.promise(() => ready.promise)
-      abort.abort()
-      expect(yield* Effect.promise(() => cancelled.promise)).toBe(input.sessionID)
-
-      const exit = yield* Fiber.await(fiber)
-      expect(Exit.isSuccess(exit)).toBe(true)
-    }),
-  )
-
   it.instance("prevents subagents from launching subagents by default", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
