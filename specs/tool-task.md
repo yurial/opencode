@@ -94,7 +94,7 @@ launched <created-at>[, settled <settled-at>]
 
 - `<state>` is the stored registry state, or `interrupted` for a row stored `running` whose run has no live job (R4.11); a run with a live job reads `running` (R4.10).
 - `<created-at>` and `<settled-at>` are UTC `ISO 8601` instants; the settled fragment appears only on a row whose state left `running`.
-- A status list line carries the run id, the state, and the description, one line per run (R5.2).
+- A status list renders one status snapshot block per subagent-run, each block carrying the run id, the state, and the description (R5.2).
 
 ### Description contract
 
@@ -189,7 +189,7 @@ Error results (the complete set; semantics in Error handling):
 - R4.12. verification=scenario; Completion messages are not delivered across process-lifetime boundaries: a run whose host process died before settlement delivers no completion message, and its row keeps reading `interrupted`.
 - R5. Status surfaces:
 - R5.1. verification=automated; The task_status tool is a read-only V1 built-in that asks no permission and mutates no registry row.
-- R5.2. verification=automated; A task_status call without `task_id` returns one status list line per subagent-run of the calling session, newest launch first, ties ordered by run id ascending.
+- R5.2. verification=automated; A task_status call without `task_id` returns one status snapshot block per subagent-run of the calling session, each block carrying the run id, the state, and the description, newest launch first, ties ordered by run id ascending.
 - R5.3. verification=automated; A task_status call with `task_id` returns the status snapshot of the addressed subagent-run of the calling session; a `task_id` resolving to no subagent-run of the calling session fails the call with `task-not-found`.
 - R5.4. verification=automated; Every status surface — the task tool status call, the task_status tool, and the status endpoints — reports a run with a live job as `running` and a stored `running` row without a live job as `interrupted`.
 - R5.5. verification=automated; The session.task.list endpoint answers read-only GET requests with one task-run entry per subagent-run of the path session, mutating no registry row and performing no permission ask.
@@ -234,7 +234,7 @@ Error results (the complete set; semantics in Error handling):
 - E4.7. After a process restart, the row of a run that was live at shutdown still exists and reads `interrupted`, and no completion message for it is ever delivered.
 - E4.11. Reading the status of the interrupted run of E4.7 twice returns `interrupted` both times and mutates no row.
 - E5. Status surfaces:
-- E5.2. A task_status call of the parent session lists its runs newest first, one line per run, each carrying the run id, the state, and the description.
+- E5.2. A task_status call of the parent session lists its runs newest first, one status snapshot block per run, each block carrying the run id, the state, and the description.
 - E5.3. A task_status call with the `task_id` of E1.1 returns the snapshot of that run; with the `task_id` of another session's run it fails with `task-not-found`.
 - E5.4. A run with a live job reads `running` on the task tool status call, task_status, and both status endpoints; a stored `running` row without a live job reads `interrupted` on each of them.
 - E5.7. A continue request against a live run extends it and returns the running entry; against a settled run it continues the conversation and returns the running entry.
@@ -271,7 +271,7 @@ Error results (the complete set; semantics in Error handling):
 - T4.10. R-ID=R4.12; procedure=cross-boundary delivery scenario; conditions=a run live at process death, then a process restart; expected=no completion message is ever delivered for it and its row keeps reading `interrupted`.
 - T5. Status surfaces:
 - T5.1. R-ID=R5.1; procedure=task_status read-only test; conditions=a task_status call of a session with runs; expected=no permission ask occurs and no registry row changes.
-- T5.2. R-ID=R5.2; procedure=list form test; conditions=a session with runs launched at distinct times and two launched together; expected=one line per run, newest first, the tie ordered by run id ascending.
+- T5.2. R-ID=R5.2; procedure=list form test; conditions=a session with runs launched at distinct times and two launched together; expected=one status snapshot block per run, newest first, the tie ordered by run id ascending.
 - T5.3. R-ID=R5.3; procedure=detail form test; conditions=a task_status call with the `task_id` of a run of the calling session and one of another session's run; expected=the first returns the snapshot, the second fails with `task-not-found`.
 - T5.4. R-ID=R5.4; procedure=derived-state reporting test; conditions=one run with a live job and one stored `running` row without a live job; expected=the first reads `running` and the second `interrupted` on the task tool status call, task_status, and both status endpoints.
 - T5.5. R-ID=R5.5; procedure=session.task.list endpoint test; conditions=a GET against a session with runs; expected=one task-run entry per run in the data envelope, with no registry mutation and no permission ask.
