@@ -160,12 +160,12 @@ describe("tool.registry", () => {
     }),
   )
 
-  it.instance("does not expose task_status", () =>
+  it.instance("exposes the read-only task_status tool as a builtin", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const ids = yield* registry.ids()
 
-      expect(ids).not.toContain("task_status")
+      expect(ids).toContain("task_status")
     }),
   )
 

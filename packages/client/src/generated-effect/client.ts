@@ -215,6 +215,40 @@ const Endpoint3_17 = (raw: RawClient["server.session"]) => (input: Endpoint3_17I
     Effect.map((value) => value.data),
   )
 
+type Endpoint3_18Request = Parameters<RawClient["server.session"]["session.task.list"]>[0]
+type Endpoint3_18Input = { readonly sessionID: Endpoint3_18Request["params"]["sessionID"] }
+const Endpoint3_18 = (raw: RawClient["server.session"]) => (input: Endpoint3_18Input) =>
+  raw["session.task.list"]({ params: { sessionID: input["sessionID"] } }).pipe(
+    Effect.mapError(mapClientError),
+    Effect.map((value) => value.data),
+  )
+
+type Endpoint3_19Request = Parameters<RawClient["server.session"]["session.task.get"]>[0]
+type Endpoint3_19Input = {
+  readonly sessionID: Endpoint3_19Request["params"]["sessionID"]
+  readonly taskID: Endpoint3_19Request["params"]["taskID"]
+}
+const Endpoint3_19 = (raw: RawClient["server.session"]) => (input: Endpoint3_19Input) =>
+  raw["session.task.get"]({ params: { sessionID: input["sessionID"], taskID: input["taskID"] } }).pipe(
+    Effect.mapError(mapClientError),
+    Effect.map((value) => value.data),
+  )
+
+type Endpoint3_20Request = Parameters<RawClient["server.session"]["session.task.continue"]>[0]
+type Endpoint3_20Input = {
+  readonly sessionID: Endpoint3_20Request["params"]["sessionID"]
+  readonly taskID: Endpoint3_20Request["params"]["taskID"]
+  readonly message: Endpoint3_20Request["payload"]["message"]
+}
+const Endpoint3_20 = (raw: RawClient["server.session"]) => (input: Endpoint3_20Input) =>
+  raw["session.task.continue"]({
+    params: { sessionID: input["sessionID"], taskID: input["taskID"] },
+    payload: { message: input["message"] },
+  }).pipe(
+    Effect.mapError(mapClientError),
+    Effect.map((value) => value.data),
+  )
+
 const adaptGroup3 = (raw: RawClient["server.session"]) => ({
   list: Endpoint3_0(raw),
   create: Endpoint3_1(raw),
@@ -234,6 +268,9 @@ const adaptGroup3 = (raw: RawClient["server.session"]) => ({
   interrupt: Endpoint3_15(raw),
   message: Endpoint3_16(raw),
   listSchedules: Endpoint3_17(raw),
+  listTasks: Endpoint3_18(raw),
+  getTask: Endpoint3_19(raw),
+  continueTask: Endpoint3_20(raw),
 })
 
 type Endpoint4_0Request = Parameters<RawClient["server.message"]["session.messages"]>[0]

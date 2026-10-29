@@ -42,5 +42,6 @@ export const migrations = (
     import("./migration/20260622202450_simplify_session_input"),
     import("./migration/20261024202807_add_schedule_table"),
     import("./migration/20261026130305_add_schedule_command"),
+    import("./migration/20261028225350_add_task_run_table"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

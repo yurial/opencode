@@ -1198,6 +1198,130 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
+    .get("/api/session/{sessionID}/task", "v2.session.task.list")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Task list owner" })
+        const tasks = yield* ctx.tasks(session.id, [
+          { description: "oldest run", settled: "completed" },
+          { description: "middle run" },
+          { description: "newest run" },
+        ])
+        return { session, tasks }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/task", { sessionID: ctx.state.session.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body, ctx) => {
+      object(body)
+      object(body.data)
+      array(body.data.tasks)
+      // R5.5: one task-run entry per run of the session, newest launch first;
+      // R5.4/R4.11: a stored running run with no live job reads interrupted.
+      const expected = [...ctx.state.tasks]
+        .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? -1 : 1))
+        .map((entry) => ({
+          id: entry.id,
+          description: entry.description,
+          state: entry.state,
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt,
+          settledAt: entry.settledAt,
+        }))
+      check(
+        stable(body.data.tasks) === stable(expected),
+        "tasks should match the seeded runs newest first",
+      )
+      const settled = body.data.tasks.find((task) => isRecord(task) && task.description === "oldest run")
+      check(
+        isRecord(settled) && settled.state === "completed" && typeof settled.settledAt === "number",
+        "the settled run should carry its state and settle time",
+      )
+    }),
+  http.protected
+    .get("/api/session/{sessionID}/task", "v2.session.task.list.missing")
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/task", { sessionID: "ses_httpapi_missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .get("/api/session/{sessionID}/task/{taskID}", "v2.session.task.get")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Task get owner" })
+        const tasks = yield* ctx.tasks(session.id, [{ description: "fix tests" }])
+        return { session, task: tasks[0] }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/task/{taskID}", {
+        sessionID: ctx.state.session.id,
+        taskID: ctx.state.task!.id,
+      }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body, ctx) => {
+      object(body)
+      object(body.data)
+      // R5.6: the entry of the path task id inside the data envelope; a run
+      // with no live job reads interrupted.
+      check(body.data.id === ctx.state.task!.id, "the entry should be the addressed run")
+      check(body.data.description === "fix tests", "the entry should carry the stored description")
+      check(body.data.state === "interrupted", "a stored running run without a live job reads interrupted")
+      check(body.data.settledAt === null, "an unsettled run carries a null settle time")
+    }),
+  http.protected
+    .get("/api/session/{sessionID}/task/{taskID}", "v2.session.task.get.missing")
+    .seeded((ctx) => ctx.session({ title: "Task get missing owner" }))
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/task/{taskID}", {
+        sessionID: ctx.state.id,
+        taskID: "ses_httpapi_missing",
+      }),
+      headers: ctx.headers(),
+    }))
+    .json(404, (body) => {
+      object(body)
+      check(body._tag === "TaskNotFoundError", "an unknown task id fails with TaskNotFoundError")
+    }, "status"),
+  http.protected
+    .post("/api/session/{sessionID}/task/{taskID}/continue", "v2.session.task.continue")
+    .preserveDatabase()
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Task continue owner" })
+        yield* ctx.llmText("continuation finished")
+        yield* ctx.llmText("continuation finished")
+        const tasks = yield* ctx.tasks(session.id, [{ description: "fix tests", settled: "completed" }])
+        return { session, task: tasks[0] }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/task/{taskID}/continue", {
+        sessionID: ctx.state.session.id,
+        taskID: ctx.state.task!.id,
+      }),
+      headers: ctx.headers(),
+      body: { message: "extend the fix to the sister module" },
+    }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        object(body)
+        object(body.data)
+        // R5.7: the continuation re-marks the run running and the response is
+        // the resulting running entry; R5.8: the continued work settles and
+        // its completion message arrives in the parent session.
+        check(body.data.id === ctx.state.task!.id, "the entry should be the continued run")
+        check(body.data.state === "running", "the response should be the running entry")
+        check(body.data.settledAt === null, "the continued run is unsettled")
+        yield* ctx.llmWait(1)
+      }),
+    ),
+  http.protected
     .get("/session", "session.list")
     .seeded((ctx) => ctx.session({ title: "List me" }))
     .at((ctx) => ({ path: "/session?roots=true", headers: ctx.headers() }))

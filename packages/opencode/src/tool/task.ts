@@ -7,12 +7,14 @@ import { SessionID, MessageID } from "../session/schema"
 import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
 import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
+import { TaskEngine, renderOutput, renderSnapshot, runChild } from "@/task/engine"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Effect, Exit, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { Database } from "@opencode-ai/core/database/database"
+import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -32,38 +34,34 @@ const RUNNING_UPDATED_TEXT = [
   "DO NOT sleep, poll for progress, ask the task for status, or duplicate this task's work — avoid working with the same files or topics it is using.",
   "Work on non-overlapping tasks, or briefly tell the user what you sent and end your response.",
 ].join("\n")
+const CONTINUED_TEXT = [
+  "The prompt was delivered to the task's session; the task is working in the background with the earlier conversation in context.",
+  "Its result will arrive as a separate session message when it finishes.",
+  "DO NOT sleep, poll for progress, ask the task for status, or duplicate this task's work — avoid working with the same files or topics it is using.",
+  "Work on non-overlapping tasks, or briefly tell the user what you sent and end your response.",
+].join("\n")
 
 export const Parameters = Schema.Struct({
-  description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),
-  prompt: Schema.String.annotate({ description: "The task for the agent to perform" }),
-  subagent_type: Schema.String.annotate({ description: "The type of specialized agent to use for this task" }),
+  description: Schema.optional(Schema.String).annotate({
+    description: "A short (3-5 words) description of the task. Required for a new task; omit it when addressing an existing task_id.",
+  }),
+  prompt: Schema.optional(Schema.String).annotate({
+    description:
+      "The task for the agent to perform. Required for a new task; with task_id it is the message delivered to that task (an extension while it runs, a continuation of its session otherwise). Omit task_id and prompt entirely to read a task's status.",
+  }),
+  subagent_type: Schema.optional(Schema.String).annotate({
+    description: "The type of specialized agent to use for this task. Required for a new task; omit it when addressing an existing task_id.",
+  }),
   task_id: Schema.optional(Schema.String).annotate({
     description:
-      "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      "The id of a previously launched task. Without a prompt the call reads the task's status; with a prompt it extends the running task or continues its session. A fresh launch passes no task_id.",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
   wait: Schema.optional(Schema.Boolean).annotate({
     description:
-      "Wait for the task to finish and return its result in this tool call. Tasks run in the background by default and return immediately; the result arrives later as a separate session message.",
+      "Wait for a newly launched task to finish and return its result in this tool call. Tasks run in the background by default and return immediately; the result arrives later as a separate session message.",
   }),
 })
-
-function renderOutput(input: {
-  sessionID: SessionID
-  state: "running" | "completed" | "error"
-  summary?: string
-  text: string
-}) {
-  const tag = input.state === "error" ? "task_error" : "task_result"
-  return [
-    `<task id="${input.sessionID}" state="${input.state}">`,
-    ...(input.summary ? [`<summary>${input.summary}</summary>`] : []),
-    `<${tag}>`,
-    input.text,
-    `</${tag}>`,
-    "</task>",
-  ].join("\n")
-}
 
 export const TaskTool = Tool.define(
   id,
@@ -72,6 +70,8 @@ export const TaskTool = Tool.define(
     const background = yield* BackgroundJob.Service
     const config = yield* Config.Service
     const sessions = yield* Session.Service
+    const engine = yield* TaskEngine.Service
+    const registry = yield* TaskRun.Service
     const scope = yield* Scope.Scope
     const database = yield* Database.Service
 
@@ -132,148 +132,29 @@ export const TaskTool = Tool.define(
       if (!ctx.extra?.bypassAgentCheck) {
         yield* ctx.ask({
           permission: id,
-          patterns: [params.subagent_type],
+          patterns: [params.subagent_type!],
           always: ["*"],
           metadata: {
-            description: params.description,
-            subagent_type: params.subagent_type,
+            description: params.description!,
+            subagent_type: params.subagent_type!,
           },
         })
       }
 
-      const next = yield* agent.get(params.subagent_type)
+      const next = yield* agent.get(params.subagent_type!)
       if (!next) {
-        return yield* Effect.fail(new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`))
-      }
-
-      const existing = params.task_id
-        ? yield* sessions.get(SessionID.make(params.task_id)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
-        : undefined
-      const session =
-        existing ??
-        (yield* sessions.create({
-          parentID: ctx.sessionID,
-          title: params.description + ` (@${next.name} subagent)`,
-          agent: next.name,
-          permission: childPermissionRules(parent, next, cfg),
-        }))
-      return { next, session }
-    })
-
-    const runSubagent = Effect.fn("TaskTool.runSubagent")(function* (input: {
-      ops: TaskPromptOps
-      sessionID: SessionID
-      agentName: string
-      model: SessionPrompt.PromptInput["model"]
-      useAgentModel: boolean
-      variant: string | undefined
-      prompt: string
-    }) {
-      const parts = yield* input.ops.resolvePromptParts(input.prompt)
-      const result = yield* input.ops.prompt({
-        messageID: MessageID.ascending(),
-        sessionID: input.sessionID,
-        model: input.model ? { modelID: input.model.modelID, providerID: input.model.providerID } : undefined,
-        variant: input.useAgentModel ? undefined : input.variant,
-        agent: input.agentName,
-        parts,
-      })
-      if (result.info.role === "assistant" && result.info.error) {
-        const message =
-          "message" in result.info.error.data && typeof result.info.error.data.message === "string"
-            ? result.info.error.data.message
-            : result.info.error.name
-        return yield* Effect.fail(new Error(`Subagent failed (task_id: ${input.sessionID}): ${message}`))
-      }
-      const failed = result.parts.findLast((item) => item.type === "tool" && item.state.status === "error")
-      if (failed?.type === "tool" && failed.state.status === "error") {
-        return yield* Effect.fail(new Error(`Subagent failed (task_id: ${input.sessionID}): ${failed.state.error}`))
-      }
-      return result.parts.findLast((item) => item.type === "text")?.text ?? ""
-    })
-
-    const injectCompletion = Effect.fn("TaskTool.injectCompletion")(function* (input: {
-      ops: TaskPromptOps
-      ctx: Tool.Context
-      variant: string | undefined
-      runID: SessionID
-      summary: string
-      text: string
-      state: "completed" | "error"
-    }) {
-      const currentParent = yield* sessions.get(input.ctx.sessionID)
-      // The completion message is admitted as an ordinary parent prompt: the
-      // parent session's own agent, or the default agent when the session has
-      // none. ctx.agent is the caller's agent and may name the subagent (the
-      // subtask path), so it must not leak into the parent admission.
-      yield* input.ops
-        .prompt({
-          sessionID: input.ctx.sessionID,
-          agent: currentParent.agent,
-          variant: input.variant,
-          parts: [
-            {
-              type: "text",
-              synthetic: true,
-              text: renderOutput({
-                sessionID: input.runID,
-                state: input.state,
-                summary: input.summary,
-                text: input.text,
-              }),
-            },
-          ],
-        })
-        .pipe(
-          // Swallowed on purpose (a failed completion delivery must not crash
-          // the watcher), but the failure is diagnosable through the log.
-          Effect.ignore({ log: "Error", message: "task completion admission failed" }),
-          Effect.forkIn(scope, { startImmediately: true }),
+        return yield* Effect.fail(
+          new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`),
         )
-    })
+      }
 
-    // One live watcher per run keeps completion delivery exactly-once. A
-    // wait-launched run has no watcher of its own, so the resuming session's
-    // extend path attaches one and the completion message reaches the resuming
-    // parent while the blocked original parent settles through its tool call.
-    const watchers = new Set<string>()
-
-    const notifyCompletion = Effect.fn("TaskTool.notifyCompletion")(function* (input: {
-      ops: TaskPromptOps
-      ctx: Tool.Context
-      variant: string | undefined
-      runID: SessionID
-      description: string
-    }) {
-      if (watchers.has(input.runID)) return
-      watchers.add(input.runID)
-      yield* background.wait({ id: input.runID }).pipe(
-        Effect.flatMap((result) => {
-          if (result.info?.status === "completed")
-            return injectCompletion({
-              ops: input.ops,
-              ctx: input.ctx,
-              variant: input.variant,
-              runID: input.runID,
-              summary: `Task completed: ${input.description}`,
-              text: result.info.output ?? "",
-              state: "completed",
-            })
-          if (result.info?.status === "error")
-            return injectCompletion({
-              ops: input.ops,
-              ctx: input.ctx,
-              variant: input.variant,
-              runID: input.runID,
-              summary: `Task failed: ${input.description}`,
-              text: result.info.error ?? "",
-              state: "error",
-            })
-          return Effect.void
-        }),
-        Effect.ensuring(Effect.sync(() => watchers.delete(input.runID))),
-        Effect.forkIn(scope, { startImmediately: true }),
-      )
+      const session = yield* sessions.create({
+        parentID: ctx.sessionID,
+        title: params.description! + ` (@${next.name} subagent)`,
+        agent: next.name,
+        permission: childPermissionRules(parent, next, cfg),
+      })
+      return { next, session }
     })
 
     const waitForSettlement = Effect.fn("TaskTool.waitForSettlement")(function* (input: {
@@ -301,9 +182,15 @@ export const TaskTool = Tool.define(
         () =>
           Effect.gen(function* () {
             const result = yield* background.wait({ id: input.runID })
-            if (result.info?.status === "error")
+            if (result.info?.status === "error") {
+              yield* registry.settle({ id: input.runID, state: "error" })
               return yield* Effect.fail(new Error(result.info.error ?? "Task failed"))
-            if (result.info?.status === "cancelled") return yield* Effect.fail(new Error("Task cancelled"))
+            }
+            if (result.info?.status === "cancelled") {
+              yield* registry.settle({ id: input.runID, state: "cancelled" })
+              return yield* Effect.fail(new Error("Task cancelled"))
+            }
+            yield* registry.settle({ id: input.runID, state: "completed" })
             return {
               title: input.title,
               metadata: input.metadata,
@@ -312,8 +199,12 @@ export const TaskTool = Tool.define(
           }),
         (_, exit) =>
           Effect.gen(function* () {
-            if (Exit.hasInterrupts(exit))
+            if (Exit.hasInterrupts(exit)) {
+              // The abort path cancels the run: record the cancellation with
+              // its settle time (R4.6) before interrupting the child.
+              yield* registry.settle({ id: input.runID, state: "cancelled" })
               yield* Effect.all([input.cancel, background.cancel(input.runID)], { discard: true })
+            }
           }).pipe(
             Effect.ensuring(
               Effect.sync(() => {
@@ -324,10 +215,103 @@ export const TaskTool = Tool.define(
       )
     })
 
+    /** R1.5: the status-only call — no launch, no write, no permission ask. */
+    const resolveStatus = Effect.fn("TaskTool.resolveStatus")(function* (input: {
+      ctx: Tool.Context
+      taskID: string
+    }) {
+      const row = yield* registry.get(input.ctx.sessionID, input.taskID)
+      if (!row) {
+        return yield* Effect.fail(new Error(`task-not-found: no task ${input.taskID} was launched by this session`))
+      }
+      return {
+        title: row.description,
+        metadata: { parentSessionId: input.ctx.sessionID, sessionId: row.id, background: true },
+        output: renderSnapshot(row),
+      }
+    })
+
+    /**
+     * R1.6, R1.7: a task_id call carrying a prompt — a live job receives the
+     * prompt as additional input; a run with no live job continues its
+     * durable session. R1.8: an unresolvable task_id fails with
+     * `task-not-found` and performs nothing.
+     */
+    const resolveAddressed = Effect.fn("TaskTool.resolveAddressed")(function* (input: {
+      params: Schema.Schema.Type<typeof Parameters>
+      ctx: Tool.Context
+      taskID: string
+    }) {
+      const row = yield* registry.get(input.ctx.sessionID, input.taskID)
+      if (!row) {
+        return yield* Effect.fail(new Error(`task-not-found: no task ${input.taskID} was launched by this session`))
+      }
+
+      const msg = yield* MessageV2.get({ sessionID: input.ctx.sessionID, messageID: input.ctx.messageID }).pipe(
+        Effect.provideService(Database.Service, database),
+        Effect.orDie,
+      )
+      if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
+      const variant = msg.info.variant
+
+      const child = yield* sessions.get(row.childSession)
+      const next = yield* agent.get(child.agent ?? "")
+      if (!next) {
+        return yield* Effect.fail(
+          new Error(`Unknown agent type: ${child.agent} is not a valid agent type for task ${row.id}`),
+        )
+      }
+      const model = next.model ?? { modelID: msg.info.modelID, providerID: msg.info.providerID }
+      const ops = input.ctx.extra?.promptOps as TaskPromptOps
+      if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
+
+      const branch = yield* engine.address({
+        ops,
+        parentSession: input.ctx.sessionID,
+        variant,
+        runID: row.id,
+        description: row.description,
+        agentName: next.name,
+        model,
+        useAgentModel: next.model !== undefined,
+        metadata: {
+          parentSessionId: input.ctx.sessionID,
+          sessionId: row.id,
+          model,
+          background: true,
+          jobId: row.id,
+        },
+        prompt: input.params.prompt!,
+      })
+
+      const running = (summary: string, text: string) => ({
+        title: row.description,
+        metadata: { parentSessionId: input.ctx.sessionID, sessionId: row.id, model, background: true, jobId: row.id },
+        output: renderOutput({ sessionID: row.id, state: "running", summary, text }),
+      })
+      return branch === "extended"
+        ? running("Task updated", RUNNING_UPDATED_TEXT)
+        : running("Task continued", CONTINUED_TEXT)
+    })
+
     const run = Effect.fn("TaskTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
       ctx: Tool.Context,
     ) {
+      // Addressed calls resolve against the durable task-run registry before
+      // anything else runs: a task_id that resolves to no run of the calling
+      // session fails with task-not-found and performs nothing (R1.8).
+      if (params.task_id !== undefined) {
+        if (params.prompt === undefined) return yield* resolveStatus({ ctx, taskID: params.task_id })
+        return yield* resolveAddressed({ params, ctx, taskID: params.task_id })
+      }
+
+      if (!params.prompt || !params.description || !params.subagent_type) {
+        return yield* Effect.fail(
+          new Error("Task requires prompt, description, and subagent_type when task_id is not set"),
+        )
+      }
+
       const cfg = yield* config.get()
       const launch = yield* resolveLaunch(params, ctx, cfg)
       const nextSession = launch.session
@@ -358,8 +342,21 @@ export const TaskTool = Tool.define(
       const ops = ctx.extra?.promptOps as TaskPromptOps
       if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
 
-      const subagentRun = () =>
-        runSubagent({
+      // R4.3: the launch inserts the run row with the stored running state at
+      // launch time; id equals the child session id (R4.2).
+      yield* registry.launch({
+        id: nextSession.id,
+        parentSession: ctx.sessionID,
+        childSession: nextSession.id,
+        description: params.description,
+      })
+
+      yield* background.start({
+        id: nextSession.id,
+        type: id,
+        title: params.description,
+        metadata: { ...metadata, jobId: nextSession.id },
+        run: runChild({
           ops,
           sessionID: nextSession.id,
           agentName: launch.next.name,
@@ -367,34 +364,7 @@ export const TaskTool = Tool.define(
           useAgentModel: launch.next.model !== undefined,
           variant,
           prompt: params.prompt,
-        })
-
-      const runningResult = (summary: string, text: string) => ({
-        title: params.description,
-        metadata: { ...metadata, jobId: nextSession.id },
-        output: renderOutput({ sessionID: nextSession.id, state: "running", summary, text }),
-      })
-
-      // A resumed launch against a still-running task queues its prompt onto
-      // the live job and owns its completion notification: without a watcher
-      // here a wait-launched run would settle with no delivery at all (R2.4).
-      if (yield* background.extend({ id: nextSession.id, run: subagentRun() })) {
-        yield* notifyCompletion({
-          ops,
-          ctx,
-          variant,
-          runID: nextSession.id,
-          description: params.description,
-        })
-        return runningResult("Task updated", RUNNING_UPDATED_TEXT)
-      }
-
-      yield* background.start({
-        id: nextSession.id,
-        type: id,
-        title: params.description,
-        metadata: { ...metadata, jobId: nextSession.id },
-        run: subagentRun().pipe(Effect.onInterrupt(() => ops.cancel(nextSession.id))),
+        }).pipe(Effect.onInterrupt(() => ops.cancel(nextSession.id))),
       })
 
       if (params.wait === true) {
@@ -407,14 +377,18 @@ export const TaskTool = Tool.define(
         })
       }
 
-      yield* notifyCompletion({
+      yield* engine.watch({
         ops,
-        ctx,
+        parentSession: ctx.sessionID,
         variant,
         runID: nextSession.id,
         description: params.description,
       })
-      return runningResult("Task started", RUNNING_TEXT)
+      return {
+        title: params.description,
+        metadata: { ...metadata, jobId: nextSession.id },
+        output: renderOutput({ sessionID: nextSession.id, state: "running", summary: "Task started", text: RUNNING_TEXT }),
+      }
     })
 
     return {

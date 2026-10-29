@@ -10,6 +10,7 @@ export type Runtime = {
   Worktree: (typeof import("../../../src/worktree"))["Worktree"]
   Project: (typeof import("../../../src/project/project"))["Project"]
   Scheduler: (typeof import("@opencode-ai/core/scheduler/scheduler"))["Scheduler"]
+  TaskRun: (typeof import("@opencode-ai/core/task-run/task-run"))["TaskRun"]
   Tui: typeof import("../../../src/server/shared/tui-control")
   disposeAllInstances: (typeof import("../../fixture/fixture"))["disposeAllInstances"]
   tmpdir: (typeof import("../../fixture/fixture"))["tmpdir"]
@@ -31,6 +32,7 @@ export function runtime() {
     const worktree = await import("../../../src/worktree")
     const project = await import("../../../src/project/project")
     const scheduler = await import("@opencode-ai/core/scheduler/scheduler")
+    const taskRun = await import("@opencode-ai/core/task-run/task-run")
     const tui = await import("../../../src/server/shared/tui-control")
     const fixture = await import("../../fixture/fixture")
     const db = await import("../../fixture/db")
@@ -46,6 +48,7 @@ export function runtime() {
       Worktree: worktree.Worktree,
       Project: project.Project,
       Scheduler: scheduler.Scheduler,
+      TaskRun: taskRun.TaskRun,
       Tui: tui,
       disposeAllInstances: fixture.disposeAllInstances,
       tmpdir: fixture.tmpdir,

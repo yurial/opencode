@@ -12,6 +12,9 @@ import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
+import { TaskStatusTool } from "./task-status"
+import { TaskEngine } from "@/task/engine"
+import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 import { Database } from "@opencode-ai/core/database/database"
 import { TodoWriteTool } from "./todo"
 import { SchedulerTool } from "./scheduler"
@@ -110,6 +113,7 @@ const layer = Layer.effect(
 
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
+    const taskStatus = yield* TaskStatusTool
     const read = yield* ReadTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
@@ -235,6 +239,7 @@ const layer = Layer.effect(
           edit: Tool.init(edit),
           write: Tool.init(writetool),
           task: Tool.init(task),
+          taskStatus: Tool.init(taskStatus),
           fetch: Tool.init(webfetch),
           todo: Tool.init(todo),
           scheduler: Tool.init(schedulerTool),
@@ -263,6 +268,7 @@ const layer = Layer.effect(
             tool.edit,
             tool.write,
             tool.task,
+            tool.taskStatus,
             tool.fetch,
             tool.todo,
             tool.scheduler,
@@ -470,6 +476,8 @@ export const node = LayerNode.make({
     Skill.node,
     Session.node,
     BackgroundJob.node,
+    TaskEngine.node,
+    TaskRun.node,
     Provider.node,
     LSP.node,
     Instruction.node,

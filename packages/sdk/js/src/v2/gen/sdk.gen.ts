@@ -383,6 +383,12 @@ import type {
   V2SessionSwitchAgentResponses,
   V2SessionSwitchModelErrors,
   V2SessionSwitchModelResponses,
+  V2SessionTaskContinueErrors,
+  V2SessionTaskContinueResponses,
+  V2SessionTaskGetErrors,
+  V2SessionTaskGetResponses,
+  V2SessionTaskListErrors,
+  V2SessionTaskListResponses,
   V2SessionWaitErrors,
   V2SessionWaitResponses,
   V2SkillListErrors,
@@ -5200,6 +5206,98 @@ export class Schedule extends HeyApiClient {
   }
 }
 
+export class Task extends HeyApiClient {
+  /**
+   * List session tasks
+   *
+   * Retrieve the subagent task runs of a session, newest launch first with ties ordered by id. Read-only: the endpoint mutates nothing and performs no permission ask.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).get<V2SessionTaskListResponses, V2SessionTaskListErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}/task",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get session task
+   *
+   * Retrieve one subagent task run of a session by its run id. Read-only: the endpoint mutates nothing and performs no permission ask.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      taskID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "taskID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<V2SessionTaskGetResponses, V2SessionTaskGetErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}/task/{taskID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Continue session task
+   *
+   * Deliver a continuation message to one subagent task run of a session: a running task receives it as additional input, a settled or interrupted task continues its conversation. Returns the resulting running entry.
+   */
+  public continue<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      taskID: string
+      message?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "taskID" },
+            { in: "body", key: "message" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      V2SessionTaskContinueResponses,
+      V2SessionTaskContinueErrors,
+      ThrowOnError
+    >({
+      url: "/api/session/{sessionID}/task/{taskID}/continue",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Permission2 extends HeyApiClient {
   /**
    * List session permission requests
@@ -5897,6 +5995,11 @@ export class Session3 extends HeyApiClient {
   private _schedule?: Schedule
   get schedule(): Schedule {
     return (this._schedule ??= new Schedule({ client: this.client }))
+  }
+
+  private _task?: Task
+  get task(): Task {
+    return (this._task ??= new Task({ client: this.client }))
   }
 
   private _permission?: Permission2

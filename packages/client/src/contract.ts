@@ -40,6 +40,9 @@ export const groupNames = {
 export const endpointNames = {
   "session.messages": "list",
   "session.schedule.list": "listSchedules",
+  "session.task.list": "listTasks",
+  "session.task.get": "getTask",
+  "session.task.continue": "continueTask",
   "integration.connect.key": "connectKey",
   "integration.connect.oauth": "connectOauth",
   "integration.attempt.status": "attemptStatus",

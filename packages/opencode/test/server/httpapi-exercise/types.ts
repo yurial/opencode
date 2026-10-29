@@ -2,6 +2,7 @@ import type { Duration, Effect } from "effect"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import type { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
+import type { TaskRun } from "@opencode-ai/core/task-run/task-run"
 import type { Config } from "../../../src/config/config"
 import type { Project } from "../../../src/project/project"
 import type { Worktree } from "../../../src/worktree"
@@ -66,6 +67,10 @@ export type ScenarioContext = {
     sessionID: SessionID,
     schedules: ReadonlyArray<{ message: string; spec: Scheduler.Spec; command?: string }>,
   ) => Effect.Effect<ReadonlyArray<Scheduler.Entry>>
+  tasks: (
+    sessionID: SessionID,
+    runs: ReadonlyArray<{ description: string; settled?: "completed" | "error" | "cancelled" }>,
+  ) => Effect.Effect<ReadonlyArray<TaskRun.Entry>>
   worktree: (input?: { name?: string }) => Effect.Effect<Worktree.Info>
   worktreeRemove: (directory: string) => Effect.Effect<void>
   llmText: (value: string) => Effect.Effect<void>

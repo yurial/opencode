@@ -183,6 +183,30 @@ function withContext<A, E>(
                 Effect.forEach(schedules, (input) => svc.add({ sessionID, ...input })).pipe(Effect.orDie),
               ),
             ),
+          tasks: (sessionID, runs) =>
+            run(
+              modules.TaskRun.Service.use((svc) =>
+                Effect.forEach(runs, (input) =>
+                  Effect.gen(function* () {
+                    // The child session is the run identity (R4.2); a real
+                    // session row backs the cascading foreign key and the
+                    // continuation's agent lookup.
+                    const child = yield* modules.Session.Service.use((sessions) =>
+                      sessions.create({ parentID: sessionID, title: input.description, agent: "build" }),
+                    ).pipe(Effect.orDie)
+                    yield* svc.launch({
+                      id: child.id,
+                      parentSession: sessionID,
+                      childSession: child.id,
+                      description: input.description,
+                    })
+                    if (input.settled) yield* svc.settle({ id: child.id, state: input.settled })
+                    const entry = yield* svc.get(sessionID, child.id).pipe(Effect.orDie)
+                    return entry!
+                  }),
+                ).pipe(Effect.orDie),
+              ),
+            ),
           worktree: (input) => run(modules.Worktree.Service.use((svc) => svc.create(input).pipe(Effect.orDie))),
           worktreeRemove: (directory) =>
             run(modules.Worktree.Service.use((svc) => svc.remove({ directory })).pipe(Effect.ignore)),

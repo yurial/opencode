@@ -8,12 +8,19 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
+import { TaskEngine } from "@/task/engine"
+import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
+import { TaskRunnerLocal } from "@/task/runner-local"
+import { InstanceStore } from "@/project/instance-store"
+import { InstanceBootstrap as InstanceBootstrapService } from "../../src/project/bootstrap-service"
+import { TaskStatusTool } from "../../src/tool/task-status"
+import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Config } from "@/config/config"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Session } from "@/session/session"
-import type { SessionPrompt } from "../../src/session/prompt"
+import { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
@@ -24,7 +31,7 @@ import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { disposeAllInstances } from "../fixture/fixture"
-import { testEffect } from "../lib/effect"
+import { pollWithTimeout, testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 
@@ -42,6 +49,11 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
     LayerNode.group([
       Agent.node,
       BackgroundJob.node,
+      TaskEngine.node,
+      TaskRun.node,
+      // TaskRunnerLocal pulls the instance graph, whose bootstrap is unbound;
+      // the tests stub the prompt path, so a no-op bootstrap is enough.
+      TaskRunnerLocal.node,
       EventV2Bridge.node,
       Config.node,
       CrossSpawnSpawner.node,
@@ -60,6 +72,12 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
       // The registry graph pulls in the scheduler, whose SessionExecution
       // dependency is unbound; these tests stub the prompt path.
       [SessionExecution.node, SessionExecution.noopLayer],
+      // TaskRunnerLocal pulls the instance graph, whose bootstrap is unbound;
+      // these tests stub the prompt path, so a no-op bootstrap is enough.
+      [
+        InstanceStore.bootstrapNode,
+        Layer.succeed(InstanceBootstrapService.Service, InstanceBootstrapService.Service.of({ run: Effect.void })),
+      ],
     ],
   )
 
@@ -177,6 +195,34 @@ function reply(
           ]
         : []),
     ],
+  }
+}
+
+
+function toPromptInput(input: {
+  sessionID: SessionPrompt.PromptInput["sessionID"]
+}): SessionPrompt.PromptInput {
+  return { ...input, parts: [{ type: "text" as const, text: "input" }] }
+}
+
+function context(
+  chat: Session.Info,
+  assistant: SessionV1.Assistant,
+  promptOps: TaskPromptOps,
+  onAsk?: () => void,
+) {
+  return {
+    sessionID: chat.id,
+    messageID: assistant.id,
+    agent: "build",
+    abort: new AbortController().signal,
+    extra: { promptOps },
+    messages: [],
+    metadata: () => Effect.void,
+    ask: () =>
+      Effect.sync(() => {
+        onAsk?.()
+      }),
   }
 }
 
@@ -593,56 +639,113 @@ describe("tool.task", () => {
     }),
   )
 
-  it.instance("execute resumes an existing task session from task_id", () =>
+  it.instance("task_id without a prompt returns the status snapshot and performs nothing", () =>
     Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
-      const child = yield* sessions.create({ parentID: chat.id, title: "Existing child" })
       const tool = yield* TaskTool
       const def = yield* tool.init()
-      const tracked = trackedOps({ text: "resumed" })
-      const injected = defer<SessionPrompt.PromptInput>()
+      let prompts = 0
+      let asks = 0
       const promptOps: TaskPromptOps = {
-        ...tracked.ops,
+        ...stubOps(),
         prompt: (input) => {
-          if (input.sessionID === chat.id) {
-            injected.resolve(input)
-            return Effect.succeed(reply(input, "delivered"))
-          }
-          return tracked.ops.prompt(input)
+          prompts++
+          return Effect.succeed(reply(input, "done"))
         },
       }
 
-      const result = yield* def.execute(
+      const started = yield* def.execute(
         {
           description: "inspect bug",
           prompt: "look into the cache key path",
           subagent_type: "general",
-          task_id: child.id,
         },
-        {
-          sessionID: chat.id,
-          messageID: assistant.id,
-          agent: "build",
-          abort: new AbortController().signal,
-          extra: { promptOps },
-          messages: [],
-          metadata: () => Effect.void,
-          ask: () => Effect.void,
-        },
+        context(chat, assistant, promptOps, () => asks++),
+      )
+      yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+      prompts = 0
+      asks = 0
+
+      // R1.5: status-only call — no launch, no continuation, no registry
+      // write, no permission ask.
+      const result = yield* def.execute(
+        { task_id: started.metadata.sessionId },
+        context(chat, assistant, promptOps, () => asks++),
       )
 
-      const seen = yield* Effect.promise(() => tracked.seen.promise)
-      const notification = yield* Effect.promise(() => injected.promise)
-      const kids = yield* sessions.children(chat.id)
-      expect(kids).toHaveLength(1)
-      expect(kids[0]?.id).toBe(child.id)
-      expect(result.metadata.sessionId).toBe(child.id)
-      expect(result.output).toContain(`<task id="${child.id}" state="running">`)
-      expect(seen.sessionID).toBe(child.id)
-      expect(seen.variant).toBe("xhigh")
-      const part = notification.parts[0]
-      if (part?.type === "text") expect(part.text).toContain("resumed")
+      expect(asks).toBe(0)
+      expect(prompts).toBe(0)
+      expect(result.metadata.sessionId).toBe(started.metadata.sessionId)
+      expect(result.output).toContain(
+        `<task id="${started.metadata.sessionId}" state="completed" description="inspect bug">`,
+      )
+      expect(result.output).toContain("launched ")
+      expect(result.output).toContain(", settled ")
+      expect((yield* sessions.children(chat.id)).length).toBe(1)
+    }),
+  )
+
+  it.instance("task_id with a prompt continues a settled run in its durable session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const registry = yield* TaskRun.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const waiters: Array<(value: SessionPrompt.PromptInput) => void> = []
+      let text = "first answer"
+      const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        prompt: (input) => {
+          if (input.sessionID === chat.id) {
+            waiters.shift()?.(input)
+            return Effect.succeed(reply(input, "delivered"))
+          }
+          return Effect.succeed(reply(input, text))
+        },
+      }
+      const parent = context(chat, assistant, promptOps)
+
+      const firstNotification = new Promise<SessionPrompt.PromptInput>((done) => waiters.push(done))
+      const started = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        parent,
+      )
+      const first = yield* Effect.promise(() => firstNotification)
+      const firstPart = first.parts[0]
+      if (firstPart?.type !== "text") throw new Error("expected text part")
+      expect(firstPart.text).toContain("first answer")
+      expect((yield* registry.get(chat.id, started.metadata.sessionId))?.state).toBe("completed")
+
+      // T1.7: the prompt is admitted into the same subagent session with the
+      // earlier exchange in context; the row returns to running (R4.4).
+      text = "second answer"
+      const secondNotification = new Promise<SessionPrompt.PromptInput>((done) => waiters.push(done))
+      const resumed = yield* def.execute(
+        {
+          task_id: started.metadata.sessionId,
+          prompt: "extend the fix to the sister module",
+        },
+        parent,
+      )
+
+      expect(resumed.metadata.sessionId).toBe(started.metadata.sessionId)
+      expect(resumed.output).toContain(`<task id="${started.metadata.sessionId}" state="running">`)
+      expect(resumed.output).toContain("delivered to the task")
+
+      // R2.4: the continued run settles exactly once with the same run id.
+      const second = yield* Effect.promise(() => secondNotification)
+      const secondPart = second.parts[0]
+      if (secondPart?.type !== "text") throw new Error("expected text part")
+      expect(secondPart.text).toContain("second answer")
+      expect(secondPart.text).toContain(`<task id="${started.metadata.sessionId}" state="completed">`)
+      expect((yield* sessions.children(chat.id))).toHaveLength(1)
     }),
   )
 
@@ -721,33 +824,23 @@ describe("tool.task", () => {
     }),
   )
 
-  it.instance("extend of a wait-launched run attaches the completion watcher for the resuming session", () =>
+  it.instance("extend of a wait-launched run attaches the completion watcher for its parent", () =>
     Effect.gen(function* () {
-      const sessions = yield* Session.Service
       const jobs = yield* BackgroundJob.Service
       const { chat, assistant } = yield* seed()
-      const second = yield* sessions.create({ title: "Second parent" })
-      const secondAssistant = yield* sessions.updateMessage({
-        ...assistant,
-        id: MessageID.ascending(),
-        parentID: MessageID.ascending(),
-        sessionID: second.id,
-      })
       const tool = yield* TaskTool
       const def = yield* tool.init()
       const first = defer<void>()
       const secondRun = defer<void>()
       const seenChild = defer<SessionPrompt.PromptInput>()
       const seenExtension = defer<SessionPrompt.PromptInput>()
-      const waiters: Array<(value: SessionPrompt.PromptInput) => void> = []
       const parentPrompts: SessionPrompt.PromptInput[] = []
       let prompts = 0
       const promptOps: TaskPromptOps = {
         ...stubOps(),
         prompt: (input) => {
-          if (input.sessionID === chat.id || input.sessionID === second.id) {
+          if (input.sessionID === chat.id) {
             parentPrompts.push(input)
-            waiters.shift()?.(input)
             return Effect.succeed(reply(input, "delivered"))
           }
           prompts++
@@ -762,22 +855,6 @@ describe("tool.task", () => {
           )
         },
       }
-      const context = {
-        sessionID: chat.id,
-        messageID: assistant.id,
-        agent: "build",
-        abort: new AbortController().signal,
-        extra: { promptOps },
-        messages: [],
-        metadata: () => Effect.void,
-        ask: () => Effect.void,
-      }
-      const resumeContext = {
-        ...context,
-        sessionID: second.id,
-        messageID: secondAssistant.id,
-      }
-
       // The original launch blocks in wait=true, so its result will arrive
       // through the tool call; no completion watcher exists for the job yet.
       const fiber = yield* def
@@ -788,19 +865,17 @@ describe("tool.task", () => {
             subagent_type: "general",
             wait: true,
           },
-          context,
+          context(chat, assistant, promptOps),
         )
         .pipe(Effect.forkChild)
       const started = yield* Effect.promise(() => seenChild.promise).pipe(Effect.timeoutOption(2_000))
       const childID = Option.getOrThrow(started).sessionID
       const resumed = yield* def.execute(
         {
-          description: "add investigation scope",
-          prompt: "also inspect cancellation",
-          subagent_type: "general",
           task_id: childID,
+          prompt: "also inspect cancellation",
         },
-        resumeContext,
+        context(chat, assistant, promptOps),
       )
 
       expect(resumed.metadata.sessionId).toBe(childID)
@@ -811,31 +886,28 @@ describe("tool.task", () => {
       yield* Effect.promise(() => seenExtension.promise).pipe(Effect.timeoutOption(2_000))
       expect((yield* jobs.get(resumed.metadata.sessionId))?.status).toBe("running")
 
-      const completion = new Promise<SessionPrompt.PromptInput>((done) => waiters.push(done))
       secondRun.resolve()
       const waited = yield* jobs.wait({ id: resumed.metadata.sessionId, timeout: 1_000 })
       expect(waited.info?.status).toBe("completed")
       expect(waited.info?.output).toBe("second done")
 
-      // The resuming parent receives exactly one synthetic completion message,
-      // and nothing is delivered to the blocked original parent or anywhere else.
-      const notification = yield* Effect.promise(() => completion).pipe(Effect.timeoutOption(2_000))
+      // The parent receives exactly one synthetic completion message for the
+      // settlement; the blocked wait call settles through its tool result.
+      yield* pollWithTimeout(
+        Effect.sync(() => (parentPrompts.length > 0 ? (true as const) : undefined)),
+        "completion message never delivered",
+      )
       const settled = yield* Fiber.join(fiber)
       expect(settled.output).toContain(`state="completed"`)
       expect(settled.output).toContain("second done")
       expect(parentPrompts).toHaveLength(1)
-      expect(parentPrompts[0]?.sessionID).toBe(second.id)
-      if (Option.isSome(notification)) {
-        expect(notification.value.variant).toBe("xhigh")
-        const part = notification.value.parts[0]
-        expect(part?.type).toBe("text")
-        if (part?.type === "text") {
-          expect(part.synthetic).toBe(true)
-          expect(part.text).toContain(`<task id="${resumed.metadata.sessionId}" state="completed">`)
-          expect(part.text).toContain("second done")
-        }
-      } else {
-        throw new Error("expected a synthetic completion message for the resuming session")
+      expect(parentPrompts[0]?.sessionID).toBe(chat.id)
+      const part = parentPrompts[0]?.parts[0]
+      expect(part?.type).toBe("text")
+      if (part?.type === "text") {
+        expect(part.synthetic).toBe(true)
+        expect(part.text).toContain(`<task id="${resumed.metadata.sessionId}" state="completed">`)
+        expect(part.text).toContain("second done")
       }
 
       yield* Effect.yieldNow
@@ -908,51 +980,578 @@ describe("tool.task", () => {
     }),
   )
 
-  it.instance("execute creates a child when task_id does not exist", () =>
+  it.instance("unknown and foreign task_id fail with task-not-found and perform nothing", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
+      const registry = yield* TaskRun.Service
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const { chat, assistant } = yield* seed()
+      // A run of another session: its task_id must not resolve for chat.
+      const second = yield* sessions.create({ title: "Other parent" })
+      const secondAssistant = yield* sessions.updateMessage({
+        ...assistant,
+        id: MessageID.ascending(),
+        parentID: MessageID.ascending(),
+        sessionID: second.id,
+      })
+      let prompts = 0
+      let asks = 0
+      const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        prompt: (input) => {
+          prompts++
+          return Effect.succeed(reply(input, "done"))
+        },
+      }
+
+      const foreign = yield* def.execute(
+        {
+          description: "foreign run",
+          prompt: "foreign work",
+          subagent_type: "general",
+        },
+        context(second, secondAssistant, promptOps),
+      )
+      expect((yield* registry.list(second.id)).map((row) => row.id)).toEqual([foreign.metadata.sessionId])
+      prompts = 0
+
+      const attempts = [
+        def.execute({ task_id: "ses_missing" }, context(chat, assistant, promptOps, () => asks++)),
+        def.execute({ task_id: "ses_missing", prompt: "hello" }, context(chat, assistant, promptOps, () => asks++)),
+        def.execute(
+          { task_id: foreign.metadata.sessionId, prompt: "hello" },
+          context(chat, assistant, promptOps, () => asks++),
+        ),
+      ]
+      for (const attempt of attempts) {
+        const exit = yield* attempt.pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isSuccess(exit)) throw new Error("expected task-not-found")
+        const failure = Cause.squash(exit.cause)
+        expect(failure).toBeInstanceOf(Error)
+        if (!(failure instanceof Error)) throw new Error("expected Error defect")
+        expect(failure.message).toContain("task-not-found")
+      }
+
+      // R1.8: the failed calls performed no action — no ask, no child turn,
+      // no registry rows for the calling session.
+      expect(asks).toBe(0)
+      expect(prompts).toBe(0)
+      expect(yield* sessions.children(chat.id)).toHaveLength(0)
+      expect(yield* registry.list(chat.id)).toHaveLength(0)
+    }),
+  )
+
+
+  it.instance("a launch inserts its task_run row running and the settle records the state", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
       const { chat, assistant } = yield* seed()
       const tool = yield* TaskTool
       const def = yield* tool.init()
-      const tracked = trackedOps({ text: "created" })
+      const gate = defer<void>()
       const injected = defer<SessionPrompt.PromptInput>()
+      let prompts = 0
       const promptOps: TaskPromptOps = {
-        ...tracked.ops,
+        ...stubOps(),
         prompt: (input) => {
           if (input.sessionID === chat.id) {
             injected.resolve(input)
             return Effect.succeed(reply(input, "delivered"))
           }
-          return tracked.ops.prompt(input)
+          prompts++
+          if (prompts === 1) return Effect.promise(() => gate.promise).pipe(Effect.as(reply(input, "final answer")))
+          return Effect.succeed(reply(input, "final answer"))
         },
       }
 
-      const result = yield* def.execute(
+      // T4.2: the launch inserts the row with the stored running state.
+      const started = yield* def.execute(
         {
           description: "inspect bug",
           prompt: "look into the cache key path",
           subagent_type: "general",
-          task_id: "ses_missing",
         },
+        context(chat, assistant, promptOps),
+      )
+      expect((yield* registry.get(chat.id, started.metadata.sessionId))?.state).toBe("running")
+      expect((yield* registry.get(chat.id, started.metadata.sessionId))?.settledAt).toBeNull()
+
+      gate.resolve()
+      yield* Effect.promise(() => injected.promise)
+      const waited = yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+      expect(waited.info?.status).toBe("completed")
+
+      // T4.4 (watcher path): the settle state and time are recorded.
+      const settled = yield* registry.get(chat.id, started.metadata.sessionId)
+      expect(settled?.state).toBe("completed")
+      expect(settled?.settledAt).toBeGreaterThan(0)
+    }),
+  )
+
+  it.instance("a failed run records the error state with the settle time", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const injected = defer<SessionPrompt.PromptInput>()
+      const promptOps: TaskPromptOps = {
+        ...stubOps({
+          text: "",
+          error: new SessionV1.APIError({ message: "Network connection lost", isRetryable: false }).toObject(),
+        }),
+        prompt: (input) => {
+          if (input.sessionID !== chat.id) {
+            return Effect.succeed(
+              reply(
+                input,
+                "",
+                new SessionV1.APIError({ message: "Network connection lost", isRetryable: false }).toObject(),
+              ),
+            )
+          }
+          injected.resolve(input)
+          return Effect.succeed(reply(input, "delivered"))
+        },
+      }
+
+      const started = yield* def.execute(
         {
-          sessionID: chat.id,
-          messageID: assistant.id,
-          agent: "build",
-          abort: new AbortController().signal,
-          extra: { promptOps },
-          messages: [],
-          metadata: () => Effect.void,
-          ask: () => Effect.void,
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
         },
+        context(chat, assistant, promptOps),
+      )
+      yield* Effect.promise(() => injected.promise)
+      yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+
+      const settled = yield* registry.get(chat.id, started.metadata.sessionId)
+      expect(settled?.state).toBe("error")
+      expect(settled?.settledAt).toBeGreaterThan(0)
+    }),
+  )
+
+  it.instance("a cancelled run records cancelled with the settle time and delivers no completion", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const runState = yield* SessionRunState.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const parentPrompts: SessionPrompt.PromptInput[] = []
+      const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        prompt: (input) => {
+          if (input.sessionID === chat.id) {
+            parentPrompts.push(input)
+            return Effect.succeed(reply(input, "delivered"))
+          }
+          return Effect.never
+        },
+      }
+
+      const started = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        context(chat, assistant, promptOps),
+      )
+      yield* runState.cancel(started.metadata.sessionId)
+      const waited = yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+      expect(waited.info?.status).toBe("cancelled")
+
+      // R2.5, R4.6: the row reads cancelled with a settle time and no
+      // completion message is delivered.
+      expect(parentPrompts).toHaveLength(0)
+      const row = yield* registry.get(chat.id, started.metadata.sessionId)
+      expect(row?.state).toBe("cancelled")
+      expect(row?.settledAt).toBeGreaterThan(0)
+    }),
+  )
+
+  it.instance("a continuation re-marks the row running before the prompt is admitted", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const gate = defer<void>()
+      const admitted = defer<SessionPrompt.PromptInput>()
+      let prompts = 0
+      const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        prompt: (input) => {
+          if (input.sessionID === chat.id) return Effect.succeed(reply(input, "delivered"))
+          prompts++
+          if (prompts === 1) return Effect.succeed(reply(input, "first done"))
+          admitted.resolve(input)
+          return Effect.promise(() => gate.promise).pipe(Effect.as(reply(input, "second done")))
+        },
+      }
+      const parent = context(chat, assistant, promptOps)
+
+      const started = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        parent,
+      )
+      yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+      expect((yield* registry.get(chat.id, started.metadata.sessionId))?.state).toBe("completed")
+
+      const fiber = yield* def
+        .execute(
+          {
+            task_id: started.metadata.sessionId,
+            prompt: "extend the fix to the sister module",
+          },
+          parent,
+        )
+        .pipe(Effect.forkChild)
+      const input = yield* Effect.promise(() => admitted.promise)
+
+      // R4.4: while the continuation prompt is still executing, the row is
+      // already back to running with no settle time.
+      console.log("DBG jobs", (yield* jobs.get(started.metadata.sessionId))?.status, (yield* registry.get(chat.id, started.metadata.sessionId)))
+      expect((yield* registry.get(chat.id, started.metadata.sessionId))?.state).toBe("running")
+      expect((yield* registry.get(chat.id, started.metadata.sessionId))?.settledAt).toBeNull()
+      expect(input.sessionID).toBe(started.metadata.sessionId)
+
+      gate.resolve()
+      const waited = yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+      expect(waited.info?.status).toBe("completed")
+      yield* Fiber.join(fiber)
+    }),
+  )
+
+  it.instance("a continued run delivers exactly one completion message with the same run id", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const parentPrompts: SessionPrompt.PromptInput[] = []
+      let prompts = 0
+      const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        prompt: (input) => {
+          if (input.sessionID === chat.id) {
+            parentPrompts.push(input)
+            return Effect.succeed(reply(input, "delivered"))
+          }
+          prompts++
+          return Effect.succeed(reply(input, prompts === 1 ? "first done" : "second done"))
+        },
+      }
+      const parent = context(chat, assistant, promptOps)
+
+      const started = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        parent,
+      )
+      yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+      expect(parentPrompts).toHaveLength(1)
+
+      yield* def.execute(
+        {
+          task_id: started.metadata.sessionId,
+          prompt: "extend the fix to the sister module",
+        },
+        parent,
+      )
+      yield* jobs.wait({ id: started.metadata.sessionId, timeout: 1_000 })
+      yield* pollWithTimeout(
+        Effect.sync(() => (parentPrompts.length >= 2 ? (true as const) : undefined)),
+        "continuation completion never delivered",
       )
 
-      yield* Effect.promise(() => tracked.seen.promise)
-      yield* Effect.promise(() => injected.promise)
-      const kids = yield* sessions.children(chat.id)
-      expect(kids).toHaveLength(1)
-      expect(kids[0]?.id).toBe(result.metadata.sessionId)
-      expect(result.metadata.sessionId).not.toBe("ses_missing")
-      expect(result.output).toContain(`<task id="${result.metadata.sessionId}" state="running">`)
+      // T2.4: exactly one completion for the continuation settlement, with
+      // the same run id.
+      expect(parentPrompts).toHaveLength(2)
+      const part = parentPrompts[1]?.parts[0]
+      if (part?.type !== "text") throw new Error("expected text part")
+      expect(part.text).toContain(`<task id="${started.metadata.sessionId}" state="completed">`)
+      expect(part.text).toContain("second done")
+
+      yield* Effect.yieldNow
+      expect(parentPrompts).toHaveLength(2)
+    }),
+  )
+
+  it.instance("a stored running row without a live job reads interrupted and mutates nothing", () =>
+    Effect.gen(function* () {
+      const registry = yield* TaskRun.Service
+      const sessions = yield* Session.Service
+      const engine = yield* TaskEngine.Service
+      const { chat } = yield* seed()
+      // A registry row whose host process died: no job was ever started in
+      // this process, so the row reads interrupted on every surface (R4.11).
+      const id = (yield* sessions.create({ title: "interrupted" })).id
+      yield* registry.launch({
+        id,
+        parentSession: chat.id,
+        childSession: id,
+        description: "died with the process",
+      })
+
+      const before = yield* registry.get(chat.id, id)
+      expect(before?.state).toBe("interrupted")
+      const again = yield* registry.get(chat.id, id)
+      expect(again).toEqual(before)
+    }),
+  )
+
+
+  it.instance("launch fails on an unknown subagent type", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const registry = yield* TaskRun.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const exit = yield* def
+        .execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "ghost",
+          },
+          context(chat, assistant, stubOps()),
+        )
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* sessions.children(chat.id)).toHaveLength(0)
+      expect(yield* registry.list(chat.id)).toHaveLength(0)
+    }),
+  )
+
+  it.instance("a launch without task_id requires prompt, description, and subagent_type", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const exit = yield* def.execute({}, context(chat, assistant, stubOps())).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) throw new Error("expected argument failure")
+      const failure = Cause.squash(exit.cause)
+      if (!(failure instanceof Error)) throw new Error("expected Error defect")
+      expect(failure.message).toContain("Task requires prompt, description, and subagent_type")
+    }),
+  )
+
+  it.instance("an addressed call fails when the run's agent no longer exists", () =>
+    Effect.gen(function* () {
+      const registry = yield* TaskRun.Service
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const ghost = yield* sessions.create({ title: "ghost child", parentID: chat.id, agent: "ghost" })
+      yield* registry.launch({
+        id: ghost.id,
+        parentSession: chat.id,
+        childSession: ghost.id,
+        description: "ghost run",
+      })
+
+      const exit = yield* def
+        .execute(
+          {
+            task_id: ghost.id,
+            prompt: "keep going",
+          },
+          context(chat, assistant, stubOps()),
+        )
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) throw new Error("expected unknown-agent failure")
+      const failure = Cause.squash(exit.cause)
+      if (!(failure instanceof Error)) throw new Error("expected Error defect")
+      expect(failure.message).toContain("Unknown agent type: ghost")
+    }),
+  )
+
+  it.instance("a wait-launched run cancelled through the job registry records cancelled", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const gate = defer<void>()
+      let prompts = 0
+      const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        prompt: (input) => {
+          if (input.sessionID === chat.id) return Effect.succeed(reply(input, "delivered"))
+          prompts++
+          return Effect.promise(() => gate.promise).pipe(Effect.as(reply(input, "slow work")))
+        },
+      }
+
+      const fiber = yield* def
+        .execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+            wait: true,
+          },
+          context(chat, assistant, promptOps),
+        )
+        .pipe(Effect.forkChild)
+      yield* pollWithTimeout(
+        Effect.sync(() => (prompts > 0 ? (true as const) : undefined)),
+        "child prompt never started",
+      )
+
+      yield* jobs.cancel((yield* jobs.list()).find((job) => job.type === "task")!.id)
+      const exit = yield* Fiber.await(fiber)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) throw new Error("expected task-cancelled failure")
+      const failure = Cause.squash(exit.cause)
+      if (!(failure instanceof Error)) throw new Error("expected Error defect")
+      expect(failure.message).toBe("Task cancelled")
+
+      const row = yield* registry.get(chat.id, (yield* registry.list(chat.id))[0]!.id)
+      expect(row?.state).toBe("cancelled")
+      expect(row?.settledAt).toBeGreaterThan(0)
+    }),
+  )
+
+  it.instance("interrupting a waiting launch records the cancelled state", () =>
+    Effect.gen(function* () {
+      const registry = yield* TaskRun.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const gate = defer<void>()
+      let prompts = 0
+      const promptOps: TaskPromptOps = {
+        ...stubOps(),
+        prompt: (input) => {
+          if (input.sessionID === chat.id) return Effect.succeed(reply(input, "delivered"))
+          prompts++
+          return Effect.promise(() => gate.promise).pipe(Effect.as(reply(input, "slow work")))
+        },
+      }
+
+      const fiber = yield* def
+        .execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+            wait: true,
+          },
+          context(chat, assistant, promptOps),
+        )
+        .pipe(Effect.forkChild)
+      yield* pollWithTimeout(
+        Effect.sync(() => (prompts > 0 ? (true as const) : undefined)),
+        "child prompt never started",
+      )
+
+      yield* Fiber.interrupt(fiber)
+      gate.resolve()
+
+      const row = yield* registry.get(chat.id, (yield* registry.list(chat.id))[0]!.id)
+      expect(row?.state).toBe("cancelled")
+      expect(row?.settledAt).toBeGreaterThan(0)
+    }),
+  )
+
+  it.instance("task_status lists runs newest first and reads one snapshot by task_id", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const registry = yield* TaskRun.Service
+      const sessions = yield* Session.Service
+      const { chat } = yield* seed()
+      const statusDef = yield* (yield* TaskStatusTool).init()
+      let asks = 0
+      const statusContext = {
+        sessionID: chat.id,
+        messageID: MessageID.ascending(),
+        agent: "build",
+        abort: new AbortController().signal,
+        extra: {},
+        messages: [],
+        metadata: () => Effect.void,
+        ask: () =>
+          Effect.sync(() => {
+            asks++
+          }),
+      }
+
+      expect(
+        (yield* statusDef.execute({}, statusContext)).output,
+      ).toContain("No tasks have been launched by this session.")
+
+      const first = (yield* sessions.create({ title: "status first" })).id
+      const second = (yield* sessions.create({ title: "status second" })).id
+      const live = (yield* sessions.create({ title: "status live" })).id
+      for (const [id, description] of [
+        [first, "first run"],
+        [second, "second run"],
+        [live, "live run"],
+      ] as const) {
+        yield* registry.launch({ id, parentSession: chat.id, childSession: id, description })
+      }
+      yield* registry.settle({ id: first, state: "completed" })
+      yield* jobs.start({ id: live, type: "task", run: Effect.never })
+
+      // T5.1: the read-only call asks no permission; T5.2: one entry per run,
+      // newest launch first, ties by id ascending.
+      const list = yield* statusDef.execute({}, statusContext)
+      expect(asks).toBe(0)
+      expect(list.output).toContain(`<task id="${live}" state="running" description="live run">`)
+      expect(list.output).toContain(`<task id="${second}" state="interrupted" description="second run">`)
+      expect(list.output).toContain(`<task id="${first}" state="completed" description="first run">`)
+      expect(list.output.indexOf(live)).toBeLessThan(list.output.indexOf(second))
+      expect(list.output.indexOf(second)).toBeLessThan(list.output.indexOf(first))
+
+      // T5.3: the detail form returns one snapshot; a foreign or unknown id
+      // fails with task-not-found.
+      const detail = yield* statusDef.execute({ task_id: second }, statusContext)
+      expect(detail.output).toContain(`<task id="${second}" state="interrupted" description="second run">`)
+      expect(detail.output).toContain("launched ")
+
+      const foreign = yield* sessions.create({ title: "other" })
+      const foreignExit = yield* statusDef
+        .execute({ task_id: first }, { ...statusContext, sessionID: foreign.id })
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(foreignExit)).toBe(true)
+      const missingExit = yield* statusDef
+        .execute({ task_id: "ses_missing" }, statusContext)
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(missingExit)).toBe(true)
+      for (const exit of [foreignExit, missingExit]) {
+        if (Exit.isFailure(exit)) {
+          const failure = Cause.squash(exit.cause)
+          expect(failure).toBeInstanceOf(Error)
+          if (failure instanceof Error) expect(failure.message).toContain("task-not-found")
+        }
+      }
+      expect(asks).toBe(0)
     }),
   )
 
@@ -1361,6 +1960,172 @@ describe("tool.task", () => {
 
       expect((yield* jobs.get(child.id))?.status).toBe("cancelled")
       expect((yield* jobs.get(grandchild.id))?.status).toBe("cancelled")
+    }),
+  )
+})
+
+describe("task runner local", () => {
+  const parentPrompts: SessionPrompt.PromptInput[] = []
+  const childGate = defer<void>()
+  const sessionPromptMock = Layer.mock(SessionPrompt.Service, {
+    cancel: () => Effect.void,
+    prompt: (input) => {
+      if (input.parts[0]?.type === "text" && input.parts[0].synthetic === true) {
+        // The completion message admitted into the parent session.
+        parentPrompts.push(input)
+        return Effect.succeed(reply(toPromptInput(input), "delivered"))
+      }
+      // The child turn stays live behind the gate.
+      return Effect.promise(() => childGate.promise).pipe(Effect.as(reply(toPromptInput(input), "runner answer")))
+    },
+    loop: (input) => Effect.succeed(reply(toPromptInput(input), "loop")),
+    shell: (input) => Effect.succeed(reply(toPromptInput(input), "shell")),
+    command: (input) => Effect.succeed(reply(toPromptInput(input), "command")),
+    resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+  })
+  const runnerLayer = AppNodeBuilder.build(
+    LayerNode.group([
+      Agent.node,
+      BackgroundJob.node,
+      TaskEngine.node,
+      TaskRun.node,
+      TaskRunnerLocal.node,
+      Session.node,
+      SessionProjector.node,
+      Database.node,
+      RuntimeFlags.node,
+      Ripgrep.node,
+      CrossSpawnSpawner.node,
+      Truncate.node,
+      ToolRegistry.node,
+      EventV2Bridge.node,
+      SessionRunState.node,
+      SessionStatus.node,
+    ]),
+    [
+      [RuntimeFlags.node, RuntimeFlags.layer()],
+      [SessionExecution.node, SessionExecution.noopLayer],
+      [
+        InstanceStore.bootstrapNode,
+        Layer.succeed(InstanceBootstrapService.Service, InstanceBootstrapService.Service.of({ run: Effect.void })),
+      ],
+      [SessionPrompt.node, sessionPromptMock],
+    ],
+  )
+  const itRunner = testEffect(runnerLayer)
+
+  // A failing engine surfaces the continuation failure as a defect: the HTTP
+  // boundary reports it as UnknownError, the entry is returned to nobody.
+  const failingRunnerLayer = AppNodeBuilder.build(
+    LayerNode.group([
+      Agent.node,
+      BackgroundJob.node,
+      TaskEngine.node,
+      TaskRun.node,
+      TaskRunnerLocal.node,
+      Session.node,
+      SessionProjector.node,
+      Database.node,
+      RuntimeFlags.node,
+      Ripgrep.node,
+      CrossSpawnSpawner.node,
+      Truncate.node,
+      ToolRegistry.node,
+      EventV2Bridge.node,
+      SessionRunState.node,
+      SessionStatus.node,
+    ]),
+    [
+      [RuntimeFlags.node, RuntimeFlags.layer()],
+      [SessionExecution.node, SessionExecution.noopLayer],
+      [
+        InstanceStore.bootstrapNode,
+        Layer.succeed(InstanceBootstrapService.Service, InstanceBootstrapService.Service.of({ run: Effect.void })),
+      ],
+      [
+        SessionPrompt.node,
+        Layer.mock(SessionPrompt.Service, {
+          cancel: () => Effect.void,
+          prompt: (input) => Effect.succeed(reply(toPromptInput(input), "unused")),
+          resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        }),
+      ],
+      [
+        TaskEngine.node,
+        Layer.mock(TaskEngine.Service, {
+          address: () => Effect.die(new Error("engine exploded")),
+          watch: () => Effect.void,
+        }),
+      ],
+    ],
+  )
+  const itFailingRunner = testEffect(failingRunnerLayer)
+
+  itFailingRunner.instance("a failing engine surfaces the continuation as a defect", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const registry = yield* TaskRun.Service
+      const parent = yield* sessions.create({ title: "failing parent" })
+      const child = yield* sessions.create({ title: "failing child", parentID: parent.id, agent: "build" })
+      yield* registry.launch({
+        id: child.id,
+        parentSession: parent.id,
+        childSession: child.id,
+        description: "failing run",
+      })
+
+      const exit = yield* registry
+        .continue({ sessionID: parent.id, taskID: child.id, message: "keep going" })
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) throw new Error("expected a die")
+      expect(Cause.hasDies(exit.cause)).toBe(true)
+    }),
+  )
+
+  itRunner.instance("the local runner continues a settled run through the shared engine", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const registry = yield* TaskRun.Service
+      const jobs = yield* BackgroundJob.Service
+      const parent = yield* sessions.create({ title: "runner parent" })
+      const child = yield* sessions.create({ title: "runner child", parentID: parent.id, agent: "build" })
+      yield* registry.launch({
+        id: child.id,
+        parentSession: parent.id,
+        childSession: child.id,
+        description: "runner run",
+      })
+      yield* registry.settle({ id: child.id, state: "completed" })
+
+      // The runner resolves the parent's instance context, continues the
+      // durable child session through the shared engine, and the completion
+      // watcher delivers into the parent session (R5.7, R5.8).
+      const entry = yield* registry.continue({
+        sessionID: parent.id,
+        taskID: child.id,
+        message: "keep going",
+      })
+      // The child turn is still executing behind the gate: the response is
+      // the running entry (R5.7).
+      expect(entry.state).toBe("running")
+
+      childGate.resolve()
+      const waited = yield* jobs.wait({ id: child.id, timeout: 5_000 })
+      expect(waited.info?.status).toBe("completed")
+      expect(waited.info?.output).toBe("runner answer")
+
+      yield* pollWithTimeout(
+        Effect.sync(() => (parentPrompts.length > 0 ? (true as const) : undefined)),
+        "completion message never delivered",
+      )
+      const injected = parentPrompts[0]
+      expect(injected?.sessionID).toBe(parent.id)
+      const part = injected?.parts[0]
+      if (part?.type !== "text") throw new Error("expected text part")
+      expect(part.synthetic).toBe(true)
+      expect(part.text).toContain(`<task id="${child.id}" state="completed">`)
+      expect(part.text).toContain("runner answer")
     }),
   )
 })

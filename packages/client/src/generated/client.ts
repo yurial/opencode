@@ -39,6 +39,12 @@ import type {
   SessionsMessageOutput,
   SessionsListSchedulesInput,
   SessionsListSchedulesOutput,
+  SessionsListTasksInput,
+  SessionsListTasksOutput,
+  SessionsGetTaskInput,
+  SessionsGetTaskOutput,
+  SessionsContinueTaskInput,
+  SessionsContinueTaskOutput,
   MessagesListInput,
   MessagesListOutput,
   ModelsListInput,
@@ -499,6 +505,40 @@ export function make(options: ClientOptions) {
           {
             method: "GET",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/schedule`,
+            successStatus: 200,
+            declaredStatuses: [404, 500, 400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
+      listTasks: (input: SessionsListTasksInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionsListTasksOutput }>(
+          {
+            method: "GET",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/task`,
+            successStatus: 200,
+            declaredStatuses: [404, 500, 400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
+      getTask: (input: SessionsGetTaskInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionsGetTaskOutput }>(
+          {
+            method: "GET",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/task/${encodeURIComponent(input.taskID)}`,
+            successStatus: 200,
+            declaredStatuses: [404, 500, 400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
+      continueTask: (input: SessionsContinueTaskInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionsContinueTaskOutput }>(
+          {
+            method: "POST",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/task/${encodeURIComponent(input.taskID)}/continue`,
+            body: { message: input["message"] },
             successStatus: 200,
             declaredStatuses: [404, 500, 400, 401],
             empty: false,

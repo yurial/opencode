@@ -1,15 +1,17 @@
 import { SessionV2 } from "@opencode-ai/core/session"
 import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
+import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
-import { SessionsCursor } from "@opencode-ai/protocol/groups/session"
+import { SessionsCursor, SessionTask } from "@opencode-ai/protocol/groups/session"
 import {
   ConflictError,
   InvalidCursorError,
   MessageNotFoundError,
   ServiceUnavailableError,
   SessionNotFoundError,
+  TaskNotFoundError,
   UnknownError,
 } from "@opencode-ai/protocol/errors"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -17,10 +19,36 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 const DefaultSessionsLimit = 50
 const DefaultSessionHistoryLimit = 50
 
+// A storage or continuation defect is surfaced as the declared UnknownError
+// with a correlating ref (specs/tool-task.md Error handling).
+function unknownDefect(log: string, sessionID: string, defect: unknown) {
+  const ref = `err_${crypto.randomUUID().slice(0, 8)}`
+  return Effect.logError(log).pipe(
+    Effect.annotateLogs({ ref, sessionID, cause: defect }),
+    Effect.andThen(
+      Effect.fail(new UnknownError({ message: `Unexpected server error. Check server logs for details. [${String(defect).slice(0, 300)}]`, ref })),
+    ),
+  )
+}
+
 export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* SessionV2.Service
     const scheduler = yield* Scheduler.Service
+    const taskRun = yield* TaskRun.Service
+
+    // The status surfaces report the derived state of a run (specs/tool-task.md
+    // R5.4): the registry read applies the host liveness reader — a run with
+    // a live job reads running, a stored running row without one reads
+    // interrupted; the read mutates no row.
+    const taskEntry = (row: TaskRun.Entry) => ({
+      id: row.id,
+      description: row.description,
+      state: row.state,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      settledAt: row.settledAt,
+    })
 
     return handlers
       .handle(
@@ -422,6 +450,69 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                 })),
             },
           }
+        }),
+      )
+      .handle(
+        "session.task.list",
+        Effect.fn(function* (ctx) {
+          const rows = yield* taskRun.list(ctx.params.sessionID).pipe(
+            // A storage defect is the one failure mode left, surfaced as the
+            // declared UnknownError with a correlating ref (specs/tool-task.md
+            // Error handling).
+            Effect.catchDefect((defect) => unknownDefect("failed to list session tasks", ctx.params.sessionID, defect)),
+          )
+          return {
+            // R5.5: one task-run entry per run of the path session; the
+            // registry orders newest launch first with id-ascending ties.
+            data: { tasks: rows.map(taskEntry) },
+          }
+        }),
+      )
+      .handle(
+        "session.task.get",
+        Effect.fn(function* (ctx) {
+          const row = yield* taskRun.get(ctx.params.sessionID, ctx.params.taskID).pipe(
+            Effect.catchDefect((defect) => unknownDefect("failed to read session task", ctx.params.sessionID, defect)),
+          )
+          if (!row) {
+            return yield* new TaskNotFoundError({
+              sessionID: ctx.params.sessionID,
+              taskID: ctx.params.taskID,
+              message: `Task not found: ${ctx.params.taskID} was not launched by session ${ctx.params.sessionID}`,
+            })
+          }
+          return { data: taskEntry(row) }
+        }),
+      )
+      .handle(
+        "session.task.continue",
+        Effect.fn(function* (ctx) {
+          const row = yield* taskRun
+            .continue({
+              sessionID: ctx.params.sessionID,
+              taskID: ctx.params.taskID,
+              message: ctx.payload.message,
+            })
+            .pipe(
+              // R5.12: a path task id resolving to no run of the path session
+              // fails with TaskNotFoundError and performed nothing.
+              Effect.catchTag("TaskRun.NotFound", (error) =>
+                Effect.fail(
+                  new TaskNotFoundError({
+                    sessionID: error.sessionID,
+                    taskID: error.taskID,
+                    message: `Task not found: ${error.taskID} was not launched by session ${error.sessionID}`,
+                  }),
+                ),
+              ),
+              Effect.catchDefect((defect) =>
+                unknownDefect("failed to continue session task", ctx.params.sessionID, defect),
+              ),
+            )
+          // R5.7: the response is the resulting running entry — a live job
+          // reads running from the live-job registry, a continuation was
+          // re-marked running before its prompt was admitted.
+          return { data: taskEntry(row) }
         }),
       )
   }),

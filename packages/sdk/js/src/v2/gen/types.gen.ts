@@ -2842,6 +2842,51 @@ export type SessionScheduleList = {
   }
 }
 
+export type SessionTask = {
+  /**
+   * The run id — the task_id handle of the task tool.
+   */
+  id: string
+  /**
+   * The stored launch description of the run.
+   */
+  description: string
+  /**
+   * The stored registry state (running, completed, error, cancelled) or the derived interrupted state of a stored-running run with no live job.
+   */
+  state: string
+  /**
+   * The launch time as integer UTC epoch milliseconds.
+   */
+  createdAt: number
+  /**
+   * The last registry write as integer UTC epoch milliseconds.
+   */
+  updatedAt: number
+  settledAt: number
+}
+
+export type SessionTaskList = {
+  data: {
+    tasks: Array<SessionTask>
+  }
+}
+
+export type SessionTaskGet = {
+  data: SessionTask
+}
+
+export type TaskNotFoundError = {
+  _tag: "TaskNotFoundError"
+  sessionID: string
+  taskID: string
+  message: string
+}
+
+export type SessionTaskContinue = {
+  data: SessionTask
+}
+
 export type SessionMessagesResponse = {
   data: Array<SessionMessage>
   cursor: {
@@ -12096,6 +12141,130 @@ export type V2SessionScheduleListResponses = {
 }
 
 export type V2SessionScheduleListResponse = V2SessionScheduleListResponses[keyof V2SessionScheduleListResponses]
+
+export type V2SessionTaskListData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/task"
+}
+
+export type V2SessionTaskListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * UnknownError
+   */
+  500: UnknownError1
+}
+
+export type V2SessionTaskListError = V2SessionTaskListErrors[keyof V2SessionTaskListErrors]
+
+export type V2SessionTaskListResponses = {
+  /**
+   * SessionTaskList
+   */
+  200: SessionTaskList
+}
+
+export type V2SessionTaskListResponse = V2SessionTaskListResponses[keyof V2SessionTaskListResponses]
+
+export type V2SessionTaskGetData = {
+  body?: never
+  path: {
+    sessionID: string
+    taskID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/task/{taskID}"
+}
+
+export type V2SessionTaskGetErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError | TaskNotFoundError
+   */
+  404: TaskNotFoundError | SessionNotFoundError
+  /**
+   * UnknownError
+   */
+  500: UnknownError1
+}
+
+export type V2SessionTaskGetError = V2SessionTaskGetErrors[keyof V2SessionTaskGetErrors]
+
+export type V2SessionTaskGetResponses = {
+  /**
+   * SessionTaskGet
+   */
+  200: SessionTaskGet
+}
+
+export type V2SessionTaskGetResponse = V2SessionTaskGetResponses[keyof V2SessionTaskGetResponses]
+
+export type V2SessionTaskContinueData = {
+  body: {
+    /**
+     * The continuation message delivered to the run.
+     */
+    message: string
+  }
+  path: {
+    sessionID: string
+    taskID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/task/{taskID}/continue"
+}
+
+export type V2SessionTaskContinueErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError | TaskNotFoundError
+   */
+  404: TaskNotFoundError | SessionNotFoundError
+  /**
+   * UnknownError
+   */
+  500: UnknownError1
+}
+
+export type V2SessionTaskContinueError = V2SessionTaskContinueErrors[keyof V2SessionTaskContinueErrors]
+
+export type V2SessionTaskContinueResponses = {
+  /**
+   * SessionTaskContinue
+   */
+  200: SessionTaskContinue
+}
+
+export type V2SessionTaskContinueResponse = V2SessionTaskContinueResponses[keyof V2SessionTaskContinueResponses]
 
 export type V2SessionMessagesData = {
   body?: never

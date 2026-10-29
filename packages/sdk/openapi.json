@@ -11632,6 +11632,303 @@
         ]
       }
     },
+    "/api/session/{sessionID}/task": {
+      "get": {
+        "tags": ["sessions"],
+        "operationId": "v2.session.task.list",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "SessionTaskList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTaskList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SessionNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "UnknownError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnknownError1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retrieve the subagent task runs of a session, newest launch first with ties ordered by id. Read-only: the endpoint mutates nothing and performs no permission ask.",
+        "summary": "List session tasks",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.session.task.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/api/session/{sessionID}/task/{taskID}": {
+      "get": {
+        "tags": ["sessions"],
+        "operationId": "v2.session.task.get",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "taskID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "SessionTaskGet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTaskGet"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SessionNotFoundError | TaskNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TaskNotFoundError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "UnknownError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnknownError1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retrieve one subagent task run of a session by its run id. Read-only: the endpoint mutates nothing and performs no permission ask.",
+        "summary": "Get session task",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.session.task.get({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/api/session/{sessionID}/task/{taskID}/continue": {
+      "post": {
+        "tags": ["sessions"],
+        "operationId": "v2.session.task.continue",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "taskID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "SessionTaskContinue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTaskContinue"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SessionNotFoundError | TaskNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TaskNotFoundError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "UnknownError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnknownError1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Deliver a continuation message to one subagent task run of a session: a running task receives it as additional input, a settled or interrupted task continues its conversation. Returns the resulting running entry.",
+        "summary": "Continue session task",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "The continuation message delivered to the run."
+                  }
+                },
+                "required": ["message"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.session.task.continue({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/api/session/{sessionID}/message": {
       "get": {
         "tags": ["messages"],
@@ -24019,6 +24316,96 @@
             },
             "required": ["schedules"],
             "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "SessionTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The run id — the task_id handle of the task tool."
+          },
+          "description": {
+            "type": "string",
+            "description": "The stored launch description of the run."
+          },
+          "state": {
+            "type": "string",
+            "description": "The stored registry state (running, completed, error, cancelled) or the derived interrupted state of a stored-running run with no live job."
+          },
+          "createdAt": {
+            "type": "integer",
+            "description": "The launch time as integer UTC epoch milliseconds."
+          },
+          "updatedAt": {
+            "type": "integer",
+            "description": "The last registry write as integer UTC epoch milliseconds."
+          },
+          "settledAt": {
+            "type": "integer"
+          }
+        },
+        "required": ["id", "description", "state", "createdAt", "updatedAt", "settledAt"],
+        "additionalProperties": false
+      },
+      "SessionTaskList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SessionTask"
+                }
+              }
+            },
+            "required": ["tasks"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "SessionTaskGet": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SessionTask"
+          }
+        },
+        "required": ["data"],
+        "additionalProperties": false
+      },
+      "TaskNotFoundError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["TaskNotFoundError"]
+          },
+          "sessionID": {
+            "type": "string"
+          },
+          "taskID": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "sessionID", "taskID", "message"],
+        "additionalProperties": false
+      },
+      "SessionTaskContinue": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SessionTask"
           }
         },
         "required": ["data"],

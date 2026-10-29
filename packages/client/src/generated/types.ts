@@ -66,6 +66,15 @@ export type UnknownError = {
 export const isUnknownError = (value: unknown): value is UnknownError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "UnknownError"
 
+export type TaskNotFoundError = {
+  readonly _tag: "TaskNotFoundError"
+  readonly sessionID: string
+  readonly taskID: string
+  readonly message: string
+}
+export const isTaskNotFoundError = (value: unknown): value is TaskNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "TaskNotFoundError"
+
 export type ProviderNotFoundError = {
   readonly _tag: "ProviderNotFoundError"
   readonly providerID: string
@@ -1773,6 +1782,54 @@ export type SessionsListSchedulesOutput = {
       readonly nextFireAt: number
       readonly command: string | null
     }>
+  }
+}["data"]
+
+export type SessionsListTasksInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionsListTasksOutput = {
+  readonly data: {
+    readonly tasks: ReadonlyArray<{
+      readonly id: string
+      readonly description: string
+      readonly state: string
+      readonly createdAt: number
+      readonly updatedAt: number
+      readonly settledAt: number | null
+    }>
+  }
+}["data"]
+
+export type SessionsGetTaskInput = {
+  readonly sessionID: { readonly sessionID: string; readonly taskID: string }["sessionID"]
+  readonly taskID: { readonly sessionID: string; readonly taskID: string }["taskID"]
+}
+
+export type SessionsGetTaskOutput = {
+  readonly data: {
+    readonly id: string
+    readonly description: string
+    readonly state: string
+    readonly createdAt: number
+    readonly updatedAt: number
+    readonly settledAt: number | null
+  }
+}["data"]
+
+export type SessionsContinueTaskInput = {
+  readonly sessionID: { readonly sessionID: string; readonly taskID: string }["sessionID"]
+  readonly taskID: { readonly sessionID: string; readonly taskID: string }["taskID"]
+  readonly message: { readonly message: string }["message"]
+}
+
+export type SessionsContinueTaskOutput = {
+  readonly data: {
+    readonly id: string
+    readonly description: string
+    readonly state: string
+    readonly createdAt: number
+    readonly updatedAt: number
+    readonly settledAt: number | null
   }
 }["data"]
 

@@ -306,31 +306,26 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
       "type": "string",
     },
     "description": {
-      "description": "A short (3-5 words) description of the task",
+      "description": "A short (3-5 words) description of the task. Required for a new task; omit it when addressing an existing task_id.",
       "type": "string",
     },
     "prompt": {
-      "description": "The task for the agent to perform",
+      "description": "The task for the agent to perform. Required for a new task; with task_id it is the message delivered to that task (an extension while it runs, a continuation of its session otherwise). Omit task_id and prompt entirely to read a task's status.",
       "type": "string",
     },
     "subagent_type": {
-      "description": "The type of specialized agent to use for this task",
+      "description": "The type of specialized agent to use for this task. Required for a new task; omit it when addressing an existing task_id.",
       "type": "string",
     },
     "task_id": {
-      "description": "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      "description": "The id of a previously launched task. Without a prompt the call reads the task's status; with a prompt it extends the running task or continues its session. A fresh launch passes no task_id.",
       "type": "string",
     },
     "wait": {
-      "description": "Wait for the task to finish and return its result in this tool call. Tasks run in the background by default and return immediately; the result arrives later as a separate session message.",
+      "description": "Wait for a newly launched task to finish and return its result in this tool call. Tasks run in the background by default and return immediately; the result arrives later as a separate session message.",
       "type": "boolean",
     },
   },
-  "required": [
-    "description",
-    "prompt",
-    "subagent_type",
-  ],
   "type": "object",
 }
 `;

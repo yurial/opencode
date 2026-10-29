@@ -68,6 +68,7 @@ import { SessionExecution } from "@opencode-ai/core/session/execution"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { SchedulerV1PromptLocal } from "@/scheduler/v1-prompt"
+import { TaskRunnerLocal } from "@/task/runner-local"
 import { lazy } from "@/util/lazy"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@opencode-ai/server/cors"
 import { serveUIEffect } from "@/server/shared/ui"
@@ -211,7 +212,7 @@ type RouteRequirements =
   | HttpRouter.Request<"Requires", unknown>
   | HttpRouter.Request<"GlobalRequires", never>
 
-const app = LayerNode.group([
+const appGroup = (runner: typeof TaskRunnerLocal.node) => LayerNode.group([
   Npm.node,
   FSUtil.node,
   Database.node,
@@ -270,10 +271,14 @@ const app = LayerNode.group([
   PtyTicket.node,
   Scheduler.node,
   SchedulerV1PromptLocal.node,
+  runner,
 ])
 
 export function createRoutes(
   corsOptions?: CorsOptions,
+  // The task-run continuation runner binding (specs/tool-task.md R5.7);
+  // hosts bind the V1 runtime's local node, tests may bind a stub.
+  runner: typeof TaskRunnerLocal.node = TaskRunnerLocal.node,
 ): Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements> {
   const locationServiceMapV2 = buildLocationServiceMap()
 
@@ -314,7 +319,7 @@ export function createRoutes(
     Layer.provide(locationServiceMapV2),
 
     Layer.provide(
-      AppNodeBuilderV1.build(app, [
+      AppNodeBuilderV1.build(appGroup(runner), [
         [SessionExecution.node, SessionExecutionLocal.node],
         [LocationServiceMap.node, locationServiceMapV2],
       ]),

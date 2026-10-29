@@ -33,6 +33,7 @@ import { SessionExecution } from "@opencode-ai/core/session/execution"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { SchedulerV1PromptLocal } from "@/scheduler/v1-prompt"
+import { TaskRunnerLocal } from "@/task/runner-local"
 import { Instruction } from "@/session/instruction"
 import { LLM } from "@/session/llm"
 import { LSP } from "@/lsp/lsp"
@@ -111,6 +112,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     SessionShare.node,
     Scheduler.node,
     SchedulerV1PromptLocal.node,
+    TaskRunnerLocal.node,
   ]),
   [[SessionExecution.node, SessionExecutionLocal.node]],
 ).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(Observability.layer))

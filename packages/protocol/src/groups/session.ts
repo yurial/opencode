@@ -14,6 +14,7 @@ import {
   MessageNotFoundError,
   ServiceUnavailableError,
   SessionNotFoundError,
+  TaskNotFoundError,
   UnknownError,
 } from "../errors"
 import { Agent } from "@opencode-ai/schema/agent"
@@ -114,6 +115,28 @@ export const SessionSchedule = Schema.Struct({
   }),
 }).annotate({ identifier: "SessionSchedule" })
 export type SessionSchedule = typeof SessionSchedule.Type
+
+/**
+ * One subagent task run of a session as the task-status endpoints return it
+ * (specs/tool-task.md HTTP endpoints, R5.4): the run id (the task_id handle
+ * of the task tool), the stored description, the stored state or the derived
+ * `interrupted` state, and the UTC epoch millisecond timestamps. `settledAt`
+ * is null while the run has not settled.
+ */
+export const SessionTask = Schema.Struct({
+  id: Schema.String.annotate({ description: "The run id — the task_id handle of the task tool." }),
+  description: Schema.String.annotate({ description: "The stored launch description of the run." }),
+  state: Schema.String.annotate({
+    description:
+      "The stored registry state (running, completed, error, cancelled) or the derived interrupted state of a stored-running run with no live job.",
+  }),
+  createdAt: Schema.Int.annotate({ description: "The launch time as integer UTC epoch milliseconds." }),
+  updatedAt: Schema.Int.annotate({ description: "The last registry write as integer UTC epoch milliseconds." }),
+  settledAt: Schema.NullOr(Schema.Int).annotate({
+    description: "The settle or cancel time as integer UTC epoch milliseconds, or null while the run has not settled.",
+  }),
+}).annotate({ identifier: "SessionTask" })
+export type SessionTask = typeof SessionTask.Type
 
 const SessionHistoryLimit = PositiveInt.check(Schema.isLessThanOrEqualTo(100))
 
@@ -435,6 +458,85 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
             summary: "List session schedules",
             description:
               "Retrieve the schedules bound to a session, ordered by next fire time with ties ordered by id. Read-only: the endpoint mutates nothing and performs no permission ask.",
+          }),
+        ),
+    )
+    .add(
+      /**
+       * The read-only task-list endpoint of specs/tool-task.md (R5.5).
+       * Returns every subagent run of the path session inside the
+       * {data: {tasks: [...]}} envelope, newest launch first, ties by run id
+       * ascending. The endpoint mutates no registry row and asks no
+       * permission.
+       */
+      HttpApiEndpoint.get("session.task.list", "/api/session/:sessionID/task", {
+        params: { sessionID: Session.ID },
+        success: Schema.Struct({
+          data: Schema.Struct({ tasks: Schema.Array(SessionTask) }),
+        }).annotate({
+          identifier: "SessionTaskList",
+        }),
+        error: [SessionNotFoundError, UnknownError],
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.task.list",
+            summary: "List session tasks",
+            description:
+              "Retrieve the subagent task runs of a session, newest launch first with ties ordered by id. Read-only: the endpoint mutates nothing and performs no permission ask.",
+          }),
+        ),
+    )
+    .add(
+      /**
+       * The read-only task-detail endpoint of specs/tool-task.md (R5.6).
+       * Returns the task-run entry of the path task id; an id that resolves
+       * to no run of the path session fails with TaskNotFoundError (R5.12).
+       */
+      HttpApiEndpoint.get("session.task.get", "/api/session/:sessionID/task/:taskID", {
+        params: { sessionID: Session.ID, taskID: Session.ID },
+        success: Schema.Struct({ data: SessionTask }).annotate({
+          identifier: "SessionTaskGet",
+        }),
+        error: [SessionNotFoundError, TaskNotFoundError, UnknownError],
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.task.get",
+            summary: "Get session task",
+            description:
+              "Retrieve one subagent task run of a session by its run id. Read-only: the endpoint mutates nothing and performs no permission ask.",
+          }),
+        ),
+    )
+    .add(
+      /**
+       * The continuation endpoint of specs/tool-task.md (R5.7, R5.8): a
+       * message payload addressed to one run of the path session, applying
+       * the same liveness decision tree as the task tool — a live job
+       * extends the run, no live job continues its durable subagent session.
+       * Returns the resulting running entry (R5.9: no permission ask; the
+       * authorization is the server authorization).
+       */
+      HttpApiEndpoint.post("session.task.continue", "/api/session/:sessionID/task/:taskID/continue", {
+        params: { sessionID: Session.ID, taskID: Session.ID },
+        payload: Schema.Struct({
+          message: Schema.String.annotate({ description: "The continuation message delivered to the run." }),
+        }),
+        success: Schema.Struct({ data: SessionTask }).annotate({
+          identifier: "SessionTaskContinue",
+        }),
+        error: [SessionNotFoundError, TaskNotFoundError, UnknownError],
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.task.continue",
+            summary: "Continue session task",
+            description:
+              "Deliver a continuation message to one subagent task run of a session: a running task receives it as additional input, a settled or interrupted task continues its conversation. Returns the resulting running entry.",
           }),
         ),
     )

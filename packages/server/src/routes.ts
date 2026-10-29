@@ -11,6 +11,7 @@ import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { LocationServiceMap } from "@opencode-ai/core/location-service-map"
 import { SessionExecutionLocal } from "@opencode-ai/core/session/execution/local"
 import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
+import { TaskRun } from "@opencode-ai/core/task-run/task-run"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -36,6 +37,11 @@ const applicationServices = LayerNode.group([
   PtyEnvironment.node,
   LocationServiceMap.node,
   Scheduler.node,
+  // The task status endpoints read the durable registry and the host
+  // process's live-job registry (specs/tool-task.md R5.4); this host has no
+  // continuation runner, so session.task.continue fails with UnknownError
+  // there instead of continuing anything.
+  TaskRun.node,
 ])
 
 export function createRoutes(password?: string) {

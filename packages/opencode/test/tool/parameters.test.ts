@@ -243,8 +243,13 @@ describe("tool parameters", () => {
       const parsed = parse(Task, { description: "d", prompt: "p", subagent_type: "general", wait: true })
       expect(parsed.wait).toBe(true)
     })
-    test("rejects missing prompt", () => {
-      expect(accepts(Task, { description: "d", subagent_type: "general" })).toBe(false)
+    test("accepts a status-only call with just task_id", () => {
+      const parsed = parse(Task, { task_id: "ses_existing" })
+      expect(parsed.task_id).toBe("ses_existing")
+    })
+    test("accepts an addressed call with task_id and prompt", () => {
+      const parsed = parse(Task, { task_id: "ses_existing", prompt: "continue the work" })
+      expect(parsed.prompt).toBe("continue the work")
     })
   })
 
