@@ -2,13 +2,13 @@
 
 Status: draft
 Reference: tool-task
-Spec source of truth for: the V1 `task` tool launch, resume, and completion contract — asynchronous launch by default with an immediate running result, the optional blocking `wait` argument, the `task_id` semantics of the status-only call, the live-run extension, and the continuation of a settled or interrupted run over the durable task-run registry, completion delivery into the parent session as exactly one synthetic user message through the ordinary prompt admission of the host's single runtime graph, the read-only `task_status` tool, and the session-scoped HTTP surfaces for run status and continuation.
+Spec source of truth for: the V1 `task` tool launch, resume, and completion contract — asynchronous launch by default with an immediate running result, the optional blocking `wait` argument, the `task_id` semantics of the status-only call, the live-run extension, and the continuation of a settled or interrupted run over the durable task-run registry, completion delivery into the parent session as exactly one synthetic user message through the ordinary prompt admission of the host's single runtime graph, the read-only `task_status` tool, the argumentless read-only `task_list` tool, the `task_abort` stop tool, and the session-scoped HTTP surfaces for run status and continuation.
 
 ## Overview
 
 The `task` tool delegates work to a subagent session. This spec fixes the launch modes, the resume semantics, and the completion-delivery contract: a launch returns immediately with a running result identifying the run and promising a completion message; when the run settles, the parent session receives exactly one synthetic user message carrying the outcome. Blocking settlement remains available through an explicit argument.
 
-A `task_id` addresses an existing subagent-run. Without a prompt the call reads status: it returns a snapshot and performs no action. With a prompt the call writes work into the run: a live job receives the prompt as additional input, and a run without a live job — settled, paused, or interrupted by a restart — receives the prompt as a continuation of its durable conversation, with prior exchange history in context. A fresh run is a launch without `task_id`.
+A `task_id` addresses an existing subagent-run. Without a prompt the call reads status: it returns a snapshot and performs no action. With a prompt the call writes work into the run: a live job receives the prompt as additional input, and a run without a live job — settled, paused, or interrupted by a restart — receives the prompt as a continuation of its durable conversation, with prior exchange history in context. A fresh run is a launch without `task_id`. The status surfaces read the registry — the task tool status call, `task_status`, `task_list`, and the HTTP endpoints — while the one control surface, `task_abort`, stops an addressed run: a live job is cancelled together with its child session's work, a stored `running` row without a live job is re-marked `cancelled`, and a settled run is confirmed unchanged.
 
 Every launch and every continuation is recorded in the tool-task/task-run-registry, a durable table that survives process restarts. The stored row carries the last written state; the liveness of a run comes from the tool-task/live-job-registry of the host process, and a row stored `running` whose run has no live job reads as tool-task/interrupted-run, derived at read time without mutation. Completion messages never cross process-lifetime boundaries: a run whose host process died before settlement delivers no completion message, and its row keeps reading interrupted.
 
@@ -24,9 +24,11 @@ In:
 - The completion message: its grammar, its synthetic admission into the parent session, and exactly-once delivery per settled run.
 - The process-topology precondition of completion delivery, citing the single-delivery-loop property of scheduler R8.3.
 - The durable task-run registry: the task_run table, its columns, its writes at launch, settle, and cancel, restart survival, and the derived interrupted reading.
-- The `task_status` read-only tool: its list and detail forms and its result grammar.
+- The `task_status` read-only tool: its detail form and its result grammar.
+- The `task_list` read-only tool: its argumentless list form, its ordering, and its result grammar.
+- The `task_abort` tool: its permission posture, its three-state stop semantics, and its result.
 - The session-scoped HTTP endpoints for run status and continuation.
-- The model-facing description contract of both tools.
+- The model-facing description contract of every tool of this spec.
 
 Out (non-goals):
 
@@ -47,6 +49,7 @@ Out (non-goals):
 - **tool-task/live-run-extension**: a task tool call carrying `task_id` and a prompt whose addressed subagent-run has a live job; the prompt is delivered to the live run as additional input without starting a new run.
 - **tool-task/continuation**: a task tool call carrying `task_id` and a prompt whose addressed subagent-run has no live job; the prompt is admitted into the durable subagent session as the next message of its conversation.
 - **tool-task/interrupted-run**: the derived reading of a task-run-registry row stored `running` whose run has no live job in the live-job-registry of the reading process; derived at read time and never written.
+- **tool-task/run-abort**: a task_abort tool call carrying `task_id` that stops the addressed subagent-run — a live job is cancelled together with its child session's in-flight work, a stored `running` row without a live job is re-marked `cancelled`, and a settled run is confirmed unchanged; no completion message is delivered.
 - **tool-task/status-snapshot**: the read-only description of one subagent-run — its run id, description, stored or derived state, and timestamps — following the status snapshot grammar of the Interface section.
 - **tool-task/task-run-entry**: one element of the status endpoint responses — the id, description, stored or derived state, and timestamps of one subagent-run.
 
@@ -68,7 +71,7 @@ Error results of this spec (the complete set; semantics in Error handling):
 
 | Error result | Meaning |
 |---|---|
-| `task-not-found` | `task_id` resolves to no subagent-run of the calling session (R1.8) |
+| `task-not-found` | `task_id` resolves to no subagent-run of the calling session (R1.8, R5.3, R7.5) |
 
 ### Result grammar
 
@@ -94,19 +97,40 @@ launched <created-at>[, settled <settled-at>]
 
 - `<state>` is the stored registry state, or `interrupted` for a row stored `running` whose run has no live job (R4.11); a run with a live job reads `running` (R4.10).
 - `<created-at>` and `<settled-at>` are UTC `ISO 8601` instants; the settled fragment appears only on a row whose state left `running`.
-- A status list renders one status snapshot block per subagent-run, each block carrying the run id, the state, and the description (R5.2).
+- A task_list result renders one status snapshot block per subagent-run of the calling session, newest launch first, ties ordered by run id ascending, each block carrying the run id, the state, and the description (R6.2).
+- A task_abort result is the single status snapshot of the addressed subagent-run, read after the operation applies (R7.6).
 
 ### Description contract
 
-The task tool description states that launches run asynchronously by default and return immediately with a running result, that completion arrives as a separate session message, that a launch needing the result before continuing passes `wait`, and the `task_id` semantics: without `prompt` a call reads status, with `prompt` it extends a live run or continues a run with no live job (R3.1, R3.2). The task_status tool description states its read-only role and its list and detail forms (R3.3).
+The task tool description states that launches run asynchronously by default and return immediately with a running result, that completion arrives as a separate session message, that a launch needing the result before continuing passes `wait`, and the `task_id` semantics: without `prompt` a call reads status, with `prompt` it extends a live run or continues a run with no live job (R3.1, R3.2). The task_status tool description states its read-only role and its detail form (R3.3). The task_list tool description states its read-only role and its newest-first list (R3.4). The task_abort tool description states the stop semantics — the cancellation of a live job together with its child run, the re-marking of an interrupted run, the idempotent confirmation of a settled run — and that no completion message arrives (R3.5).
 
 ### task_status tool
 
-The `task_status` tool is a read-only V1 built-in under the V1 tool contract of core-tools-permissions: it asks no permission and mutates no registry row (R5.1). Without arguments it lists the subagent-runs of the calling session; with `task_id` it returns the status snapshot of one addressed run (R5.2, R5.3).
+The `task_status` tool is a read-only V1 built-in under the V1 tool contract of core-tools-permissions: it asks no permission and mutates no registry row (R5.1). Its `task_id` argument selects the status snapshot of one addressed run (R5.3); the argumentless list form moved to the task_list tool.
 
 | Argument | Allowed values | Meaning |
 |---|---|---|
-| `task_id` | optional run id | selects the detail snapshot of one subagent-run of the calling session |
+| `task_id` | required run id | selects the status snapshot of one subagent-run of the calling session |
+
+### task_list tool
+
+The `task_list` tool is a read-only V1 built-in under the V1 tool contract of core-tools-permissions: it takes no arguments, asks no permission, and mutates no registry row (R6.1). Its result lists every subagent-run of the calling session — one status snapshot block per run, newest launch first, ties ordered by run id ascending (R6.2).
+
+### task_abort tool
+
+The `task_abort` tool is a V1 built-in under the V1 tool contract of core-tools-permissions that stops one addressed subagent-run; it asks no permission — a stop ends work whose launch already passed its ask (R7.1).
+
+| Argument | Allowed values | Meaning |
+|---|---|---|
+| `task_id` | required run id | addresses the subagent-run of the calling session to stop |
+
+The stop applies the liveness decision tree of the addressed run:
+
+- A run with a live job is cancelled: the job stops, the child session's in-flight work aborts with it — the run is stopped, not completed — and the registry row records the cancel with its settle time; no completion message is delivered (R7.2, R4.6, R2.5).
+- A row stored `running` whose run has no live job — the interrupted reading — is re-marked `cancelled` with the settle time, and no execution resumes (R7.3).
+- A settled row — stored `completed`, `error`, or `cancelled` — is left untouched, and the call succeeds as an idempotent no-op (R7.4).
+
+A `task_id` that resolves to no subagent-run of the calling session fails the call with `task-not-found` (R7.5). Every success result is the status snapshot of the addressed run, read after the operation applies (R7.6).
 
 ### Task-run record
 
@@ -173,7 +197,9 @@ Error results (the complete set; semantics in Error handling):
 - R3. Model-facing contract:
 - R3.1. verification=automated; The task tool description documents the asynchronous default, the completion notification, and the `wait` argument.
 - R3.2. verification=automated; The task tool description documents the `task_id` semantics: the status-only call without `prompt`, the extension of a live run, and the continuation of a run with no live job.
-- R3.3. verification=automated; The task_status tool description documents its read-only role and its list and detail forms.
+- R3.3. verification=automated; The task_status tool description documents its read-only role and its detail form.
+- R3.4. verification=automated; The task_list tool description documents its read-only role and its newest-first list of the calling session's subagent-runs.
+- R3.5. verification=automated; The task_abort tool description documents the stop semantics: the cancellation of a live job together with its child run, the re-marking of an interrupted run, the idempotent confirmation of a settled run, and the absence of a completion message.
 - R4. Durable run registry:
 - R4.1. verification=automated; Subagent-run registry state persists in the task_run table with snake_case columns under the table-ownership rules of storage-events.
 - R4.2. verification=automated; A subagent session has at most one task_run row, and the row `id` equals the child session id — the run id of a subagent-run.
@@ -189,9 +215,8 @@ Error results (the complete set; semantics in Error handling):
 - R4.12. verification=scenario; Completion messages are not delivered across process-lifetime boundaries: a run whose host process died before settlement delivers no completion message, and its row keeps reading `interrupted`.
 - R5. Status surfaces:
 - R5.1. verification=automated; The task_status tool is a read-only V1 built-in that asks no permission and mutates no registry row.
-- R5.2. verification=automated; A task_status call without `task_id` returns one status snapshot block per subagent-run of the calling session, each block carrying the run id, the state, and the description, newest launch first, ties ordered by run id ascending.
 - R5.3. verification=automated; A task_status call with `task_id` returns the status snapshot of the addressed subagent-run of the calling session; a `task_id` resolving to no subagent-run of the calling session fails the call with `task-not-found`.
-- R5.4. verification=automated; Every status surface — the task tool status call, the task_status tool, and the status endpoints — reports a run with a live job as `running` and a stored `running` row without a live job as `interrupted`.
+- R5.4. verification=automated; Every status surface — the task tool status call, the task_status and task_list tools, and the status endpoints — reports a run with a live job as `running` and a stored `running` row without a live job as `interrupted`.
 - R5.5. verification=automated; The session.task.list endpoint answers read-only GET requests with one task-run entry per subagent-run of the path session, mutating no registry row and performing no permission ask.
 - R5.6. verification=automated; The session.task.get endpoint answers a read-only GET request with the task-run entry of the path task id, mutating no registry row and performing no permission ask.
 - R5.7. verification=automated; The session.task.continue endpoint carries a message payload, resolves the addressed subagent-run of the path session, and applies the same liveness decision tree as the task tool: a live job extends the run, no live job admits a continuation, and the response returns the resulting running entry.
@@ -200,6 +225,16 @@ Error results (the complete set; semantics in Error handling):
 - R5.10. verification=automated; A request whose path session id resolves to no stored session fails with `SessionNotFoundError`.
 - R5.11. verification=automated; A request whose path session id or path task id fails to decode fails with `InvalidRequestError`.
 - R5.12. verification=automated; A request whose path task id resolves to no subagent-run of the path session fails with `TaskNotFoundError`.
+- R6. task_list tool:
+- R6.1. verification=automated; The task_list tool is a read-only V1 built-in that takes no arguments, asks no permission, and mutates no registry row.
+- R6.2. verification=automated; A task_list call returns one status snapshot block per subagent-run of the calling session, each block carrying the run id, the state, and the description, newest launch first, ties ordered by run id ascending.
+- R7. task_abort tool:
+- R7.1. verification=automated; The task_abort tool is a V1 built-in that asks no permission before stopping the addressed subagent-run.
+- R7.2. verification=automated; A task_abort call whose addressed subagent-run has a live job cancels the live job and aborts the child session's in-flight work with it — the run is stopped, not completed — and the registry row records the cancel with its settle time; no completion message is delivered (R2.5, R4.6).
+- R7.3. verification=automated; A task_abort call whose addressed subagent-run has a stored state `running` and no live job re-marks the registry row `cancelled` with the settle time and resumes no execution.
+- R7.4. verification=automated; A task_abort call whose addressed subagent-run is settled — stored `completed`, `error`, or `cancelled` — performs no registry write and returns a success result, an idempotent no-op.
+- R7.5. verification=automated; A task_abort call whose `task_id` resolves to no subagent-run of the calling session fails with `task-not-found` and performs no action.
+- R7.6. verification=automated; Every task_abort success result is the status snapshot of the addressed subagent-run, read after the operation applies.
 
 ## Implementation
 
@@ -212,6 +247,8 @@ Error results (the complete set; semantics in Error handling):
 - I7. The task_status tool registers as a read-only V1 built-in beside the task tool, with no ask in its execute path.
 - I8. The endpoints live in the `server.session` protocol group with the session-location middleware; adding them is a wire-schema change requiring the private client generation and the legacy SDK build to run, plus a `TaskNotFoundError` public error.
 - I9. The task_run table lives with the core storage tables, carries a cascading foreign key to the session table on `child_session`, and an index on `parent_session` for the session-scoped lists.
+- I10. The task_list tool registers as a read-only V1 built-in beside task_status, reusing the registry list query and the snapshot rendering of the former task_status list branch; the task_status parameters drop the optional list mode.
+- I11. The task_abort live branch composes the registry cancel write, the background job cancel, and the abort of the child session's in-flight work; the interrupted branch writes `cancelled` directly, and the settled branch returns the stored snapshot without a write.
 
 ## Examples
 
@@ -234,10 +271,15 @@ Error results (the complete set; semantics in Error handling):
 - E4.7. After a process restart, the row of a run that was live at shutdown still exists and reads `interrupted`, and no completion message for it is ever delivered.
 - E4.11. Reading the status of the interrupted run of E4.7 twice returns `interrupted` both times and mutates no row.
 - E5. Status surfaces:
-- E5.2. A task_status call of the parent session lists its runs newest first, one status snapshot block per run, each block carrying the run id, the state, and the description.
 - E5.3. A task_status call with the `task_id` of E1.1 returns the snapshot of that run; with the `task_id` of another session's run it fails with `task-not-found`.
-- E5.4. A run with a live job reads `running` on the task tool status call, task_status, and both status endpoints; a stored `running` row without a live job reads `interrupted` on each of them.
+- E5.4. A run with a live job reads `running` on the task tool status call, task_status, task_list, and both status endpoints; a stored `running` row without a live job reads `interrupted` on each of them.
 - E5.7. A continue request against a live run extends it and returns the running entry; against a settled run it continues the conversation and returns the running entry.
+- E6. task_list tool:
+- E6.2. A task_list call of the parent session lists its runs newest first, one status snapshot block per run, each block carrying the run id, the state, and the description.
+- E7. task_abort tool:
+- E7.2. While the run of E1.1 is live, a task_abort call carrying its `task_id` cancels the job and aborts the child session's work; the registry row reads `cancelled` with a settle time, and no completion message is delivered.
+- E7.3. After the restart of E4.7, a task_abort call against the interrupted run re-marks its row `cancelled`, resumes nothing, and returns the `cancelled` snapshot.
+- E7.4. A task_abort call against the settled run of E1.7 writes nothing and succeeds, returning the stored `completed` snapshot.
 
 ## Tests
 
@@ -257,7 +299,9 @@ Error results (the complete set; semantics in Error handling):
 - T3. Model-facing contract:
 - T3.1. R-ID=R3.1; procedure=description content check at registry build; conditions=the composed tool description; expected=it names the asynchronous default, the completion notification, and the `wait` argument.
 - T3.2. R-ID=R3.2; procedure=description content check at registry build; conditions=the composed task tool description; expected=it names the status-only call, the live-run extension, and the continuation.
-- T3.3. R-ID=R3.3; procedure=description content check of task_status; conditions=the composed task_status description; expected=it names the read-only role and the list and detail forms.
+- T3.3. R-ID=R3.3; procedure=description content check of task_status; conditions=the composed task_status description; expected=it names the read-only role and the detail form.
+- T3.4. R-ID=R3.4; procedure=description content check of task_list; conditions=the composed task_list description; expected=it names the read-only role and the newest-first list.
+- T3.5. R-ID=R3.5; procedure=description content check of task_abort; conditions=the composed task_abort description; expected=it names the live-job cancellation, the interrupted re-mark, the idempotent settled confirmation, and the absence of a completion message.
 - T4. Durable run registry:
 - T4.1. R-ID=R4.1, R4.2; procedure=table and row-uniqueness test; conditions=launches of two subagent-runs and a continuation of one of them; expected=the task_run table holds snake_case columns and exactly one row per subagent session, its `id` equal to the child session id.
 - T4.2. R-ID=R4.3; procedure=launch-insert test; conditions=an asynchronous launch; expected=the row is inserted with state `running` and the launch time.
@@ -271,9 +315,8 @@ Error results (the complete set; semantics in Error handling):
 - T4.10. R-ID=R4.12; procedure=cross-boundary delivery scenario; conditions=a run live at process death, then a process restart; expected=no completion message is ever delivered for it and its row keeps reading `interrupted`.
 - T5. Status surfaces:
 - T5.1. R-ID=R5.1; procedure=task_status read-only test; conditions=a task_status call of a session with runs; expected=no permission ask occurs and no registry row changes.
-- T5.2. R-ID=R5.2; procedure=list form test; conditions=a session with runs launched at distinct times and two launched together; expected=one status snapshot block per run, newest first, the tie ordered by run id ascending.
 - T5.3. R-ID=R5.3; procedure=detail form test; conditions=a task_status call with the `task_id` of a run of the calling session and one of another session's run; expected=the first returns the snapshot, the second fails with `task-not-found`.
-- T5.4. R-ID=R5.4; procedure=derived-state reporting test; conditions=one run with a live job and one stored `running` row without a live job; expected=the first reads `running` and the second `interrupted` on the task tool status call, task_status, and both status endpoints.
+- T5.4. R-ID=R5.4; procedure=derived-state reporting test; conditions=one run with a live job and one stored `running` row without a live job; expected=the first reads `running` and the second `interrupted` on the task tool status call, task_status, task_list, and both status endpoints.
 - T5.5. R-ID=R5.5; procedure=session.task.list endpoint test; conditions=a GET against a session with runs; expected=one task-run entry per run in the data envelope, with no registry mutation and no permission ask.
 - T5.6. R-ID=R5.6; procedure=session.task.get endpoint test; conditions=a GET with the task id of a run of the path session; expected=the entry returns in the data envelope, with no registry mutation and no permission ask.
 - T5.7. R-ID=R5.7; procedure=session.task.continue endpoint test; conditions=a POST with a message against a live run and against a settled run; expected=the live run is extended and the settled run is continued, and the response is the running entry.
@@ -282,6 +325,16 @@ Error results (the complete set; semantics in Error handling):
 - T5.10. R-ID=R5.10; procedure=unknown-session request test; conditions=a path session id resolving to no stored session; expected=the request fails with `SessionNotFoundError`.
 - T5.11. R-ID=R5.11; procedure=undecodable-id request test; conditions=a path session id or task id that fails to decode; expected=the request fails with `InvalidRequestError`.
 - T5.12. R-ID=R5.12; procedure=unknown-task request test; conditions=a path task id resolving to no subagent-run of the path session; expected=the request fails with `TaskNotFoundError`.
+- T6. task_list tool:
+- T6.1. R-ID=R6.1; procedure=task_list read-only test; conditions=a task_list call of a session with runs; expected=the tool takes no arguments, no permission ask occurs, and no registry row changes.
+- T6.2. R-ID=R6.2; procedure=list form test; conditions=a session with runs launched at distinct times and two launched together; expected=one status snapshot block per run, newest first, the tie ordered by run id ascending.
+- T7. task_abort tool:
+- T7.1. R-ID=R7.1; procedure=task_abort authorization test; conditions=a task_abort call against a live run; expected=no permission ask occurs and the stop applies.
+- T7.2. R-ID=R7.2; procedure=live stop test; conditions=a task_abort call against a run with a live job; expected=the job is cancelled, the child session's work is aborted, the row reads `cancelled` with a settle time, and no completion message is delivered.
+- T7.3. R-ID=R7.3; procedure=interrupted re-mark test; conditions=a stored `running` row whose run has no live job after a restart; expected=the row reads `cancelled` with a settle time and no execution starts.
+- T7.4. R-ID=R7.4; procedure=settled idempotence test; conditions=task_abort calls against runs stored `completed`, `error`, and `cancelled`; expected=each call succeeds, no registry row changes, and the stored snapshot returns.
+- T7.5. R-ID=R7.5; procedure=unknown and foreign `task_id` test; conditions=calls carrying a `task_id` of no run and a `task_id` of another session's run; expected=both fail with `task-not-found` and perform no action.
+- T7.6. R-ID=R7.6; procedure=abort result test; conditions=task_abort calls against a live run and a settled run; expected=each result is the status snapshot of the addressed run read after the operation applies.
 
 ## Justification
 
@@ -295,12 +348,15 @@ Error results (the complete set; semantics in Error handling):
 - J8. Why a separate task_status tool instead of a status mode of the task tool (R5.1): the launch tool keeps an unconditional launch schema and its side-effect permission ask, while a status read asks nothing and mutates nothing — one tool, one posture — and the task description stays launch-focused.
 - J9. Why the run id equals the child session id (R4.2): one durable handle for the model — the id of every result, snapshot, and endpoint is the id valid as `task_id`; a second per-activation identifier would invite conflation with the session handle.
 - J10. Why the continue endpoint mirrors the tool decision tree (R5.7): one liveness decision tree serves both surfaces; a divergent HTTP path could create work the tool cannot address or bypass the registry writes.
+- J11. Why the list form moved from task_status to a dedicated task_list tool (R5.3, R6.1, R6.2): task_status keeps one addressed run per call with a required `task_id`, and the argumentless list becomes its own tool with its own description — one tool, one posture — so neither description carries a two-mode schema.
+- J12. Why task_abort asks no permission and may re-mark an interrupted row (R7.1, R7.3): a stop ends work whose launch already passed the `task` permission ask, mirroring the abort posture of a session; and the re-mark is an explicit stop command, not a derived read — the derived-interrupted invariant of R4.11 forbids writes from status reads, not from an explicit stop.
 
 ## Error handling
 
 - All error results of the tool are final results of a failed tool call; the tool retries nothing itself, and the model may re-call with corrected arguments.
-- `task-not-found` names a `task_id` that resolves to no subagent-run of the calling session — unknown, foreign, or deleted; the call performed nothing (R1.8).
+- `task-not-found` names a `task_id` that resolves to no subagent-run of the calling session — unknown, foreign, or deleted; the call performed nothing (R1.8, R5.3, R7.5).
 - The interrupted reading is not an error: a derived `interrupted` status is a normal snapshot of a run whose host process died before settlement (R4.11, R4.12).
+- A task_abort call against a settled run is not an error: the call is an idempotent success that changes nothing (R7.4).
 - A cancelled subagent-run delivers no completion message (R2.5); the surface that cancelled it already knows.
 - A crash between the settle write and the completion admission can leave a settled row whose message was never delivered; the row keeps the fact, and the loss degrades at most one notification. This window is an accepted risk.
 - HTTP errors follow the public error conventions of server-api-sdk: `InvalidRequestError` for undecodable path ids (R5.11), `SessionNotFoundError` for an unknown session (R5.10), `TaskNotFoundError` for an unknown or foreign task id (R5.12), `UnauthorizedError` when the server auth rejects the request, and `UnknownError` for unexpected defects after logging.
@@ -312,7 +368,7 @@ Error results (the complete set; semantics in Error handling):
 
 ## Dependencies
 
-- core-tools-permissions — the task and task_status tools are V1 built-ins under its tool contract, registry, and `task` permission ask; this spec changes the launch, resume, and completion behavior and adds the status surfaces.
+- core-tools-permissions — the task, task_status, task_list, and task_abort tools are V1 built-ins under its tool contract and registry, the launch keeping its `task` permission ask; this spec changes the launch, resume, and completion behavior and adds the status and stop surfaces.
 - core-session — the completion message and the continuation prompt are admitted through the V1 prompt boundary it documents; the subagent session transcript is its durable history.
 - scheduler — the completion-delivery topology precondition cites its single-delivery-loop property (R8.3); no scheduler behavior changes here.
 - storage-events — the task_run table follows its table-ownership and column conventions (R11, R12, R14) and registers through its generated migration pipeline (R10).
