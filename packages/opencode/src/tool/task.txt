@@ -5,7 +5,7 @@ When using the Task tool for a new task, you must specify a subagent_type parame
 Launches run asynchronously: the tool returns immediately with a running result while the task keeps working in the background, and the settled result arrives later as a separate session message — the only channel of the task's outcome, so a launch that needs the result before continuing receives it through that message. Work according to the instructions in that message; until then, do not sleep, poll for progress, ask the task for status, or duplicate its work.
 
 Addressing an existing task with task_id (the id every launch result carries):
-- task_id without a prompt is a status-only call: it returns the task's status snapshot and does nothing else. The task_status tool lists all tasks of the session.
+- task_id without a prompt is a status-only call: it returns the task's status snapshot and does nothing else. The task_list tool lists all tasks of the session.
 - task_id with a prompt while the task is still running delivers the prompt to the running task as additional context; no new task starts.
 - task_id with a prompt after the task finished (or was interrupted by a restart) continues the same subagent session: the prompt becomes the next message of its conversation, with the earlier exchange in context, and the task runs again in the background.
 

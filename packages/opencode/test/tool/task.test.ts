@@ -1165,7 +1165,6 @@ describe("tool.task", () => {
 
       // R4.4: while the continuation prompt is still executing, the row is
       // already back to running with no settle time.
-      console.log("DBG jobs", (yield* jobs.get(started.metadata.sessionId))?.status, (yield* registry.get(chat.id, started.metadata.sessionId)))
       expect((yield* registry.get(chat.id, started.metadata.sessionId))?.state).toBe("running")
       expect((yield* registry.get(chat.id, started.metadata.sessionId))?.settledAt).toBeNull()
       expect(input.sessionID).toBe(started.metadata.sessionId)
