@@ -29,6 +29,14 @@ export const RETRY_JITTER_FACTOR = 0.25
 export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds
 export const RETRY_MAX_DELAY = 2_147_483_647 // max 32-bit signed integer for setTimeout
 export const RETRY_MAX_RETRIES = 5
+/**
+ * Upper bound in seconds for the computed exponential backoff between retries
+ * (default 300). Applied as Math.min after jitter, so a computed delay never
+ * exceeds this bound. Explicit server hints (retry-after headers, including
+ * the synthetic prime-time gate hint) and parsed provider limit-reset times
+ * are not capped by this value.
+ */
+export const RETRY_MAX_DELAY_SEC = 300
 
 const RETRYABLE_MESSAGE_PATTERNS = [
   /429|500|502|503|504|524/i,
@@ -44,7 +52,31 @@ function cap(ms: number) {
   return Math.min(ms, RETRY_MAX_DELAY)
 }
 
-export function delay(attempt: number, error?: SessionV1.APIError, random = Math.random()) {
+/**
+ * Wait before the next retry attempt, in milliseconds.
+ *
+ * Precedence: explicit server hints from responseHeaders (`retry-after-ms`,
+ * `retry-after`, including the synthetic prime-time gate hint) are returned
+ * as-is, bounded only by RETRY_MAX_DELAY (the setTimeout ceiling). A provider
+ * limit-reset timestamp parsed from the error message wins over the computed
+ * delay, with the same single ceiling. Everything else falls back to the
+ * exponential backoff, capped by maxRetryDelaySec — and additionally by
+ * RETRY_MAX_DELAY_NO_HEADERS when the error carries no response headers.
+ *
+ * @param attempt 1-based retry attempt number
+ * @param error APIError when the failure carries response headers and message
+ *   text; undefined falls straight through to the exponential backoff
+ * @param random jitter source in [0, 1]; pass a fixed value in tests
+ * @param maxRetryDelaySec per-provider upper bound in seconds for the computed
+ *   exponential delay (provider.<id>.options.maxRetryDelaySec); defaults to
+ *   RETRY_MAX_DELAY_SEC
+ */
+export function delay(
+  attempt: number,
+  error?: SessionV1.APIError,
+  random = Math.random(),
+  maxRetryDelaySec = RETRY_MAX_DELAY_SEC,
+) {
   if (error) {
     const headers = error.data.responseHeaders
     if (headers) {
@@ -70,16 +102,69 @@ export function delay(attempt: number, error?: SessionV1.APIError, random = Math
         }
       }
 
-      return cap(exponential(attempt, random))
+      const reset = limitResetDelay(error, Date.now())
+      if (reset !== undefined) return reset
+
+      return cap(Math.min(exponential(attempt, random), maxRetryDelaySec * 1000))
     }
+
+    const reset = limitResetDelay(error, Date.now())
+    if (reset !== undefined) return reset
   }
 
-  return cap(Math.min(exponential(attempt, random), RETRY_MAX_DELAY_NO_HEADERS))
+  return cap(Math.min(exponential(attempt, random), RETRY_MAX_DELAY_NO_HEADERS, maxRetryDelaySec * 1000))
 }
 
 function exponential(attempt: number, random: number) {
   const base = RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1)
   return Math.ceil(base + base * RETRY_JITTER_FACTOR * random)
+}
+
+/**
+ * Detects a provider limit-reset deadline in the error text and returns the
+ * wait until it, or undefined when no future reset is named. Some providers
+ * (e.g. myzai) exhaust weekly/monthly quotas with a plain-text message like
+ * "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-10-30
+ * 15:17:19" and no usable retry-after header; scheduling at the reset moment
+ * wakes the session exactly when the quota refreshes instead of burning the
+ * retry budget on blind exponential growth. Past or unparseable reset times
+ * fall back to the regular exponential delay. The result is bounded only by
+ * RETRY_MAX_DELAY (setTimeout ceiling), not by maxRetryDelaySec.
+ *
+ * @param error APIError whose data.message may carry the reset line
+ * @param now epoch milliseconds to measure the remaining wait from
+ */
+function limitResetDelay(error: SessionV1.APIError, now: number) {
+  const match = /limit exhausted.*reset at (.+)$/i.exec(error.data.message)
+  if (!match) return undefined
+  const reset = parseResetAt(match[1].trim())
+  if (Number.isNaN(reset)) return undefined
+  const wait = reset - now
+  if (wait <= 0) return undefined
+  return cap(wait)
+}
+
+/**
+ * Parses the timestamp captured from a limit-reset message into epoch
+ * milliseconds. Accepts ISO 8601 with an explicit offset or Z suffix, plus the
+ * naive "YYYY-MM-DD HH:MM[:SS]" form (space or T separator) the providers
+ * print. Naive values carry no zone and providers emit them in the user's
+ * wall clock, so they are interpreted in the machine's local timezone —
+ * matching what the user sees in the provider console. Anything else yields
+ * NaN, which the caller treats as "no reset".
+ */
+function parseResetAt(value: string) {
+  const naive = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value)
+  if (!naive) return Date.parse(value)
+  const [, year, month, day, hour, minute, second] = naive
+  return new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    second ? Number(second) : 0,
+  ).getTime()
 }
 
 export function retryable(error: Err, provider: string) {
@@ -191,8 +276,17 @@ export function policy(opts: {
    * 1 initial attempt + up to maxRetries retries.
    */
   maxRetries?: number
+  /**
+   * Upper bound in seconds for the computed exponential backoff between
+   * retries. Contract: positive integer; applied to both exponential branches
+   * after jitter. Explicit server hints (retry-after headers, including the
+   * synthetic prime-time gate hint) and parsed provider limit-reset times are
+   * not capped. Defaults to RETRY_MAX_DELAY_SEC (300).
+   */
+  maxRetryDelaySec?: number
 }) {
   const maxRetries = opts.maxRetries ?? RETRY_MAX_RETRIES
+  const maxRetryDelaySec = opts.maxRetryDelaySec ?? RETRY_MAX_DELAY_SEC
   return Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       const error = opts.parse(meta.input)
@@ -200,7 +294,12 @@ export function policy(opts: {
       if (!retry) return Cause.done(meta.attempt)
       if (meta.attempt > maxRetries) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
-        const wait = delay(meta.attempt, SessionV1.APIError.isInstance(error) ? error : undefined)
+        const wait = delay(
+          meta.attempt,
+          SessionV1.APIError.isInstance(error) ? error : undefined,
+          Math.random(),
+          maxRetryDelaySec,
+        )
         const now = yield* Clock.currentTimeMillis
         yield* opts.set({
           attempt: meta.attempt,

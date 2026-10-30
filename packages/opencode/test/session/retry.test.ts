@@ -5,7 +5,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import type { NamedError } from "@opencode-ai/core/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect, Schedule, Schema } from "effect"
+import { Effect, Duration, Schedule, Schema } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -33,6 +33,19 @@ function wrap(message: unknown): ReturnType<NamedError["toObject"]> {
   return { name: "", data: { message } }
 }
 
+function limitError(message: string, headers?: Record<string, string>): SessionV1.APIError {
+  return Schema.decodeUnknownSync(SessionV1.APIError.Schema)(
+    new SessionV1.APIError({ message, isRetryable: true, responseHeaders: headers }).toObject(),
+  )
+}
+
+function localStamp(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+const LIMIT_EXHAUSTED = "Weekly/Monthly Limit Exhausted. Your limit will reset at "
+
 describe("session.retry.delay", () => {
   test("caps delay at 30 seconds when headers missing", () => {
     const error = apiError()
@@ -46,6 +59,21 @@ describe("session.retry.delay", () => {
     expect(SessionRetry.delay(1, error, 1)).toBe(2500)
     expect(SessionRetry.delay(4, error, 1)).toBe(20000)
     expect(SessionRetry.delay(5, error, 1)).toBe(30000)
+  })
+
+  test("caps exponential delays at the default 300 seconds", () => {
+    const error = apiError({ "x-request-id": "request" })
+    expect(SessionRetry.delay(20, error, 1)).toBe(SessionRetry.RETRY_MAX_DELAY_SEC * 1000)
+  })
+
+  test("caps exponential delays at a smaller configured maxRetryDelaySec", () => {
+    const error = apiError({ "x-request-id": "request" })
+    expect(SessionRetry.delay(20, error, 1, 10)).toBe(10_000)
+  })
+
+  test("caps headerless exponential delays at the smaller of the no-header bound and maxRetryDelaySec", () => {
+    expect(SessionRetry.delay(5, undefined, 1, 300)).toBe(30_000)
+    expect(SessionRetry.delay(6, undefined, 1, 10)).toBe(10_000)
   })
 
   test("prefers retry-after-ms when shorter than exponential", () => {
@@ -93,6 +121,57 @@ describe("session.retry.delay", () => {
   test("caps oversized header delays to the runtime timer limit", () => {
     const error = apiError({ "retry-after-ms": "999999999999" })
     expect(SessionRetry.delay(1, error)).toBe(SessionRetry.RETRY_MAX_DELAY)
+  })
+
+  test("does not cap explicit retry-after hints with maxRetryDelaySec", () => {
+    expect(SessionRetry.delay(1, apiError({ "retry-after-ms": "700000" }), 0, 10)).toBe(700_000)
+    expect(SessionRetry.delay(1, apiError({ "retry-after": "900" }), 0, 10)).toBe(900_000)
+  })
+
+  test("does not cap the synthetic prime-time gate hint with maxRetryDelaySec", () => {
+    const error = apiError({ "retry-after-ms": "1801000" })
+    expect(SessionRetry.delay(1, error, 0, 10)).toBe(1_801_000)
+  })
+
+  test("schedules the retry at the provider limit reset time", () => {
+    // Exact myzai wording; the naive stamp is interpreted in the local timezone.
+    const message = `AI_APICallError: ${LIMIT_EXHAUSTED}${localStamp(new Date(Date.now() + 60_000))}`
+    const d = SessionRetry.delay(1, limitError(message))
+    expect(d).toBeGreaterThanOrEqual(58_000)
+    expect(d).toBeLessThanOrEqual(60_000)
+  })
+
+  test("honors ISO 8601 reset times with an explicit offset", () => {
+    const shifted = new Date(Date.now() + 90_000 + 2 * 3_600_000)
+    const stamp = `${shifted.toISOString().slice(0, 19)}+02:00`
+    const message = `${LIMIT_EXHAUSTED}${stamp}`
+    const d = SessionRetry.delay(1, limitError(message))
+    expect(d).toBeGreaterThanOrEqual(88_000)
+    expect(d).toBeLessThanOrEqual(90_000)
+  })
+
+  test("schedules the reset time even when headers carry no hints", () => {
+    const message = `${LIMIT_EXHAUSTED}${localStamp(new Date(Date.now() + 60_000))}`
+    const error = limitError(message, { "x-request-id": "request" })
+    const d = SessionRetry.delay(1, error)
+    expect(d).toBeGreaterThanOrEqual(58_000)
+    expect(d).toBeLessThanOrEqual(60_000)
+  })
+
+  test("prefers explicit retry hints over the parsed reset time", () => {
+    const message = `${LIMIT_EXHAUSTED}${localStamp(new Date(Date.now() + 3_600_000))}`
+    const error = limitError(message, { "retry-after-ms": "1500" })
+    expect(SessionRetry.delay(1, error, 0)).toBe(1_500)
+  })
+
+  test("falls back to exponential backoff when the limit reset is in the past", () => {
+    const message = `${LIMIT_EXHAUSTED}${localStamp(new Date(Date.now() - 60_000))}`
+    expect(SessionRetry.delay(1, limitError(message), 0)).toBe(2_000)
+  })
+
+  test("falls back to exponential backoff when the reset stamp is unparseable", () => {
+    const message = `${LIMIT_EXHAUSTED}soon-ish`
+    expect(SessionRetry.delay(1, limitError(message), 0)).toBe(2_000)
   })
 
   it.instance("policy updates retry status and increments attempts", () =>
@@ -190,6 +269,26 @@ describe("session.retry.delay", () => {
       yield* Effect.ignore(step(error))
 
       expect(attempts).toStrictEqual([])
+    }),
+  )
+
+  it.instance("policy caps the exponential delay with maxRetryDelaySec", () =>
+    Effect.gen(function* () {
+      const error = apiError({ "x-request-id": "request" })
+      const step = yield* Schedule.toStepWithMetadata(
+        SessionRetry.policy({
+          provider: "test",
+          maxRetryDelaySec: 1,
+          parse: Schema.decodeUnknownSync(SessionV1.APIError.Schema),
+          set: () => Effect.void,
+        }),
+      )
+
+      // The step sleeps for the returned duration, so exercise the cap on the
+      // first attempt: the 2s+ jittered exponential is bounded to the 1s cap.
+      const meta = yield* step(error)
+
+      expect(Duration.toMillis(meta.duration)).toBe(1_000)
     }),
   )
 })

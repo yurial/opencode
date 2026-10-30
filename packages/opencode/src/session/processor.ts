@@ -671,6 +671,7 @@ const layer = Layer.effect(
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
 
         return yield* Effect.gen(function* () {
+          const providerOptions = (yield* config.get()).provider?.[input.model.providerID]?.options
           yield* Effect.gen(function* () {
             ctx.currentText = undefined
             ctx.reasoningMap = {}
@@ -699,7 +700,9 @@ const layer = Layer.effect(
               SessionRetry.policy({
                 provider: input.model.providerID,
                 // Per-provider retry budget from provider.<id>.options.retries (0-1000000); 5 when unset
-                maxRetries: (yield* config.get()).provider?.[input.model.providerID]?.options?.retries,
+                maxRetries: providerOptions?.retries,
+                // Per-provider exponential backoff bound in seconds from provider.<id>.options.maxRetryDelaySec; 300 when unset
+                maxRetryDelaySec: providerOptions?.maxRetryDelaySec,
                 parse,
                 set: (info) =>
                   Effect.gen(function* () {

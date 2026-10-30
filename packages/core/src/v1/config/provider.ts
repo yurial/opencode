@@ -223,6 +223,10 @@ export const Info = Schema.Struct({
           description:
             "Maximum number of retry attempts for failed LLM requests to this provider (0-1000000; 0 disables retries). Defaults to 5 when unset. Counted per request: 1 initial attempt plus up to this many retries.",
         }),
+        maxRetryDelaySec: Schema.optional(PositiveInt).annotate({
+          description:
+            "Upper bound in seconds for the exponential backoff delay between provider retries (default 300). Applies only to the computed exponential delay; explicit server hints (retry-after headers) and parsed provider limit-reset times are not capped.",
+        }),
       }),
       [Schema.Record(Schema.String, Schema.Any)],
     ),
