@@ -130,6 +130,7 @@ export default {
           \`session_id\` text NOT NULL,
           \`cron\` text,
           \`at\` integer,
+          \`name\` text,
           \`message\` text NOT NULL,
           \`command\` text,
           \`next_fire_at\` integer NOT NULL,

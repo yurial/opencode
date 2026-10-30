@@ -79,6 +79,25 @@ export const spec = (input: { readonly cron?: string; readonly at?: number }): s
 export const gateEcho = (command: string): string => ` [gate: ${command.replace(/\s+/g, " ")}]`
 
 /**
+ * Renders the scheduler/name-echo that ends the add success line of every
+ * add and the list line of every schedule with a non-null name
+ * (specs/scheduler.md Interface, name-echo grammar, R1.4, R1.5):
+ *
+ *   ` [name: <name>]`
+ *
+ * Contract:
+ * - `name` is the stored display name; every whitespace run collapses to a
+ *   single space in the echo (the stored text itself stays raw), so the
+ *   fragment never introduces a line break.
+ * - The fragment is the last fragment of its line: it follows the
+ *   scheduler/gate-echo when that echo is present (J14), so the first
+ *   `next due` fragment and the first `sch_`-prefixed token of the line keep
+ *   naming their schedule (the annotator input contract of scheduler-view).
+ * - Total: defined for any input; never throws.
+ */
+export const nameEcho = (name: string): string => ` [name: ${name.replace(/\s+/g, " ")}]`
+
+/**
  * Renders the scheduler/gate-output-section appended to a fired message
  * whose gate-run exited with status zero and wrote output
  * (specs/scheduler.md Interface, fired-message grammar, R6.14):
@@ -134,22 +153,27 @@ export const fired = (input: {
 
 /**
  * Renders the add result line: the schedule id, the spec form, and the next
- * due time in UTC (spec R1.4). A schedule stored with a gate-command ends
- * its line with the gate-echo (`command`, see `gateEcho`).
+ * due time in UTC (spec R1.4). A schedule stored with a gate-command places
+ * the gate-echo (`command`, see `gateEcho`) immediately before the
+ * scheduler/name-echo that ends the line (`name`, see `nameEcho`).
  */
 export const added = (entry: {
   readonly id: string
   readonly spec: string
   readonly nextFireAt: number
   readonly command?: string
-}): string => `Scheduled ${entry.id} (${entry.spec}), next due ${timestamp(entry.nextFireAt)}${entry.command === undefined ? "" : gateEcho(entry.command)}`
+  readonly name?: string
+}): string =>
+  `Scheduled ${entry.id} (${entry.spec}), next due ${timestamp(entry.nextFireAt)}${entry.command === undefined ? "" : gateEcho(entry.command)}${entry.name === undefined ? "" : nameEcho(entry.name)}`
 
 /**
  * Renders one list result line: the schedule id, the spec form, the next due
  * time in UTC, and the message text (spec R1.5). The list result joins these
  * lines with newlines; no schedules yields an empty listing. A schedule
  * stored with a gate-command ends its line with the gate-echo (`command`,
- * see `gateEcho`).
+ * see `gateEcho`); a schedule with a non-null name ends its line with the
+ * scheduler/name-echo (`name`, see `nameEcho`) — a legacy schedule with a
+ * null name (`name` undefined) carries no name fragment.
  */
 export const listed = (entry: {
   readonly id: string
@@ -157,8 +181,9 @@ export const listed = (entry: {
   readonly nextFireAt: number
   readonly message: string
   readonly command?: string
+  readonly name?: string
 }): string =>
-  `${entry.id} (${entry.spec}) next due ${timestamp(entry.nextFireAt)}: ${entry.message}${entry.command === undefined ? "" : gateEcho(entry.command)}`
+  `${entry.id} (${entry.spec}) next due ${timestamp(entry.nextFireAt)}: ${entry.message}${entry.command === undefined ? "" : gateEcho(entry.command)}${entry.name === undefined ? "" : nameEcho(entry.name)}`
 
 /**
  * Renders the remove result line confirming the removed schedule id

@@ -173,30 +173,78 @@ describe("scheduler tool", () => {
       yield* makeSession(sessionID)
 
       expect(yield* fail({ action: "destroy" }, sessionID)).toContain("invalid arguments")
-      expect(yield* fail({ action: "add", every: 30, message: "m" }, sessionID)).toContain("invalid arguments")
+      expect(yield* fail({ action: "add", every: 30, message: "m", name: "n" }, sessionID)).toContain(
+        "invalid arguments",
+      )
       expect(yield* fail({ action: "remove" }, sessionID)).toContain("invalid arguments")
 
       expect(yield* rowsFor(sessionID)).toEqual([])
     }),
   )
 
-  it.instance("add echoes the id, the converted spec, and the next due time", () =>
+  it.instance("add echoes the id, the converted spec, the next due time, and the name (T1.3, E1)", () =>
     Effect.gen(function* () {
       yield* freshSchedules
       const sessionID = nextSession()
       yield* makeSession(sessionID)
 
-      const result = yield* run({ action: "add", every: "30m", message: "check CI status" }, sessionID)
-      expect(result.metadata).toMatchObject({ action: "add" })
-      expect(result.output).toMatch(/sch_[A-Za-z0-9]+/)
-      expect(result.output).toContain("*/30 * * * *")
-      expect(result.output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/)
+      const result = yield* run({ action: "add", every: "30m", message: "check CI status", name: "CI check" }, sessionID)
+      expect(result.metadata).toMatchObject({ action: "add", name: "CI check" })
+      // E1: the line ends with the scheduler/name-echo after the next due
+      // fragment.
+      expect(result.output).toMatch(
+        /^Scheduled sch_[A-Za-z0-9]+ \(\*\/30 \* \* \* \*\), next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z \[name: CI check\]$/,
+      )
 
       const rows = yield* rowsFor(sessionID)
       expect(rows).toHaveLength(1)
       expect(rows[0]!.cron).toBe("*/30 * * * *")
       expect(rows[0]!.at).toBeNull()
       expect(rows[0]!.message).toBe("check CI status")
+      expect(rows[0]!.name).toBe("CI check")
+    }),
+  )
+
+  it.instance("a missing or empty name returns invalid arguments before the ask (T1.8)", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      asks.length = 0
+      const sessionID = nextSession()
+      yield* makeSession(sessionID)
+
+      expect(
+        yield* fail({ action: "add", every: "30m", message: "no name" }, sessionID),
+      ).toContain("invalid arguments")
+      expect(
+        yield* fail({ action: "add", every: "30m", message: "empty name", name: "" }, sessionID),
+      ).toContain("invalid arguments")
+      expect(yield* rowsFor(sessionID)).toEqual([])
+      // The validation precedes the ask: nothing was asked (R5.1).
+      expect(asks).toEqual([])
+    }),
+  )
+
+  it.instance("rejects an over-long name at the exact bound (T3.15)", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      const sessionID = nextSession()
+      yield* makeSession(sessionID)
+
+      expect(
+        yield* fail(
+          { action: "add", every: "1h", message: "m", name: "x".repeat(Scheduler.MAX_NAME_LENGTH + 1) },
+          sessionID,
+        ),
+      ).toContain("name-too-long")
+      expect(yield* rowsFor(sessionID)).toEqual([])
+
+      // The exact bound is accepted (R3.14).
+      const exact = "y".repeat(Scheduler.MAX_NAME_LENGTH)
+      const result = yield* run({ action: "add", every: "1h", message: "bounded", name: exact }, sessionID)
+      expect(result.output).toContain(`[name: ${exact}]`)
+      const rows = yield* rowsFor(sessionID)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.name).toHaveLength(Scheduler.MAX_NAME_LENGTH)
     }),
   )
 
@@ -208,21 +256,81 @@ describe("scheduler tool", () => {
       yield* makeSession(sessionID)
       yield* makeSession(stranger)
       const scheduler = yield* Scheduler.Service
-      yield* scheduler.add({ sessionID, message: "first thing", spec: { cron: "*/30 * * * *" } })
-      yield* scheduler.add({ sessionID, message: "second thing", spec: { cron: "0 12 * * *" } })
-      yield* scheduler.add({ sessionID: stranger, message: "not mine", spec: { cron: "0 0 * * *" } })
+      yield* scheduler.add({ sessionID, message: "first thing", name: "first name", spec: { cron: "*/30 * * * *" } })
+      yield* scheduler.add({ sessionID, message: "second thing", name: "second name", spec: { cron: "0 12 * * *" } })
+      yield* scheduler.add({ sessionID: stranger, message: "not mine", name: "other", spec: { cron: "0 0 * * *" } })
 
       const result = yield* run({ action: "list" }, sessionID)
       const lines = result.output.split("\n").filter((line) => line.length > 0)
       expect(lines).toHaveLength(2)
       expect(lines[0]).toContain("*/30 * * * *")
       expect(lines[0]).toContain("first thing")
+      expect(lines[0]).toContain("[name: first name]")
       expect(lines[1]).toContain("0 12 * * *")
       expect(lines[1]).toContain("second thing")
+      expect(lines[1]).toContain("[name: second name]")
       expect(result.output).not.toContain("not mine")
 
       const empty = yield* run({ action: "list" }, nextSession())
       expect(empty.output).toBe("")
+    }),
+  )
+
+  it.instance("list lines carry the name echo and omit it for a legacy null name (T1.4, T1.9, E1.5, E1.6)", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      const sessionID = nextSession()
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      yield* scheduler.add({ sessionID, message: "check CI status", name: "CI check", spec: { cron: "*/30 * * * *" } })
+      // A legacy row created before the field existed: direct SQL insert
+      // leaves the name column null.
+      const legacyDueAt = (yield* Clock.currentTimeMillis) + 60_000
+      yield* Database.Service.use(({ db }) =>
+        db
+          .insert(ScheduleTable)
+          .values({
+            id: ScheduleID.make("sch_legacy_null_name"),
+            session_id: sessionID,
+            cron: "0 9 * * 1",
+            message: "old check",
+            next_fire_at: legacyDueAt,
+          })
+          .run()
+          .pipe(Effect.orDie),
+      )
+
+      const result = yield* run({ action: "list" }, sessionID)
+      const lines = result.output.split("\n").filter((line) => line.length > 0)
+      expect(lines).toHaveLength(2)
+      // E1.5: the named line ends with the name echo after the next due
+      // fragment.
+      expect(lines[0]).toMatch(
+        /^sch_[A-Za-z0-9]+ \(\*\/30 \* \* \* \*\) next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z: check CI status \[name: CI check\]$/,
+      )
+      // E1.6: the legacy line carries no name fragment (the seeded due time
+      // inherits sub-second precision, so the timestamp may keep milliseconds).
+      expect(lines[1]).toMatch(
+        /^sch_legacy_null_name \(0 9 \* \* 1\) next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z: old check$/,
+      )
+    }),
+  )
+
+  it.instance("the name echo collapses whitespace runs in add and list lines (name-echo grammar)", () =>
+    Effect.gen(function* () {
+      yield* freshSchedules
+      const sessionID = nextSession()
+      yield* makeSession(sessionID)
+
+      const result = yield* run(
+        { action: "add", every: "1h", message: "collapse", name: "CI\n  check\tstatus" },
+        sessionID,
+      )
+      expect(result.output).toContain("[name: CI check status]")
+      expect(result.output.endsWith("[name: CI check status]")).toBe(true)
+
+      const listed = yield* run({ action: "list" }, sessionID)
+      expect(listed.output).toContain("[name: CI check status]")
     }),
   )
 
@@ -234,7 +342,7 @@ describe("scheduler tool", () => {
       yield* makeSession(sessionID)
       yield* makeSession(stranger)
       const scheduler = yield* Scheduler.Service
-      const added = yield* scheduler.add({ sessionID, message: "mine", spec: { cron: "0 0 * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "mine", name: "mine", spec: { cron: "0 0 * * *" } })
 
       expect(yield* fail({ action: "remove", id: added.id }, stranger)).toContain("schedule-not-found")
       expect(yield* rowsFor(sessionID)).toHaveLength(1)
@@ -251,21 +359,21 @@ describe("scheduler tool", () => {
       const sessionID = nextSession()
       yield* makeSession(sessionID)
 
-      expect(yield* fail({ action: "add", message: "m" }, sessionID)).toContain("schedule-spec-conflict")
-      expect(yield* fail({ action: "add", message: "m", every: "30m", cron: "* * * * *" }, sessionID)).toContain(
+      expect(yield* fail({ action: "add", message: "m", name: "m" }, sessionID)).toContain("schedule-spec-conflict")
+      expect(yield* fail({ action: "add", message: "m", name: "m", every: "30m", cron: "* * * * *" }, sessionID)).toContain(
         "schedule-spec-conflict",
       )
       expect(
-        yield* fail({ action: "add", message: "m", every: "30m", at: "2030-01-01T00:00:00Z" }, sessionID),
+        yield* fail({ action: "add", message: "m", name: "m", every: "30m", at: "2030-01-01T00:00:00Z" }, sessionID),
       ).toContain("schedule-spec-conflict")
-      expect(yield* fail({ action: "add", message: "m", every: "soon" }, sessionID)).toContain("invalid-interval")
-      expect(yield* fail({ action: "add", message: "m", every: "0m" }, sessionID)).toContain("invalid-interval")
-      expect(yield* fail({ action: "add", message: "m", cron: "61 * * * *" }, sessionID)).toContain("invalid-cron")
-      expect(yield* fail({ action: "add", message: "m", cron: "a b c d e" }, sessionID)).toContain("invalid-cron")
-      expect(yield* fail({ action: "add", message: "m", cron: "0 0 30 2 *" }, sessionID)).toContain(
+      expect(yield* fail({ action: "add", message: "m", name: "m", every: "soon" }, sessionID)).toContain("invalid-interval")
+      expect(yield* fail({ action: "add", message: "m", name: "m", every: "0m" }, sessionID)).toContain("invalid-interval")
+      expect(yield* fail({ action: "add", message: "m", name: "m", cron: "61 * * * *" }, sessionID)).toContain("invalid-cron")
+      expect(yield* fail({ action: "add", message: "m", name: "m", cron: "a b c d e" }, sessionID)).toContain("invalid-cron")
+      expect(yield* fail({ action: "add", message: "m", name: "m", cron: "0 0 30 2 *" }, sessionID)).toContain(
         "cron-without-future-match",
       )
-      expect(yield* fail({ action: "add", message: "m", at: "not-a-date" }, sessionID)).toContain("invalid-at")
+      expect(yield* fail({ action: "add", message: "m", name: "m", at: "not-a-date" }, sessionID)).toContain("invalid-at")
       for (const at of [
         "now+5",
         "now-5m",
@@ -279,11 +387,11 @@ describe("scheduler tool", () => {
         "now+01:30:25:00",
         "now+0x:30:25",
       ]) {
-        expect(yield* fail({ action: "add", message: "m", at }, sessionID)).toContain("invalid-at")
+        expect(yield* fail({ action: "add", message: "m", name: "m", at }, sessionID)).toContain("invalid-at")
       }
       expect(
         yield* fail(
-          { action: "add", every: "1h", message: "x".repeat(Scheduler.MAX_MESSAGE_LENGTH + 1) },
+          { action: "add", every: "1h", message: "x".repeat(Scheduler.MAX_MESSAGE_LENGTH + 1), name: "m" },
           sessionID,
         ),
       ).toContain("message-too-long")
@@ -300,10 +408,13 @@ describe("scheduler tool", () => {
 
       const now = yield* Clock.currentTimeMillis
       expect(
-        yield* fail({ action: "add", message: "late", at: new Date(now - 1000).toISOString() }, sessionID),
+        yield* fail({ action: "add", message: "late", name: "late", at: new Date(now - 1000).toISOString() }, sessionID),
       ).toContain("at-in-past")
 
-      const result = yield* run({ action: "add", message: "zoned", at: "2030-01-01T09:00:00+03:00" }, sessionID)
+      const result = yield* run(
+        { action: "add", message: "zoned", name: "zoned", at: "2030-01-01T09:00:00+03:00" },
+        sessionID,
+      )
       expect(result.output).toContain("2030-01-01T06:00:00Z")
       const rows = yield* rowsFor(sessionID)
       expect(rows).toHaveLength(1)
@@ -318,7 +429,7 @@ describe("scheduler tool", () => {
       yield* makeSession(sessionID)
 
       const durationBefore = yield* Clock.currentTimeMillis
-      const duration = yield* run({ action: "add", message: "soon", at: "now+5m" }, sessionID)
+      const duration = yield* run({ action: "add", message: "soon", name: "soon", at: "now+5m" }, sessionID)
       const durationAfter = yield* Clock.currentTimeMillis
       // A now+ offset inherits the current sub-second part, so the absolute
       // echo may keep its milliseconds.
@@ -332,7 +443,7 @@ describe("scheduler tool", () => {
 
       yield* freshSchedules
       const clockBefore = yield* Clock.currentTimeMillis
-      const clock = yield* run({ action: "add", message: "clock form", at: "now+01:30:25" }, sessionID)
+      const clock = yield* run({ action: "add", message: "clock form", name: "clock form", at: "now+01:30:25" }, sessionID)
       const clockAfter = yield* Clock.currentTimeMillis
       expect(clock.output).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z/)
       expect(clock.output).not.toContain("now+")
@@ -351,7 +462,7 @@ describe("scheduler tool", () => {
       yield* makeSession(sessionID)
 
       const exactly = "x".repeat(Scheduler.MAX_MESSAGE_LENGTH)
-      yield* run({ action: "add", every: "1h", message: exactly }, sessionID)
+      yield* run({ action: "add", every: "1h", message: exactly, name: "exact" }, sessionID)
       const rows = yield* rowsFor(sessionID)
       expect(rows[0]!.message).toHaveLength(Scheduler.MAX_MESSAGE_LENGTH)
     }),
@@ -364,7 +475,7 @@ describe("scheduler tool", () => {
       yield* makeSession(sessionID)
       yield* seedSchedules(sessionID, Scheduler.MAX_SCHEDULES_PER_SESSION, 3_600_000)
 
-      expect(yield* fail({ action: "add", every: "30m", message: "over cap" }, sessionID)).toContain(
+      expect(yield* fail({ action: "add", every: "30m", message: "over cap", name: "over cap" }, sessionID)).toContain(
         "schedule-cap-reached",
       )
       expect(yield* rowsFor(sessionID)).toHaveLength(Scheduler.MAX_SCHEDULES_PER_SESSION)
@@ -378,7 +489,7 @@ describe("scheduler tool", () => {
       const sessionID = nextSession()
       yield* makeSession(sessionID)
 
-      const added = yield* run({ action: "add", every: "30m", message: "asked" }, sessionID)
+      const added = yield* run({ action: "add", every: "30m", message: "asked", name: "asked" }, sessionID)
       expect(asks).toHaveLength(1)
       expect(asks[0]!.permission).toBe("scheduler")
       expect(asks[0]!.patterns).toEqual(["*/30 * * * *"])
@@ -400,9 +511,11 @@ describe("scheduler tool", () => {
       const sessionID = nextSession()
       yield* makeSession(sessionID)
       const scheduler = yield* Scheduler.Service
-      const added = yield* scheduler.add({ sessionID, message: "keep me", spec: { cron: "0 0 * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "keep me", name: "keep me", spec: { cron: "0 0 * * *" } })
 
-      expect(yield* fail({ action: "add", every: "30m", message: "denied" }, sessionID)).toContain("permission-denied")
+      expect(yield* fail({ action: "add", every: "30m", message: "denied", name: "denied" }, sessionID)).toContain(
+        "permission-denied",
+      )
       expect(yield* fail({ action: "remove", id: added.id }, sessionID)).toContain("permission-denied")
 
       deny.denied = false
@@ -434,24 +547,27 @@ describe("scheduler tool", () => {
       yield* makeSession(sessionID)
 
       const result = yield* run(
-        { action: "add", every: "30m", message: "check CI status", command: "test -f done.flag" },
+        { action: "add", every: "30m", message: "check CI status", name: "CI check", command: "test -f done.flag" },
         sessionID,
       )
-      // E1.4: the echo ends the line, after the next due fragment.
+      // E1.4: the gate echo precedes the name echo ending the line, after
+      // the next due fragment.
       expect(result.output).toMatch(
-        /^Scheduled sch_[A-Za-z0-9]+ \(\*\/30 \* \* \* \*\), next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z \[gate: test -f done\.flag\]$/,
+        /^Scheduled sch_[A-Za-z0-9]+ \(\*\/30 \* \* \* \*\), next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z \[gate: test -f done\.flag\] \[name: CI check\]$/,
       )
-      expect(result.metadata).toMatchObject({ action: "add", command: "test -f done.flag" })
+      expect(result.metadata).toMatchObject({ action: "add", command: "test -f done.flag", name: "CI check" })
       const rows = yield* rowsFor(sessionID)
       expect(rows).toHaveLength(1)
       expect(rows[0]!.command).toBe("test -f done.flag")
 
       // The echo collapses whitespace runs; the stored text stays raw.
       const collapsed = yield* run(
-        { action: "add", every: "1h", message: "second", command: "test   -f  done\tflag" },
+        { action: "add", every: "1h", message: "second", name: "second  thing\ttoo", command: "test   -f  done\tflag" },
         sessionID,
       )
-      expect(collapsed.output).toContain("[gate: test -f done flag]")
+      // The name echo collapses its own whitespace runs and stays the last
+      // fragment (J14).
+      expect(collapsed.output).toContain("[gate: test -f done flag] [name: second thing too]")
       const rowsAfter = yield* rowsFor(sessionID)
       expect(rowsAfter).toHaveLength(2)
       expect(rowsAfter.find((row) => row.message === "second")!.command).toBe("test   -f  done\tflag")
@@ -466,19 +582,32 @@ describe("scheduler tool", () => {
       yield* makeSession(sessionID)
       yield* makeSession(stranger)
       const scheduler = yield* Scheduler.Service
-      yield* scheduler.add({ sessionID, message: "check CI status", spec: { cron: "*/30 * * * *" }, command: "test -f done.flag" })
-      yield* scheduler.add({ sessionID, message: "plain", spec: { cron: "0 12 * * *" } })
-      yield* scheduler.add({ sessionID: stranger, message: "not mine", spec: { cron: "0 0 * * *" }, command: "other" })
+      yield* scheduler.add({
+        sessionID,
+        message: "check CI status",
+        name: "CI check",
+        spec: { cron: "*/30 * * * *" },
+        command: "test -f done.flag",
+      })
+      yield* scheduler.add({ sessionID, message: "plain", name: "plain", spec: { cron: "0 12 * * *" } })
+      yield* scheduler.add({
+        sessionID: stranger,
+        message: "not mine",
+        name: "other",
+        spec: { cron: "0 0 * * *" },
+        command: "other",
+      })
 
       const result = yield* run({ action: "list" }, sessionID)
       const lines = result.output.split("\n").filter((line) => line.length > 0)
       expect(lines).toHaveLength(2)
-      // E1.5: the echo ends the line and follows the first next due
-      // fragment of the line.
+      // E1.5: the gate echo precedes the name echo, and both follow the
+      // first next due fragment of the line.
       expect(lines[0]).toMatch(
-        /^sch_[A-Za-z0-9]+ \(\*\/30 \* \* \* \*\) next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z: check CI status \[gate: test -f done\.flag\]$/,
+        /^sch_[A-Za-z0-9]+ \(\*\/30 \* \* \* \*\) next due \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z: check CI status \[gate: test -f done\.flag\] \[name: CI check\]$/,
       )
       expect(lines[1]).not.toContain("[gate:")
+      expect(lines[1]).toContain("[name: plain]")
       expect(result.metadata).toMatchObject({ action: "list", commands: ["test -f done.flag", null] })
     }),
   )
@@ -492,18 +621,30 @@ describe("scheduler tool", () => {
 
       expect(
         yield* fail(
-          { action: "add", every: "1h", message: "m", command: "x".repeat(Scheduler.MAX_COMMAND_LENGTH + 1) },
+          {
+            action: "add",
+            every: "1h",
+            message: "m",
+            name: "m",
+            command: "x".repeat(Scheduler.MAX_COMMAND_LENGTH + 1),
+          },
           sessionID,
         ),
       ).toContain("command-too-long")
-      expect(yield* fail({ action: "add", every: "1h", message: "m", command: "" }, sessionID)).toContain(
+      expect(yield* fail({ action: "add", every: "1h", message: "m", name: "m", command: "" }, sessionID)).toContain(
         "invalid arguments",
       )
       expect(yield* rowsFor(sessionID)).toEqual([])
 
       // The exact bound is accepted (E3.13).
       yield* run(
-        { action: "add", every: "1h", message: "bounded", command: "y".repeat(Scheduler.MAX_COMMAND_LENGTH) },
+        {
+          action: "add",
+          every: "1h",
+          message: "bounded",
+          name: "bounded",
+          command: "y".repeat(Scheduler.MAX_COMMAND_LENGTH),
+        },
         sessionID,
       )
       const rows = yield* rowsFor(sessionID)
@@ -520,7 +661,7 @@ describe("scheduler tool", () => {
       const sessionID = nextSession()
       yield* makeSession(sessionID)
 
-      yield* run({ action: "add", every: "30m", message: "gated", command: "test -f done.flag" }, sessionID)
+      yield* run({ action: "add", every: "30m", message: "gated", name: "gated", command: "test -f done.flag" }, sessionID)
       // R5.1 with the permission-ask section: one scheduler ask whose
       // pattern set is the spec form — the command joins no pattern set and
       // asks nothing beyond the add ask (R5.5 keeps the fire-time run ask-free).

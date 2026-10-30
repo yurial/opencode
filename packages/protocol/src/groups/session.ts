@@ -88,12 +88,14 @@ const SessionActive = Schema.Struct({
 /**
  * One schedule of a session as the schedule-list endpoint returns it
  * (specs/scheduler-view.md Interface, R3.2): the `sch_`-prefixed schedule
- * id, the stored spec variant, the stored message text, the stored
- * next-due-time, and the stored gate-command text. `nextFireAt` and the
- * one-shot `at` are integer UTC epoch milliseconds (R3.4). Exactly one
- * spec variant is present per entry, mirroring the schedule-record
- * invariant of specs/scheduler.md; `command` is present on every entry and
- * is null when the schedule stores no gate command.
+ * id, the stored spec variant, the stored display name, the stored message
+ * text, the stored next-due-time, and the stored gate-command text.
+ * `nextFireAt` and the one-shot `at` are integer UTC epoch milliseconds
+ * (R3.4). Exactly one spec variant is present per entry, mirroring the
+ * schedule-record invariant of specs/scheduler.md; `name` is present on
+ * every entry and is null for a legacy schedule created before the `name`
+ * argument existed (R3.8); `command` is present on every entry and is null
+ * when the schedule stores no gate command.
  */
 export const SessionSchedule = Schema.Struct({
   id: Schema.String.annotate({ description: "The sch_-prefixed schedule id." }),
@@ -107,6 +109,9 @@ export const SessionSchedule = Schema.Struct({
   ]).annotate({
     identifier: "SessionScheduleSpec",
     description: "The stored firing rule: a cron spec for a recurring schedule or a one-shot due time.",
+  }),
+  name: Schema.NullOr(Schema.String).annotate({
+    description: "The stored display name shown in the session sidebar, or null for a legacy schedule created before the name argument existed.",
   }),
   message: Schema.String.annotate({ description: "The stored message text delivered on fire." }),
   nextFireAt: Schema.Int.annotate({ description: "The stored next-due-time as integer UTC epoch milliseconds." }),
@@ -428,13 +433,15 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
     .add(
       /**
        * The read-only schedule-list endpoint of specs/scheduler-view.md
-       * (R3.1-R3.7, I3, I4). Returns every schedule bound to the path session
+       * (R3.1-R3.8, I3, I4). Returns every schedule bound to the path session
        * inside the {data: {schedules: [...]}} envelope of the Interface, one
        * SessionSchedule entry per schedule, ordered by nextFireAt ascending,
-       * ties by id ascending (R3.3). The endpoint mutates no schedule and asks
-       * no permission (R3.5); the request carries no query parameters and no
-       * payload. Errors (the complete set): an undecodable path session id or
-       * a malformed request fails with InvalidRequestError (400, R3.7); a
+       * ties by id ascending (R3.3). Every entry carries the stored name —
+       * null for a legacy schedule created before the name argument existed
+       * (R3.8). The endpoint mutates no schedule and asks no permission
+       * (R3.5); the request carries no query parameters and no payload.
+       * Errors (the complete set): an undecodable path session id or a
+       * malformed request fails with InvalidRequestError (400, R3.7); a
        * request the server auth rejects fails with UnauthorizedError (401);
        * a path session id with no stored session row fails with
        * SessionNotFoundError (404, R3.6); an unexpected defect reaching the

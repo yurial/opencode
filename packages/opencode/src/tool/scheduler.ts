@@ -15,6 +15,14 @@ export const Parameters = Schema.Struct({
   message: Schema.optional(Schema.String).annotate({
     description: "The message delivered into the session when the schedule fires (add only)",
   }),
+  // Required on every add (specs/scheduler.md Arguments), but optional at the
+  // schema level: the shared Parameters decode covers remove and list too,
+  // and list takes no further arguments — the add branch enforces the
+  // presence like it does for message.
+  name: Schema.optional(Schema.String).annotate({
+    description:
+      "Display name of the schedule, at most 32 characters, required on add: it is shown to the user in the session sidebar in place of the message text, so it should briefly state what the schedule does and why it fires",
+  }),
   every: Schema.optional(Schema.String).annotate({
     description: "Interval firing rule: positive integer plus unit letter m, h, or d, for example 30m (add only)",
   }),
@@ -38,6 +46,7 @@ type Metadata = {
   action: "add" | "remove" | "list"
   id?: string
   spec?: string
+  name?: string
   command?: string
   commands?: ReadonlyArray<string | null>
 }
@@ -57,6 +66,7 @@ class SchedulerToolError extends Schema.TaggedErrorClass<SchedulerToolError>()("
     "invalid-at",
     "at-in-past",
     "message-too-long",
+    "name-too-long",
     "command-too-long",
     "schedule-cap-reached",
     "schedule-not-found",
@@ -197,6 +207,7 @@ export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.
                     ...entry,
                     spec: SchedulerMessage.spec(entry.spec),
                     command: entry.command ?? undefined,
+                    name: entry.name ?? undefined,
                   }),
                 )
                 .join("\n"),
@@ -263,6 +274,22 @@ export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.
               }),
             )
           }
+          if (params.name === undefined || params.name.length === 0) {
+            return yield* Effect.die(
+              new Tool.InvalidArgumentsError({
+                tool: "scheduler",
+                detail: "action add requires a non-empty name",
+              }),
+            )
+          }
+          if (params.name.length > Scheduler.MAX_NAME_LENGTH) {
+            return yield* Effect.die(
+              new SchedulerToolError({
+                code: "name-too-long",
+                detail: `name exceeds the ${Scheduler.MAX_NAME_LENGTH} character bound`,
+              }),
+            )
+          }
           if (params.command !== undefined) {
             if (params.command.length === 0) {
               return yield* Effect.die(
@@ -288,17 +315,19 @@ export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.
             patterns: [specForm],
             always: ["*"],
             // The command joins no pattern set (the ask approves the
-            // schedule); it rides the metadata so the approval shows what
-            // will run before each fire.
+            // schedule); the message and the name ride the metadata as
+            // descriptive context, so the approval shows what will fire and
+            // how the schedule will read in the sidebar.
             metadata: {
               action: "add",
               spec: specForm,
               message: params.message,
+              name: params.name,
               ...(params.command === undefined ? {} : { command: params.command }),
             },
           })
           const added = yield* scheduler
-            .add({ sessionID: ctx.sessionID, message: params.message, spec, command: params.command })
+            .add({ sessionID: ctx.sessionID, message: params.message, name: params.name, spec, command: params.command })
             .pipe(
               Effect.catch(() =>
                 Effect.die(
@@ -315,6 +344,7 @@ export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.
               action: "add" as const,
               id: added.id,
               spec: specForm,
+              name: params.name,
               ...(params.command === undefined ? {} : { command: params.command }),
             },
             output: SchedulerMessage.added({
@@ -322,6 +352,7 @@ export const SchedulerTool = Tool.define<typeof Parameters, Metadata, Scheduler.
               spec: specForm,
               nextFireAt: added.nextFireAt,
               command: params.command,
+              name: params.name,
             }),
           }
         }),

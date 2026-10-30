@@ -284,6 +284,7 @@ describe("scheduler V1 prompt adapter", () => {
             const added = yield* scheduler.add({
               sessionID: session.id,
               message: "fire me",
+              name: "fire me",
               spec: { at: Date.now() + 200 },
             })
 
@@ -401,6 +402,7 @@ describe("scheduler runtime graph topology", () => {
               const added = yield* Context.get(ctxA, Scheduler.Service).add({
                 sessionID: session.id,
                 message: "fire me",
+                name: "fire me",
                 spec: { at: Date.now() + 200 },
               })
               yield* pollWithTimeout(
@@ -483,6 +485,7 @@ describe("scheduler runtime graph topology", () => {
             const added = yield* scheduler.add({
               sessionID: session.id,
               message: "fire me",
+              name: "fire me",
               spec: { at: Date.now() + 100 },
             })
             yield* pollWithTimeout(

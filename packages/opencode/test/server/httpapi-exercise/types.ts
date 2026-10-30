@@ -65,7 +65,7 @@ export type ScenarioContext = {
   todos: (sessionID: SessionID, todos: TodoInfo[]) => Effect.Effect<void>
   schedules: (
     sessionID: SessionID,
-    schedules: ReadonlyArray<{ message: string; spec: Scheduler.Spec; command?: string }>,
+    schedules: ReadonlyArray<{ message: string; name: string; spec: Scheduler.Spec; command?: string }>,
   ) => Effect.Effect<ReadonlyArray<Scheduler.Entry>>
   tasks: (
     sessionID: SessionID,

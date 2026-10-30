@@ -269,11 +269,15 @@ function applyLegacySchemaOverrides(spec: OpenApiSpec) {
   }
   if (schemas.GlobalSession?.properties?.project)
     schemas.GlobalSession.properties.project = nullable(schemas.GlobalSession.properties.project)
-  // The schedule-list command field is Schema.NullOr — genuinely nullable,
-  // not just optional. Re-add the null that the component-level strip above
-  // removed (specs/scheduler-view.md R3.2: command is a string or null).
+  // The schedule-list command and name fields are Schema.NullOr — genuinely
+  // nullable, not just optional. Re-add the null that the component-level
+  // strip above removed (specs/scheduler-view.md R3.2: command and name are
+  // a string or null; name is null for a legacy schedule created before the
+  // name argument existed).
   if (schemas.SessionSchedule?.properties?.command)
     schemas.SessionSchedule.properties.command = nullable(schemas.SessionSchedule.properties.command)
+  if (schemas.SessionSchedule?.properties?.name)
+    schemas.SessionSchedule.properties.name = nullable(schemas.SessionSchedule.properties.name)
   const providerOptions = schemas.ProviderConfig?.properties?.options
   if (providerOptions) providerOptions.additionalProperties = {}
   const model = schemas.ProviderConfig?.properties?.models?.additionalProperties

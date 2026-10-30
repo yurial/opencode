@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "6a70d1f5-25e4-494f-9e8f-a0ac316d3dad",
+  "id": "5a68e275-d35d-4dbc-8cb3-d9e75bee13f9",
   "prevIds": [
-    "ef4ae8e2-537f-4eea-93d4-d050c4a31f16"
+    "6a70d1f5-25e4-494f-9e8f-a0ac316d3dad"
   ],
   "ddl": [
     {
@@ -817,6 +817,16 @@
       "default": null,
       "generated": null,
       "name": "at",
+      "entityType": "columns",
+      "table": "schedule"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
       "entityType": "columns",
       "table": "schedule"
     },

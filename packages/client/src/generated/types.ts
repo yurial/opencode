@@ -1778,6 +1778,7 @@ export type SessionsListSchedulesOutput = {
     readonly schedules: ReadonlyArray<{
       readonly id: string
       readonly spec: { readonly cron: string } | { readonly at: number }
+      readonly name: string | null
       readonly message: string
       readonly nextFireAt: number
       readonly command: string | null

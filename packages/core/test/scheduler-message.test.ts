@@ -81,19 +81,45 @@ describe("SchedulerMessage.result lines", () => {
     nextFireAt: utc(2026, 10, 24, 13, 0),
   }
 
-  test("the add result echoes id, spec, and next due time", () => {
-    const line = SchedulerMessage.added(entry)
-    expect(line).toContain("sch_example")
-    expect(line).toContain("*/30 * * * *")
-    expect(line).toContain("2026-10-24T13:00:00Z")
+  test("the add result echoes id, spec, next due time, and the name echo (E1)", () => {
+    // Spec E1: the line ends with the scheduler/name-echo.
+    expect(
+      SchedulerMessage.added({ ...entry, name: "CI check" }),
+    ).toBe("Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z [name: CI check]")
   })
 
-  test("the list line carries id, spec, next due time, and message", () => {
-    const line = SchedulerMessage.listed({ ...entry, message: "check CI status" })
-    expect(line).toContain("sch_example")
-    expect(line).toContain("*/30 * * * *")
-    expect(line).toContain("2026-10-24T13:00:00Z")
-    expect(line).toContain("check CI status")
+  test("an add carrying a command places the gate echo before the name echo (E1.4)", () => {
+    expect(
+      SchedulerMessage.added({ ...entry, command: "test -f done.flag", name: "CI check" }),
+    ).toBe(
+      "Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z [gate: test -f done.flag] [name: CI check]",
+    )
+  })
+
+  test("the list line carries id, spec, next due time, message, and the name echo (E1.5)", () => {
+    expect(
+      SchedulerMessage.listed({ ...entry, message: "check CI status", command: "test -f done.flag", name: "CI check" }),
+    ).toBe(
+      "sch_example (*/30 * * * *) next due 2026-10-24T13:00:00Z: check CI status [gate: test -f done.flag] [name: CI check]",
+    )
+  })
+
+  test("the list line of a legacy schedule with a null name carries no name fragment (E1.6)", () => {
+    expect(SchedulerMessage.listed({ ...entry, message: "old check" })).toBe(
+      "sch_example (*/30 * * * *) next due 2026-10-24T13:00:00Z: old check",
+    )
+    // `name: undefined` — the tool passes null names as undefined — behaves
+    // exactly like an absent name.
+    expect(SchedulerMessage.listed({ ...entry, message: "old check", name: undefined })).toBe(
+      "sch_example (*/30 * * * *) next due 2026-10-24T13:00:00Z: old check",
+    )
+  })
+
+  test("the name echo collapses whitespace runs and never introduces a line break (R1.4, name-echo grammar)", () => {
+    expect(SchedulerMessage.added({ ...entry, name: "CI\n  check\tstatus" })).toBe(
+      "Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z [name: CI check status]",
+    )
+    expect(SchedulerMessage.added({ ...entry, name: "multi\nline" })).not.toContain("\n")
   })
 
   test("the remove result confirms the removed id", () => {

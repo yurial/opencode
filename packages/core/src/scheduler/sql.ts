@@ -10,7 +10,10 @@ import { ScheduleID } from "./schema"
  * key (R4.2). Exactly one of `cron` and `at` is non-null per row: the stored
  * cron-spec of a recurring schedule, or the due time of a one-shot — the
  * invariant is enforced by the write paths of the scheduler service, not by a
- * database constraint. `command` carries the stored scheduler/gate-command
+ * database constraint. `name` carries the display name shown in the session
+ * sidebar; it is nullable with no default, and a null marks a legacy row
+ * created before the `name` argument existed — every row an add creates
+ * carries a non-null name. `command` carries the stored scheduler/gate-command
  * text; it is nullable with no default, and a null stores no gate so
  * existing rows decode with no gate (R6.11). `next_fire_at` carries the
  * stored next-due-time; its index backs the delivery loop's due-time scan,
@@ -26,6 +29,7 @@ export const ScheduleTable = sqliteTable(
       .references(() => SessionTable.id, { onDelete: "cascade" }),
     cron: text(),
     at: integer(),
+    name: text(),
     message: text().notNull(),
     command: text(),
     next_fire_at: integer().notNull(),

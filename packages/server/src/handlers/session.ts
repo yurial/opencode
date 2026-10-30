@@ -436,14 +436,17 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
             // entries inside the {data: {schedules: [...]}} envelope. R3.3
             // (I3): the scheduler's own list orders by id only; the entries
             // re-order by nextFireAt ascending with the id ascending as the
-            // tiebreak. R3.2: every entry carries command — the stored
-            // gate-command text, null when the schedule stores none.
+            // tiebreak. R3.2: every entry carries name — the stored display
+            // name, null for a legacy schedule created before the field
+            // existed (R3.8) — and command — the stored gate-command text,
+            // null when the schedule stores none.
             data: {
               schedules: [...entries]
                 .sort((a, b) => a.nextFireAt - b.nextFireAt || (a.id < b.id ? -1 : 1))
                 .map((entry) => ({
                   id: entry.id,
                   spec: entry.spec,
+                  name: entry.name,
                   message: entry.message,
                   nextFireAt: entry.nextFireAt,
                   command: entry.command,

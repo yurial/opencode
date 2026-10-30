@@ -42,6 +42,13 @@ export const MAX_MESSAGE_LENGTH = 4096
 export const MAX_COMMAND_LENGTH = 4096
 
 /**
+ * Name length bound in characters (specs/scheduler.md Configuration
+ * SCHEDULER_MAX_NAME_LENGTH). A longer `name` fails validation (R3.14).
+ * Baked constant by design (J6).
+ */
+export const MAX_NAME_LENGTH = 32
+
+/**
  * Marker naming the scheduler/suppressed-fire in its diagnostic log record
  * (specs/scheduler.md Configuration SCHEDULER_SUPPRESSION_LOG_MARKER). The
  * marker rides the record text (I12); the record's severity is the level of
@@ -67,15 +74,17 @@ export type Spec = { readonly cron: string } | { readonly at: number }
 /**
  * The service-side view of a scheduler/schedule row (specs/scheduler.md
  * Schedule record). `spec` mirrors the exactly-one-of `cron`/`at` invariant;
- * `command` is the stored scheduler/gate-command text, `null` when the
- * schedule stores no gate; `nextFireAt` is the stored next-due-time in UTC
- * epoch milliseconds; `timeCreated`/`timeUpdated` are the shared timestamp
- * columns.
+ * `name` is the stored display name shown in the session sidebar, `null` on
+ * a legacy row created before the field existed; `command` is the stored
+ * scheduler/gate-command text, `null` when the schedule stores no gate;
+ * `nextFireAt` is the stored next-due-time in UTC epoch milliseconds;
+ * `timeCreated`/`timeUpdated` are the shared timestamp columns.
  */
 export interface Entry {
   readonly id: ScheduleID
   readonly sessionID: SessionSchema.ID
   readonly spec: Spec
+  readonly name: string | null
   readonly message: string
   readonly command: string | null
   readonly nextFireAt: number
@@ -106,7 +115,9 @@ export class NotFound extends Schema.TaggedErrorClass<NotFound>()("Scheduler.Not
  *   stored next-due-time from the spec: for `{ cron }` the earliest match
  *   strictly after the current time (the spec's future-match requirement has
  *   been validated by the caller; a cron without a future match reaching this
- *   layer is a defect), for `{ at }` the given instant. `command`, when
+ *   layer is a defect), for `{ at }` the given instant. `name` is the display
+ *   name of the schedule, stored as given (R1.4) — its non-empty/length
+ *   validation belongs to the tool, like the message. `command`, when
  *   given, is stored as the scheduler/gate-command text of the schedule
  *   (R6.12); an add without `command` stores no gate and fires exactly as
  *   before (R6.11). Fails with `CapReached` when the session already holds
@@ -161,6 +172,7 @@ export interface Interface {
   readonly add: (input: {
     readonly sessionID: SessionSchema.ID
     readonly message: string
+    readonly name: string
     readonly spec: Spec
     readonly command?: string
   }) => Effect.Effect<Entry, CapReached>
@@ -179,6 +191,7 @@ const entryOf = (row: Row): Entry => ({
   id: row.id,
   sessionID: row.session_id,
   spec: row.cron !== null ? { cron: row.cron } : { at: row.at! },
+  name: row.name,
   message: row.message,
   command: row.command,
   nextFireAt: row.next_fire_at,
@@ -691,6 +704,7 @@ const layer = Layer.effect(
               session_id: input.sessionID,
               cron: "cron" in input.spec ? input.spec.cron : null,
               at: "at" in input.spec ? input.spec.at : null,
+              name: input.name,
               message: input.message,
               command: input.command ?? null,
               next_fire_at: nextFireAt,

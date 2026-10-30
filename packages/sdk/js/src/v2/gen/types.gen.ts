@@ -2825,6 +2825,7 @@ export type SessionSchedule = {
    */
   id: string
   spec: SessionScheduleSpec
+  name: string | null
   /**
    * The stored message text delivered on fire.
    */

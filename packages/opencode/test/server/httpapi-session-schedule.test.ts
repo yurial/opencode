@@ -8,6 +8,8 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
+import { ScheduleID } from "@opencode-ai/core/scheduler/schema"
+import { ScheduleTable } from "@opencode-ai/core/scheduler/sql"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionExecutionLocal } from "@opencode-ai/core/session/execution/local"
 import { SessionStore } from "@opencode-ai/core/session/store"
@@ -64,6 +66,7 @@ const it = testEffect(Layer.mergeAll(appLayer, httpApiLayer))
 type ScheduleEntry = {
   id: string
   spec: { cron: string } | { at: number }
+  name: string | null
   message: string
   nextFireAt: number
   command: string | null
@@ -124,16 +127,19 @@ describe("session schedule HttpApi", () => {
         const latest = yield* scheduler.add({
           sessionID: session.id,
           message: "latest",
+          name: "latest",
           spec: { at: now + 3 * DAY },
         })
         const earliest = yield* scheduler.add({
           sessionID: session.id,
           message: "earliest",
+          name: "earliest",
           spec: { at: now + 1 * DAY },
         })
         const middle = yield* scheduler.add({
           sessionID: session.id,
           message: "middle",
+          name: "middle",
           spec: { at: now + 2 * DAY },
         })
         // Two entries sharing one instant order by id ascending; ids minted
@@ -141,11 +147,13 @@ describe("session schedule HttpApi", () => {
         const tieFirst = yield* scheduler.add({
           sessionID: session.id,
           message: "tie first",
+          name: "tie first",
           spec: { at: now + 5 * DAY },
         })
         const tieSecond = yield* scheduler.add({
           sessionID: session.id,
           message: "tie second",
+          name: "tie second",
           spec: { at: now + 5 * DAY },
         })
 
@@ -171,21 +179,44 @@ describe("session schedule HttpApi", () => {
         const scheduler = yield* Scheduler.Service
         const due = Date.now() + 6 * 60 * 60 * 1000
 
-        const oneShot = yield* scheduler.add({ sessionID: session.id, message: "deploy check", spec: { at: due } })
+        const oneShot = yield* scheduler.add({
+          sessionID: session.id,
+          message: "deploy check",
+          name: "deploy gate",
+          spec: { at: due },
+        })
         const recurring = yield* scheduler.add({
           sessionID: session.id,
           message: "daily digest",
+          name: "daily digest",
           spec: { cron: "0 0 * * *" },
         })
         const gated = yield* scheduler.add({
           sessionID: session.id,
           message: "standup prep",
+          name: "standup prep",
           spec: { cron: "0 9 * * 1" },
           command: "test -f /repo/done.flag",
         })
+        // A legacy schedule created before the `name` argument existed: a
+        // direct row insert leaves the name column null.
+        const legacy = ScheduleID.make("sch_legacy_null_name")
+        yield* Database.Service.use(({ db }) =>
+          db
+            .insert(ScheduleTable)
+            .values({
+              id: legacy,
+              session_id: session.id,
+              cron: "0 8 * * *",
+              message: "legacy check",
+              next_fire_at: due + DAY,
+            })
+            .run()
+            .pipe(Effect.orDie),
+        )
 
         const body = yield* listSchedules(session.id, headers)
-        expect(body.data.schedules).toHaveLength(3)
+        expect(body.data.schedules).toHaveLength(4)
         // R3.3 orders entries by nextFireAt ascending, and the relative order
         // of now+6h and the daily cron midnight flips at 18:00 UTC — locate
         // the entries by id; the ordering itself is covered by the ordering
@@ -194,19 +225,22 @@ describe("session schedule HttpApi", () => {
         expect(oneShotEntry).toEqual({
           id: oneShot.id,
           spec: { at: due },
+          name: "deploy gate",
           message: "deploy check",
           nextFireAt: due,
           command: null,
         })
         expect(oneShotEntry.id).toMatch(/^sch_/)
-        // R3.2: every entry carries exactly id, spec, message, nextFireAt,
-        // and command — five fields, command present even when null.
-        expect(Object.keys(oneShotEntry).sort()).toEqual(["command", "id", "message", "nextFireAt", "spec"])
+        // R3.2: every entry carries exactly id, spec, name, message,
+        // nextFireAt, and command — six fields, name and command present
+        // even when null.
+        expect(Object.keys(oneShotEntry).sort()).toEqual(["command", "id", "message", "name", "nextFireAt", "spec"])
 
         const cronEntry = body.data.schedules.find((entry) => entry.id === recurring.id)!
         expect(cronEntry).toEqual({
           id: recurring.id,
           spec: { cron: "0 0 * * *" },
+          name: "daily digest",
           message: "daily digest",
           nextFireAt: cronEntry.nextFireAt,
           command: null,
@@ -222,9 +256,22 @@ describe("session schedule HttpApi", () => {
         expect(gatedEntry).toEqual({
           id: gated.id,
           spec: { cron: "0 9 * * 1" },
+          name: "standup prep",
           message: "standup prep",
           nextFireAt: gatedEntry.nextFireAt,
           command: "test -f /repo/done.flag",
+        })
+
+        // R3.8: the name is null exactly for a legacy schedule created
+        // before the name argument existed.
+        const legacyEntry = body.data.schedules.find((entry) => entry.id === legacy)!
+        expect(legacyEntry).toEqual({
+          id: legacy,
+          spec: { cron: "0 8 * * *" },
+          name: null,
+          message: "legacy check",
+          nextFireAt: due + DAY,
+          command: null,
         })
       }),
     { git: true, config: { formatter: false, lsp: false } },
@@ -239,8 +286,8 @@ describe("session schedule HttpApi", () => {
         const session = yield* Session.use.create({ title: "schedule read-only" })
         const scheduler = yield* Scheduler.Service
         const now = Date.now()
-        yield* scheduler.add({ sessionID: session.id, message: "one", spec: { at: now + 1 * DAY } })
-        yield* scheduler.add({ sessionID: session.id, message: "two", spec: { at: now + 2 * DAY } })
+        yield* scheduler.add({ sessionID: session.id, message: "one", name: "one", spec: { at: now + 1 * DAY } })
+        yield* scheduler.add({ sessionID: session.id, message: "two", name: "two", spec: { at: now + 2 * DAY } })
 
         // R3.5: the GET is a pure read — no permission ask rides the route
         // (the request succeeds with no ask wiring) and repeated reads agree.

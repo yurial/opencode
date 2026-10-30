@@ -118,6 +118,7 @@ const v1promptNode = LayerNode.make({
                 .add({
                   sessionID: reentrant.sessionID,
                   message: reentrant.message,
+                  name: "from the turn",
                   spec: { cron: "* * * * *" },
                 })
                 .pipe(Effect.orDie)
@@ -381,11 +382,13 @@ describe("Scheduler service", () => {
       const recurring = yield* scheduler.add({
         sessionID,
         message: "check CI status",
+        name: "check CI status",
         spec: { cron: "*/30 * * * *" },
       })
       const oneShot = yield* scheduler.add({
         sessionID,
         message: "ship it",
+        name: "ship it",
         spec: { at: started + 3_600_000 },
       })
 
@@ -412,7 +415,7 @@ describe("Scheduler service", () => {
       const stranger = SessionV2.ID.make("ses_stranger")
       yield* makeSession(owner)
 
-      const added = yield* scheduler.add({ sessionID: owner, message: "secret plan", spec: { cron: "0 12 * * *" } })
+      const added = yield* scheduler.add({ sessionID: owner, message: "secret plan", name: "secret plan\", spec: { cr", spec: { cron: "0 12 * * *" } })
 
       expect(yield* scheduler.list(stranger)).toEqual([])
       const owned = yield* scheduler.list(owner)
@@ -439,7 +442,7 @@ describe("Scheduler service", () => {
       yield* seedSchedules(capped, Scheduler.MAX_SCHEDULES_PER_SESSION, (yield* now) + 60_000)
 
       const rejected = yield* scheduler
-        .add({ sessionID: capped, message: "one too many", spec: { cron: "0 0 * * *" } })
+        .add({ sessionID: capped, message: "one too many", name: "one too many", spec: { cron: "0 0 * * *" } })
         .pipe(Effect.flip)
       expect(rejected._tag).toBe("Scheduler.CapReached")
       expect(yield* scheduleRows).toHaveLength(Scheduler.MAX_SCHEDULES_PER_SESSION)
@@ -457,6 +460,7 @@ describe("Scheduler service", () => {
       const accepted = yield* scheduler.add({
         sessionID: underCap,
         message: "fiftieth",
+        name: "fiftieth",
         spec: { cron: "0 0 * * *" },
       })
       expect(accepted.message).toBe("fiftieth")
@@ -469,7 +473,7 @@ describe("Scheduler service", () => {
       const scheduler = yield* Scheduler.Service
       const sessionID = SessionV2.ID.make("ses_doomed")
       yield* makeSession(sessionID)
-      yield* scheduler.add({ sessionID, message: "remember me", spec: { cron: "0 0 * * *" } })
+      yield* scheduler.add({ sessionID, message: "remember me", name: "remember me\", spec: { cr", spec: { cron: "0 0 * * *" } })
       expect(yield* scheduleRows).toHaveLength(1)
 
       yield* Database.Service.use(({ db }) =>
@@ -485,6 +489,8 @@ describe("Scheduler service", () => {
       // The nullable gate-command column registers through the same
       // generated pipeline (D-003, R4.3).
       expect(migrations.some((migration) => migration.id.endsWith("_add_schedule_command"))).toBe(true)
+      // So does the nullable display-name column (R4.3).
+      expect(migrations.some((migration) => migration.id.endsWith("_add_schedule_name"))).toBe(true)
     }),
   )
 
@@ -501,6 +507,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "check CI status",
+        name: "check CI status",
         spec: { cron: "*/30 * * * *" },
       })
       yield* advance(added.nextFireAt + 1)
@@ -545,7 +552,7 @@ describe("Scheduler service", () => {
       const scheduler = yield* Scheduler.Service
 
       // every 1d converts to 0 0 * * * at add time; only the cron form fires.
-      const added = yield* scheduler.add({ sessionID, message: "standup", spec: { cron: "0 0 * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "standup", name: "standup\", spec: { cron: ", spec: { cron: "0 0 * * *" } })
       expect(added.spec).toEqual({ cron: "0 0 * * *" })
       yield* advance(added.nextFireAt + 1)
       yield* settled
@@ -579,6 +586,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "deploy",
+        name: "deploy",
         spec: { at: (yield* now) + 60_000 },
       })
       yield* advance(added.nextFireAt + 1)
@@ -599,6 +607,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "v1 reminder",
+        name: "v1 reminder",
         spec: { cron: "* * * * *" },
       })
       yield* advance(added.nextFireAt + 1)
@@ -620,7 +629,7 @@ describe("Scheduler service", () => {
       const ghost = SessionV2.ID.make("ses_ghost")
       yield* makeSession(ghost)
 
-      const added = yield* scheduler.add({ sessionID: ghost, message: "anyone?", spec: { cron: "* * * * *" } })
+      const added = yield* scheduler.add({ sessionID: ghost, message: "anyone?", name: "anyone?\", spec: { cron: ", spec: { cron: "* * * * *" } })
       // The owning session disappears before the due time.
       yield* Database.Service.use(({ db }) =>
         db.delete(SessionTable).where(eq(SessionTable.id, ghost)).run().pipe(Effect.orDie),
@@ -643,7 +652,7 @@ describe("Scheduler service", () => {
       yield* seedV2State(sessionID)
       const scheduler = yield* Scheduler.Service
 
-      const added = yield* scheduler.add({ sessionID, message: "once", spec: { cron: "0 * * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "once", name: "once\", spec: { cron: \"0 ", spec: { cron: "0 * * * *" } })
       yield* advance(added.nextFireAt + 1)
       yield* settled
       expect(yield* eventCount(contextUpdatedType)).toBe(1)
@@ -668,8 +677,8 @@ describe("Scheduler service", () => {
       yield* makeSession(sessionID)
       const scheduler = yield* Scheduler.Service
 
-      const first = yield* scheduler.add({ sessionID, message: "first", spec: { cron: "* * * * *" } })
-      const second = yield* scheduler.add({ sessionID, message: "second", spec: { cron: "* * * * *" } })
+      const first = yield* scheduler.add({ sessionID, message: "first", name: "first\", spec: { cron: \"*", spec: { cron: "* * * * *" } })
+      const second = yield* scheduler.add({ sessionID, message: "second", name: "second\", spec: { cron: \"", spec: { cron: "* * * * *" } })
       // Route this session through V1 so the gated fake admission applies,
       // then let both due schedules reach the loop: the first delivery starts
       // and blocks inside the fake admission.
@@ -683,7 +692,7 @@ describe("Scheduler service", () => {
       // picked up, and a concurrent add proceeds without waiting for the
       // in-flight V1 admission — the loop permit is released across it.
       const addFiber = yield* scheduler
-        .add({ sessionID, message: "third", spec: { cron: "* * * * *" } })
+        .add({ sessionID, message: "third", name: "third", spec: { cron: "* * * * *" } })
         .pipe(Effect.forkScoped)
       yield* settled
       expect(v1Calls).toHaveLength(1)
@@ -713,7 +722,7 @@ describe("Scheduler service", () => {
       // the admission, so the add waited for the permit the loop waited on:
       // self-deadlock. Both the fire and the turn's add must complete.
       v1Behavior.reentrantAdd = { sessionID, message: "from the turn" }
-      const added = yield* scheduler.add({ sessionID, message: "fires", spec: { cron: "* * * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "fires", name: "fires\", spec: { cron: \"*", spec: { cron: "* * * * *" } })
       yield* advance(added.nextFireAt + 1)
       yield* settled
 
@@ -743,7 +752,7 @@ describe("Scheduler service", () => {
       // admission blocks until it is released.
       v1Behavior.failuresLeft = 1
       v1Gate = yield* Deferred.make<void>()
-      const added = yield* scheduler.add({ sessionID, message: "slow", spec: { cron: "0 * * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "slow", name: "slow\", spec: { cron: \"0 ", spec: { cron: "0 * * * *" } })
       const due = added.nextFireAt
       yield* advance(due + 1)
       yield* settled
@@ -780,7 +789,7 @@ describe("Scheduler service", () => {
       v1Behavior.failuresLeft = 1
       const scheduler = yield* Scheduler.Service
 
-      const added = yield* scheduler.add({ sessionID, message: "persistent", spec: { cron: "0 * * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "persistent", name: "persistent\", spec: { cro", spec: { cron: "0 * * * *" } })
       const due = added.nextFireAt
       yield* advance(due + 1)
       yield* settled
@@ -816,7 +825,7 @@ describe("Scheduler service", () => {
       yield* seedV2State(sessionID)
       const scheduler = yield* Scheduler.Service
 
-      const added = yield* scheduler.add({ sessionID, message: "prune me", spec: { cron: "0 * * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "prune me", name: "prune me\", spec: { cron:", spec: { cron: "0 * * * *" } })
       yield* advance(added.nextFireAt + 1)
       yield* settled
       expect(yield* eventCount(contextUpdatedType)).toBe(1)
@@ -862,7 +871,7 @@ describe("Scheduler service", () => {
           yield* makeSession(sessionID)
           yield* seedV2State(sessionID)
           const scheduler = yield* Scheduler.Service
-          const added = yield* scheduler.add({ sessionID, message: "after restart", spec: { cron: "0 * * * *" } })
+          const added = yield* scheduler.add({ sessionID, message: "after restart", name: "after restart\", spec: { ", spec: { cron: "0 * * * *" } })
           expect(added.nextFireAt).toBeGreaterThan(started)
         }),
       )
@@ -969,6 +978,49 @@ describe("Scheduler service", () => {
     }),
   )
 
+  it.effect("stores and returns the name on rows and entries, reading legacy rows as null", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_name_store")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+
+      const named = yield* scheduler.add({
+        sessionID,
+        message: "check CI status",
+        name: "CI check",
+        spec: { cron: "0 * * * *" },
+      })
+      expect(named.name).toBe("CI check")
+
+      // A row created before the field existed carries no name (the Schedule
+      // record): direct SQL insert with the column left out, read back as
+      // null through the service (T1.9's storage counterpart).
+      const legacy = ScheduleID.create()
+      const dueAt = (yield* now) + 60_000
+      yield* Database.Service.use(({ db }) =>
+        db
+          .insert(ScheduleTable)
+          .values({
+            id: legacy,
+            session_id: sessionID,
+            cron: "0 * * * *",
+            message: "legacy row",
+            next_fire_at: dueAt,
+          })
+          .run()
+          .pipe(Effect.orDie),
+      )
+      const stored = yield* Database.Service.use(({ db }) =>
+        db.select().from(ScheduleTable).all().pipe(Effect.orDie),
+      )
+      expect(stored.map((row) => row.name)).toContain(null)
+      const listed = yield* scheduler.list(sessionID)
+      expect(listed.find((entry) => entry.id === named.id)!.name).toBe("CI check")
+      expect(listed.find((entry) => entry.id === legacy)!.name).toBeNull()
+    }),
+  )
+
   it.effect("stores and returns the gate command on rows and entries", () =>
     Effect.gen(function* () {
       yield* resetRecordings
@@ -979,10 +1031,11 @@ describe("Scheduler service", () => {
       const gated = yield* scheduler.add({
         sessionID,
         message: "gated",
+        name: "gated",
         spec: { cron: "0 * * * *" },
         command: "test -f done.flag",
       })
-      const plain = yield* scheduler.add({ sessionID, message: "plain", spec: { cron: "0 * * * *" } })
+      const plain = yield* scheduler.add({ sessionID, message: "plain", name: "plain\", spec: { cron: \"0", spec: { cron: "0 * * * *" } })
 
       const rows = yield* scheduleRows
       expect(rows.find((row) => row.id === gated.id)!.command).toBe("test -f done.flag")
@@ -1007,6 +1060,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "check CI status",
+        name: "check CI status",
         spec: { cron: "0 * * * *" },
         command: "curl -sf http://ci.local/passed",
       })
@@ -1047,6 +1101,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "watch output",
+        name: "watch output",
         spec: { cron: "0 * * * *" },
         command: "emit",
       })
@@ -1079,6 +1134,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "check flag",
+        name: "check flag",
         spec: { cron: "0 * * * *" },
         command: "test -f done.flag",
       })
@@ -1111,6 +1167,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "deploy",
+        name: "deploy",
         spec: { at: (yield* now) + 60_000 },
         command: "test -f ready.flag",
       })
@@ -1131,7 +1188,7 @@ describe("Scheduler service", () => {
       yield* makeSession(sessionID)
       const scheduler = yield* Scheduler.Service
 
-      const added = yield* scheduler.add({ sessionID, message: "plain reminder", spec: { cron: "0 * * * *" } })
+      const added = yield* scheduler.add({ sessionID, message: "plain reminder", name: "plain reminder\", spec: {", spec: { cron: "0 * * * *" } })
       expect(added.command).toBeNull()
       yield* advance(added.nextFireAt + 1)
       yield* settled
@@ -1158,7 +1215,7 @@ describe("Scheduler service", () => {
       gateBehavior.outputs.push("first run out", "held run out")
       gateBehavior.holds.push(hold)
 
-      const added = yield* scheduler.add({ sessionID, message: "hold me", spec: { cron: "0 * * * *" }, command: "wait" })
+      const added = yield* scheduler.add({ sessionID, message: "hold me", name: "hold me\", spec: { cron: ", spec: { cron: "0 * * * *" }, command: "wait" })
       const due = added.nextFireAt
       yield* advance(due + 1)
       yield* settled
@@ -1201,7 +1258,7 @@ describe("Scheduler service", () => {
       gateBehavior.exitCodes.push(0, 1)
       gateBehavior.holds.push(hold)
 
-      const added = yield* scheduler.add({ sessionID, message: "slow check", spec: { cron: "0 * * * *" }, command: "wait" })
+      const added = yield* scheduler.add({ sessionID, message: "slow check", name: "slow check\", spec: { cro", spec: { cron: "0 * * * *" }, command: "wait" })
       const due = added.nextFireAt
       yield* advance(due + 1)
       yield* settled
@@ -1229,7 +1286,7 @@ describe("Scheduler service", () => {
       gateBehavior.exitCodes.push(0)
       gateBehavior.holds.push(hold)
 
-      const gated = yield* scheduler.add({ sessionID, message: "gated", spec: { cron: "0 * * * *" }, command: "wait" })
+      const gated = yield* scheduler.add({ sessionID, message: "gated", name: "gated\", spec: { cron: \"0", spec: { cron: "0 * * * *" }, command: "wait" })
       yield* advance(gated.nextFireAt + 1)
       yield* settled
       expect(gateCalls).toHaveLength(1)
@@ -1237,7 +1294,7 @@ describe("Scheduler service", () => {
       // The commandless schedule due later fires mid-flight; its slot also
       // keeps the gated fire's post-fire advance in the future, so only the
       // two fires below happen.
-      const plain = yield* scheduler.add({ sessionID, message: "plain", spec: { cron: "30 * * * *" } })
+      const plain = yield* scheduler.add({ sessionID, message: "plain", name: "plain\", spec: { cron: \"3", spec: { cron: "30 * * * *" } })
       expect(plain.nextFireAt).toBeGreaterThan(gated.nextFireAt)
       // TestClock advances are relative: move from the already-reached
       // gated due time to the plain one.
@@ -1252,7 +1309,7 @@ describe("Scheduler service", () => {
 
       // A concurrent mutation proceeded without waiting for the run.
       const addFiber = yield* scheduler
-        .add({ sessionID, message: "mid-flight", spec: { cron: "0 0 * * *" } })
+        .add({ sessionID, message: "mid-flight", name: "mid-flight", spec: { cron: "0 0 * * *" } })
         .pipe(Effect.forkScoped)
       yield* settled
       const midFlight = yield* Fiber.join(addFiber)
@@ -1274,7 +1331,7 @@ describe("Scheduler service", () => {
       const hold = yield* Deferred.make<void>()
       gateBehavior.holds.push(hold)
 
-      const added = yield* scheduler.add({ sessionID, message: "vanish", spec: { cron: "0 * * * *" }, command: "wait" })
+      const added = yield* scheduler.add({ sessionID, message: "vanish", name: "vanish\", spec: { cron: \"", spec: { cron: "0 * * * *" }, command: "wait" })
       const due = added.nextFireAt
       yield* advance(due + 1)
       yield* settled
@@ -1295,7 +1352,7 @@ describe("Scheduler service", () => {
 
       // The machine is clean: a follow-up schedule fires unmarked on time —
       // the fiber released the row and nudged the timer.
-      const later = yield* scheduler.add({ sessionID, message: "later", spec: { cron: "30 * * * *" } })
+      const later = yield* scheduler.add({ sessionID, message: "later", name: "later\", spec: { cron: \"3", spec: { cron: "30 * * * *" } })
       yield* advance(later.nextFireAt - due)
       yield* flushed
       expect(gateCalls).toHaveLength(1)
@@ -1318,6 +1375,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "event check",
+        name: "event check",
         spec: { cron: "0 * * * *" },
         command: "check",
       })
@@ -1353,6 +1411,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "check flag",
+        name: "check flag",
         spec: { cron: "0 * * * *" },
         command: "test -f done.flag",
       })
@@ -1386,6 +1445,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "unspawnable",
+        name: "unspawnable",
         spec: { cron: "0 * * * *" },
         command: "check",
       })
@@ -1424,10 +1484,16 @@ describe("Scheduler service", () => {
       const gated = yield* scheduler.add({
         sessionID,
         message: "permitted",
+        name: "permitted",
         spec: { at: (yield* now) + 60_000 },
         command: "check",
       })
-      const plain = yield* scheduler.add({ sessionID, message: "plain", spec: { at: (yield* now) + 120_000 } })
+      const plain = yield* scheduler.add({
+        sessionID,
+        message: "plain",
+        name: "plain",
+        spec: { at: (yield* now) + 120_000 },
+      })
       yield* advance(gated.nextFireAt + 1)
       yield* settled
       expect(v1Calls).toHaveLength(1)
@@ -1455,6 +1521,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "admission check",
+        name: "admission check",
         spec: { cron: "0 * * * *" },
         command: "check",
       })
@@ -1496,6 +1563,7 @@ describe("Scheduler service", () => {
       const added = yield* scheduler.add({
         sessionID,
         message: "finish check",
+        name: "finish check",
         spec: { cron: "0 * * * *" },
         command: "check",
       })
@@ -1571,6 +1639,7 @@ describe("Scheduler service", () => {
           const added = yield* scheduler.add({
             sessionID,
             message: "nowhere to go",
+            name: "nowhere to go",
             spec: { cron: "0 * * * *" },
             command: "check",
           })
@@ -1632,7 +1701,7 @@ describe("Scheduler service", () => {
           const scheduler = yield* Scheduler.Service
           gateBehavior.exitCodes.push(0)
           gateBehavior.outputs.push("series out")
-          yield* scheduler.add({ sessionID, message: "after downtime", spec: { cron: "0 * * * *" }, command: "check" })
+          yield* scheduler.add({ sessionID, message: "after downtime", name: "after downtime\", spec: {", spec: { cron: "0 * * * *" }, command: "check" })
         }),
       )
       const due = started + 3_600_000
@@ -1701,7 +1770,7 @@ describe("Scheduler service", () => {
           yield* seedV2State(sessionID)
           const scheduler = yield* Scheduler.Service
           gateBehavior.exitCodes.push(1)
-          yield* scheduler.add({ sessionID, message: "still down", spec: { cron: "0 * * * *" }, command: "check" })
+          yield* scheduler.add({ sessionID, message: "still down", name: "still down\", spec: { cro", spec: { cron: "0 * * * *" }, command: "check" })
         }),
       )
       const due = started + 3_600_000
@@ -1766,6 +1835,7 @@ describe("Scheduler service", () => {
             const added = yield* scheduler.add({
               sessionID,
               message: "bash check",
+              name: "bash check",
               spec: { cron: "0 * * * *" },
               command: `printf '%s\\n' "$PWD|$BASH_VERSION" > ${JSON.stringify(marker)}`,
             })
@@ -1831,6 +1901,7 @@ describe("Scheduler service", () => {
             const added = yield* scheduler.add({
               sessionID,
               message: "unspawnable",
+              name: "unspawnable",
               spec: { cron: "0 * * * *" },
               command: "true",
             })
