@@ -6,7 +6,7 @@ Spec source of truth for: the AI-facing scheduler — the `scheduler` tool (acti
 
 ## Overview
 
-The scheduler lets the model running inside a session schedule future events for itself. A scheduler/schedule carries a firing rule, a message text, and an optional scheduler/gate-command; at each due time the scheduler/service first runs the stored gate command when one exists, and delivers a scheduler/fired-message into the owning session when the run exits with status zero, so the model sees it and continues work (R6). A nonzero exit status suppresses the fire: the event the command checks has not occurred (R6.13, R6.15, R6.16). Schedules are created and managed through the `scheduler` tool (R1), are bound to the creating session (R2), and persist in the schedule table across process restarts (R4). Adding and removing asks the `scheduler` permission through the V1 ask flow (R5); firing itself is not a tool call and asks nothing, the gate command included (R5.4, R5.5).
+The scheduler lets the model running inside a session schedule future events for itself. A scheduler/schedule carries a firing rule, a message text, and an optional scheduler/gate-command; at each due time the scheduler/service first runs the stored gate command when one exists, and delivers a scheduler/fired-message into the owning session when the run exits with status zero, so the model sees it and continues work (R6). A nonzero exit status suppresses the fire and writes one diagnostic log record, so a suppressing schedule stays observable outside the session: the event the command checks has not occurred (R6.13, R6.15, R6.16, R6.19). Schedules are created and managed through the `scheduler` tool (R1), are bound to the creating session (R2), and persist in the schedule table across process restarts (R4). Adding and removing asks the `scheduler` permission through the V1 ask flow (R5); firing itself is not a tool call and asks nothing, the gate command included (R5.4, R5.5).
 
 The scheduler core ships no HTTP surface of its own: no protocol group, no handler, and no SDK regeneration belong to it. The one exception is the read-only schedule-list endpoint, owned by scheduler-view, which reads scheduler/schedule rows through the scheduler/service as its data source.
 
@@ -18,7 +18,7 @@ In:
 
 - The `scheduler` tool surface: actions add, remove, list; argument domains; success and error result contracts.
 - Schedule spec inputs: interval (`every`), cron expression (`cron`), one-shot datetime or scheduler/relative-at (`at`); conversion, validation, and storage rules.
-- The optional scheduler/gate-command of a scheduler/schedule: the `command` argument, validation, execution before each fire, suppression of fires, catch-up interplay, and the scheduler/gate-output-section.
+- The optional scheduler/gate-command of a scheduler/schedule: the `command` argument, validation, execution before each fire, suppression of fires and its diagnostic log record, catch-up interplay, and the scheduler/gate-output-section.
 - Session binding of schedules and cascade removal on session deletion.
 - Fire delivery into sessions served by the V2 runtime and by the V1 runtime; the fired-message grammar.
 - Missed-fire catch-up semantics for recurring and one-shot schedules.
@@ -67,7 +67,7 @@ Arguments:
 | `message` | add | non-empty string, at most SCHEDULER_MAX_MESSAGE_LENGTH characters |
 | `every` | add, optional | positive integer followed by one of the unit letters `m`, `h`, `d` (for example `30m`, `1h`, `1d`) |
 | `cron` | add, optional | standard five-field cron expression |
-| `at` | add, optional | ISO 8601 datetime, naive or zoned, or a scheduler/relative-at: the unit form `now+<positive integer><unit letter>` with the unit letters of SCHEDULER_RELATIVE_AT_UNITS, or the clock form `now+HH:MM:SS` with the shape and bounds of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE (for example `now+5m`, `now+01:30:25`) |
+| `at` | add, optional | `ISO 8601` datetime, naive or zoned, or a scheduler/relative-at: the unit form `now+<positive integer><unit letter>` with the unit letters of SCHEDULER_RELATIVE_AT_UNITS, or the clock form `now+HH:MM:SS` with the shape and bounds of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE (for example `now+5m`, `now+01:30:25`) |
 | `command` | add, optional | non-empty string, at most SCHEDULER_MAX_COMMAND_LENGTH characters — the scheduler/gate-command text |
 | `id` | remove | schedule id |
 
@@ -88,7 +88,7 @@ Error results (the complete set; semantics in Error handling):
 | `invalid-interval` | `every` is malformed (R3.2) |
 | `invalid-cron` | `cron` is malformed (R3.4) |
 | `cron-without-future-match` | `cron` has no future match (R3.5) |
-| `invalid-at` | `at` is unparseable as an ISO 8601 datetime or a scheduler/relative-at (R3.6, R3.10) |
+| `invalid-at` | `at` is unparseable as an `ISO 8601` datetime or a scheduler/relative-at (R3.6, R3.10) |
 | `at-in-past` | `at` resolves to a time not after the current time (R3.8) |
 | `message-too-long` | `message` is longer than SCHEDULER_MAX_MESSAGE_LENGTH (R3.9) |
 | `command-too-long` | `command` is longer than SCHEDULER_MAX_COMMAND_LENGTH (R3.13) |
@@ -119,7 +119,7 @@ Exactly one of `cron` and `at` is non-null per row. A null `command` stores no s
 <scheduled-fire-time> fired schedule id <id> <spec>: <message><catch-up-marker><gate-output-section>
 ```
 
-- `<scheduled-fire-time>`: the scheduler/scheduled-fire-time, UTC, ISO 8601.
+- `<scheduled-fire-time>`: the scheduler/scheduled-fire-time, UTC, `ISO 8601`.
 - `<id>`: the schedule id.
 - `<spec>`: the scheduler/cron-spec of a scheduler/recurring schedule, or the stored UTC datetime of a scheduler/one-shot.
 - `<message>`: the stored message text.
@@ -160,90 +160,94 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 | SCHEDULER_GATE_TIMEOUT | `fixed` none — a scheduler/gate-run is never cut short | — | Deliberate no-timeout: a run may execute arbitrarily long, and the loop isolation of R8.6 with the single-flight hold of R8.7-R8.9 keeps every other schedule serving meanwhile |
 | SCHEDULER_GATE_OUTPUT_HEADER | `fixed` the literal `\ngate command output:\n` — a line break, the header text, a line break | — | Opens the scheduler/gate-output-section (R6.14) |
 | SCHEDULER_MAX_GATE_OUTPUT_LENGTH | `fixed` 4096 characters | — | Combined-output bound of the scheduler/gate-output-section; longer output is truncated to the bound with an ellipsis character appended (R6.14) |
+| SCHEDULER_GATE_SPAWN_FAILURE_EXIT_CODE | `fixed` exit status 127 | — | Exit status substituted for a scheduler/gate-run that fails to spawn, so the suppression record names the spawn-failure outcome instead of an ordinary command exit (R6.19; Error handling) |
+| SCHEDULER_SUPPRESSION_LOG_LEVEL | `fixed` level `info` | — | Severity of the diagnostic log record a scheduler/suppressed-fire writes (R6.19) |
+| SCHEDULER_SUPPRESSION_LOG_MARKER | `fixed` the literal `suppressed` | — | Marker naming the scheduler/suppressed-fire in its diagnostic log record (R6.19) |
 
 ## Requirements
 
 - R1. Tool surface:
-- R1.1. The scheduler tool is a V1 built-in registered in the V1 tool registry and defined under the V1 tool contract.
-- R1.2. The tool selects one of the actions add, remove, and list through its `action` argument.
-- R1.3. Args that fail schema decode return the `invalid-arguments` error result.
-- R1.4. An add result echoes the schedule id, the spec form, and the scheduler/next-due-time in UTC. An add carrying a `command` ends its result line with the scheduler/gate-echo.
-- R1.5. A list result carries one line per scheduler/schedule of the calling session, each with the schedule id, the spec form, the scheduler/next-due-time in UTC, and the message text. A line of a scheduler/schedule with a stored scheduler/gate-command ends with the scheduler/gate-echo.
-- R1.6. A remove result confirms the removed schedule id.
+- R1.1. verification=automated; The scheduler tool is a V1 built-in registered in the V1 tool registry and defined under the V1 tool contract.
+- R1.2. verification=automated; The tool selects one of the actions add, remove, and list through its `action` argument.
+- R1.3. verification=automated; Args that fail schema decode return the `invalid-arguments` error result.
+- R1.4. verification=automated; An add result echoes the schedule id, the spec form, and the scheduler/next-due-time in UTC. An add carrying a `command` ends its result line with the scheduler/gate-echo.
+- R1.5. verification=automated; A list result carries one line per scheduler/schedule of the calling session, each with the schedule id, the spec form, the scheduler/next-due-time in UTC, and the message text. A line of a scheduler/schedule with a stored scheduler/gate-command ends with the scheduler/gate-echo.
+- R1.6. verification=automated; A remove result confirms the removed schedule id.
 - R2. Session binding:
-- R2.1. Every scheduler/schedule is bound to the session of the tool call that created it.
-- R2.2. A list result contains only scheduler/schedule records bound to the calling session.
-- R2.3. A remove acts only on a scheduler/schedule bound to the calling session; an unknown or foreign `id` returns `schedule-not-found` and removes nothing.
-- R2.4. An add returns `schedule-cap-reached` when the calling session already holds SCHEDULER_MAX_SCHEDULES_PER_SESSION schedules.
+- R2.1. verification=automated; Every scheduler/schedule is bound to the session of the tool call that created it.
+- R2.2. verification=automated; A list result contains only scheduler/schedule records bound to the calling session.
+- R2.3. verification=automated; A remove acts only on a scheduler/schedule bound to the calling session; an unknown or foreign `id` returns `schedule-not-found` and removes nothing.
+- R2.4. verification=automated; An add returns `schedule-cap-reached` when the calling session already holds SCHEDULER_MAX_SCHEDULES_PER_SESSION schedules.
 - R3. Schedule spec input:
-- R3.1. An add carries exactly one of `every`, `cron`, and `at`; any other combination returns `schedule-spec-conflict` and stores nothing.
-- R3.2. An `every` value is a positive integer followed by one of the unit letters `m`, `h`, and `d`; any other form returns `invalid-interval`.
-- R3.3. An `every` value converts at add time into the stored scheduler/cron-spec, and only the cron-spec is stored, echoed, and fired.
-- R3.4. A `cron` value is a standard five-field cron expression; a malformed expression returns `invalid-cron`.
-- R3.5. A `cron` value with no future match returns `cron-without-future-match`.
-- R3.6. An `at` value is an ISO 8601 datetime or a scheduler/relative-at; a value that is neither returns `invalid-at`.
-- R3.7. A naive `at` resolves in the process timezone at add time into UTC, and a zoned `at` resolves into the UTC equivalent of its offset.
-- R3.8. An `at` that resolves to a time not after the current time returns `at-in-past`.
-- R3.9. A `message` longer than SCHEDULER_MAX_MESSAGE_LENGTH returns `message-too-long`.
-- R3.10. A scheduler/relative-at is the prefix `now+` followed either by a positive integer and one unit letter of SCHEDULER_RELATIVE_AT_UNITS or by the clock form of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE, with no other characters; a value of any other shape returns `invalid-at`.
-- R3.11. A scheduler/relative-at resolves at add time into the UTC due time equal to the current time plus its offset.
-- R3.12. Only the absolute UTC due time of a scheduler/relative-at is stored, echoed, and fired; the relative form itself never appears in a stored row, a tool result, or a scheduler/fired-message.
-- R3.13. A `command` longer than SCHEDULER_MAX_COMMAND_LENGTH returns `command-too-long`.
+- R3.1. verification=automated; An add carries exactly one of `every`, `cron`, and `at`; any other combination returns `schedule-spec-conflict` and stores nothing.
+- R3.2. verification=automated; An `every` value is a positive integer followed by one of the unit letters `m`, `h`, and `d`; any other form returns `invalid-interval`.
+- R3.3. verification=automated; An `every` value converts at add time into the stored scheduler/cron-spec, and only the cron-spec is stored, echoed, and fired.
+- R3.4. verification=automated; A `cron` value is a standard five-field cron expression; a malformed expression returns `invalid-cron`.
+- R3.5. verification=automated; A `cron` value with no future match returns `cron-without-future-match`.
+- R3.6. verification=manual; An `at` value is an `ISO 8601` datetime or a scheduler/relative-at; a value that is neither returns `invalid-at`.
+- R3.7. verification=automated; A naive `at` resolves in the process timezone at add time into UTC, and a zoned `at` resolves into the UTC equivalent of its offset.
+- R3.8. verification=automated; An `at` that resolves to a time not after the current time returns `at-in-past`.
+- R3.9. verification=automated; A `message` longer than SCHEDULER_MAX_MESSAGE_LENGTH returns `message-too-long`.
+- R3.10. verification=automated; A scheduler/relative-at is the prefix `now+` followed either by a positive integer and one unit letter of SCHEDULER_RELATIVE_AT_UNITS or by the clock form of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE, with no other characters; a value of any other shape returns `invalid-at`.
+- R3.11. verification=automated; A scheduler/relative-at resolves at add time into the UTC due time equal to the current time plus its offset.
+- R3.12. verification=automated; Only the absolute UTC due time of a scheduler/relative-at is stored, echoed, and fired; the relative form itself never appears in a stored row, a tool result, or a scheduler/fired-message.
+- R3.13. verification=automated; A `command` longer than SCHEDULER_MAX_COMMAND_LENGTH returns `command-too-long`.
 - R4. Persistence:
-- R4.1. Scheduler/schedule state persists in the schedule table with snake_case columns under the table-ownership rules of storage-events.
-- R4.2. Deleting a session row deletes every scheduler/schedule bound to it through the cascading foreign key.
-- R4.3. The schedule table registers through the generated migration pipeline of storage-events.
-- R4.4. Scheduler/schedule records survive a process restart.
+- R4.1. verification=automated; Scheduler/schedule state persists in the schedule table with snake_case columns under the table-ownership rules of storage-events.
+- R4.2. verification=automated; Deleting a session row deletes every scheduler/schedule bound to it through the cascading foreign key.
+- R4.3. verification=automated; The schedule table registers through the generated migration pipeline of storage-events.
+- R4.4. verification=automated; Scheduler/schedule records survive a process restart.
 - R5. Permissions:
-- R5.1. An add or remove performs its `scheduler` permission ask through the V1 ask flow before any side effect.
-- R5.2. A denied ask fails the tool call with `permission-denied` and stores or removes nothing.
-- R5.3. A list performs no permission ask.
-- R5.4. A scheduler/fire performs no permission ask.
-- R5.5. A scheduler/gate-run performs no permission ask.
+- R5.1. verification=automated; An add or remove performs its `scheduler` permission ask through the V1 ask flow before any side effect.
+- R5.2. verification=automated; A denied ask fails the tool call with `permission-denied` and stores or removes nothing.
+- R5.3. verification=automated; A list performs no permission ask.
+- R5.4. verification=automated; A scheduler/fire performs no permission ask.
+- R5.5. verification=automated; A scheduler/gate-run performs no permission ask.
 - R6. Firing and delivery:
-- R6.1. All due-time evaluation runs in UTC against the stored scheduler/next-due-time.
-- R6.2. A scheduler/fire delivers when the current time reaches the scheduler/next-due-time of a stored scheduler/schedule.
-- R6.3. For a session served by the V2 runtime, a fire publishes one `SessionEvent.ContextUpdated` durable event carrying the scheduler/fired-message, and the publish advances no context epoch.
-- R6.4. For a session served by the V2 runtime, a fire admits one durable input carrying the scheduler/fired-message and then wakes the session execution so the serialized drain begins.
-- R6.5. For a session served by the V1 runtime, a fire appends one synthetic user text part carrying the scheduler/fired-message and admits it through the V1 prompt path.
-- R6.6. Every fire carries exactly one scheduler/fired-message following the fixed fired-message grammar, with the scheduler/scheduled-fire-time as its timestamp.
-- R6.7. For a scheduler/schedule created from `every`, the spec form in results and fired messages is the converted scheduler/cron-spec.
-- R6.8. After a delivered fire of a scheduler/recurring schedule, the scheduler/next-due-time advances to the earliest match strictly after the discharged scheduler/scheduled-fire-time.
-- R6.9. A scheduler/one-shot is removed after its delivered fire.
-- R6.10. A fire whose owning session no longer exists removes the scheduler/schedule and delivers nothing.
-- R6.11. A scheduler/schedule with no stored scheduler/gate-command performs no scheduler/gate-run.
-- R6.12. A fire of a scheduler/schedule with a stored scheduler/gate-command performs its scheduler/gate-run before any delivery side effect of that fire.
-- R6.13. A fire of a scheduler/schedule with a stored scheduler/gate-command delivers only when its scheduler/gate-run exits with status zero.
-- R6.14. A fire whose scheduler/gate-run exits with status zero appends the scheduler/gate-output-section to its scheduler/fired-message when the run wrote output.
-- R6.15. A scheduler/recurring schedule whose fire is a scheduler/suppressed-fire advances its scheduler/next-due-time to the earliest match strictly after the discharged scheduler/scheduled-fire-time.
-- R6.16. A scheduler/one-shot whose fire is a scheduler/suppressed-fire is removed.
-- R6.17. A scheduler/gate-run executes the stored command text as the single argument of the shell invocation of SCHEDULER_GATE_SHELL.
-- R6.18. A scheduler/gate-run runs with the working directory SCHEDULER_GATE_WORKING_DIRECTORY.
+- R6.1. verification=automated; All due-time evaluation runs in UTC against the stored scheduler/next-due-time.
+- R6.2. verification=automated; A scheduler/fire delivers when the current time reaches the scheduler/next-due-time of a stored scheduler/schedule.
+- R6.3. verification=automated; For a session served by the V2 runtime, a fire publishes one `SessionEvent.ContextUpdated` durable event carrying the scheduler/fired-message, and the publish advances no context epoch.
+- R6.4. verification=automated; For a session served by the V2 runtime, a fire admits one durable input carrying the scheduler/fired-message and then wakes the session execution so the serialized drain begins.
+- R6.5. verification=automated; For a session served by the V1 runtime, a fire appends one synthetic user text part carrying the scheduler/fired-message and admits it through the V1 prompt path.
+- R6.6. verification=automated; Every fire carries exactly one scheduler/fired-message following the fixed fired-message grammar, with the scheduler/scheduled-fire-time as its timestamp.
+- R6.7. verification=automated; For a scheduler/schedule created from `every`, the spec form in results and fired messages is the converted scheduler/cron-spec.
+- R6.8. verification=automated; After a delivered fire of a scheduler/recurring schedule, the scheduler/next-due-time advances to the earliest match strictly after the discharged scheduler/scheduled-fire-time.
+- R6.9. verification=automated; A scheduler/one-shot is removed after its delivered fire.
+- R6.10. verification=automated; A fire whose owning session no longer exists removes the scheduler/schedule and delivers nothing.
+- R6.11. verification=automated; A scheduler/schedule with no stored scheduler/gate-command performs no scheduler/gate-run.
+- R6.12. verification=automated; A fire of a scheduler/schedule with a stored scheduler/gate-command performs its scheduler/gate-run before any delivery side effect of that fire.
+- R6.13. verification=automated; A fire of a scheduler/schedule with a stored scheduler/gate-command delivers only when its scheduler/gate-run exits with status zero; each suppression this decides writes the diagnostic log record of R6.19.
+- R6.14. verification=automated; A fire whose scheduler/gate-run exits with status zero appends the scheduler/gate-output-section to its scheduler/fired-message when the run wrote output.
+- R6.15. verification=automated; A scheduler/recurring schedule whose fire is a scheduler/suppressed-fire advances its scheduler/next-due-time to the earliest match strictly after the discharged scheduler/scheduled-fire-time.
+- R6.16. verification=automated; A scheduler/one-shot whose fire is a scheduler/suppressed-fire is removed.
+- R6.17. verification=automated; A scheduler/gate-run executes the stored command text as the single argument of the shell invocation of SCHEDULER_GATE_SHELL.
+- R6.18. verification=automated; A scheduler/gate-run runs with the working directory SCHEDULER_GATE_WORKING_DIRECTORY.
+- R6.19. verification=automated; Every scheduler/suppressed-fire writes exactly one diagnostic log record of the host process at level SCHEDULER_SUPPRESSION_LOG_LEVEL carrying the schedule id, the exit status of its scheduler/gate-run, and the marker SCHEDULER_SUPPRESSION_LOG_MARKER.
 - R7. Missed-fire catch-up:
-- R7.1. A fire is a scheduler/catch-up-fire when its scheduler/scheduled-fire-time precedes the load of the scheduler/service in the current process, or when it retries a previously failed delivery, or when its scheduler/scheduled-fire-time was reached while a scheduler/gate-run of the same scheduler/schedule was in flight.
-- R7.2. A scheduler/catch-up-fire appends the catch-up marker to the scheduler/fired-message.
-- R7.3. At scheduler/service load, every scheduler/recurring schedule with a past scheduler/next-due-time receives exactly one scheduler/catch-up-fire at the first opportunity.
-- R7.4. After a scheduler/catch-up-fire of a scheduler/recurring schedule, the scheduler/next-due-time advances to the earliest match strictly after the delivery time.
-- R7.5. Occurrences skipped between the scheduler/scheduled-fire-time and the delivery time of a scheduler/catch-up-fire are never replayed.
-- R7.6. At scheduler/service load, a scheduler/one-shot with a past due time receives exactly one scheduler/catch-up-fire and is then removed.
-- R7.7. A scheduler/catch-up-fire of a scheduler/schedule with a stored scheduler/gate-command performs exactly one scheduler/gate-run for its entire skipped series.
-- R7.8. The entire skipped series of a scheduler/catch-up-fire that is a scheduler/suppressed-fire is discharged without replay.
-- R7.9. A scheduler/recurring schedule whose scheduler/catch-up-fire is a scheduler/suppressed-fire advances its scheduler/next-due-time to the earliest match strictly after the scheduler/gate-run resolution time.
+- R7.1. verification=automated; A fire is a scheduler/catch-up-fire when its scheduler/scheduled-fire-time precedes the load of the scheduler/service in the current process, or when it retries a previously failed delivery, or when its scheduler/scheduled-fire-time was reached while a scheduler/gate-run of the same scheduler/schedule was in flight.
+- R7.2. verification=automated; A scheduler/catch-up-fire appends the catch-up marker to the scheduler/fired-message.
+- R7.3. verification=automated; At scheduler/service load, every scheduler/recurring schedule with a past scheduler/next-due-time receives exactly one scheduler/catch-up-fire at the first opportunity.
+- R7.4. verification=automated; After a scheduler/catch-up-fire of a scheduler/recurring schedule, the scheduler/next-due-time advances to the earliest match strictly after the delivery time.
+- R7.5. verification=automated; Occurrences skipped between the scheduler/scheduled-fire-time and the delivery time of a scheduler/catch-up-fire are never replayed.
+- R7.6. verification=automated; At scheduler/service load, a scheduler/one-shot with a past due time receives exactly one scheduler/catch-up-fire and is then removed.
+- R7.7. verification=automated; A scheduler/catch-up-fire of a scheduler/schedule with a stored scheduler/gate-command performs exactly one scheduler/gate-run for its entire skipped series.
+- R7.8. verification=automated; The entire skipped series of a scheduler/catch-up-fire that is a scheduler/suppressed-fire is discharged without replay.
+- R7.9. verification=automated; A scheduler/recurring schedule whose scheduler/catch-up-fire is a scheduler/suppressed-fire advances its scheduler/next-due-time to the earliest match strictly after the scheduler/gate-run resolution time.
 - R8. Scheduler service:
-- R8.1. The scheduler/service is a process-global layer node bound in the host application-services graph.
-- R8.2. At init the scheduler/service loads every persisted scheduler/schedule, arms its timer, and starts its delivery loop.
-- R8.3. All scheduler/schedule mutations and fire deliveries of one process serialize through the single delivery loop of the scheduler/service.
-- R8.4. The delivery-loop timer arms at the earliest scheduler/next-due-time among stored schedules and re-arms on every add, remove, fire, and reload.
-- R8.5. A fire whose delivery fails is retried by the delivery loop, and its scheduler/schedule is neither advanced nor removed until a delivery succeeds.
-- R8.6. The delivery loop keeps serving scheduler/schedule mutations and fire deliveries of other scheduler/schedules while a scheduler/gate-run is in flight.
-- R8.7. At most one scheduler/gate-run of one scheduler/schedule is in flight at any time.
-- R8.8. A due time of a scheduler/schedule reached while a scheduler/gate-run of that schedule is in flight starts no new scheduler/gate-run.
-- R8.9. A due time held by an in-flight scheduler/gate-run is processed after the run resolves as a scheduler/catch-up-fire.
-- R8.10. A scheduler/suppressed-fire is not a delivery failure.
-- R8.11. A scheduler/suppressed-fire is retried by nothing.
+- R8.1. verification=manual; The scheduler/service is a process-global layer node bound in the host application-services graph.
+- R8.2. verification=automated; At init the scheduler/service loads every persisted scheduler/schedule, arms its timer, and starts its delivery loop.
+- R8.3. verification=automated; All scheduler/schedule mutations and fire deliveries of one process serialize through the single delivery loop of the scheduler/service.
+- R8.4. verification=automated; The delivery-loop timer arms at the earliest scheduler/next-due-time among stored schedules and re-arms on every add, remove, fire, and reload.
+- R8.5. verification=automated; A fire whose delivery fails is retried by the delivery loop, and its scheduler/schedule is neither advanced nor removed until a delivery succeeds.
+- R8.6. verification=automated; The delivery loop keeps serving scheduler/schedule mutations and fire deliveries of other scheduler/schedules while a scheduler/gate-run is in flight.
+- R8.7. verification=automated; At most one scheduler/gate-run of one scheduler/schedule is in flight at any time.
+- R8.8. verification=automated; A due time of a scheduler/schedule reached while a scheduler/gate-run of that schedule is in flight starts no new scheduler/gate-run.
+- R8.9. verification=automated; A due time held by an in-flight scheduler/gate-run is processed after the run resolves as a scheduler/catch-up-fire.
+- R8.10. verification=automated; A scheduler/suppressed-fire is not a delivery failure.
+- R8.11. verification=automated; A scheduler/suppressed-fire is retried by nothing.
 - R9. Visibility limits:
-- R9.1. The scheduler never re-delivers a scheduler/fired-message that a later epoch replacement or compaction displaced from visible history.
-- R9.2. Fired events and their projected messages receive no scheduler-specific retention and follow ordinary session history and event-log retention.
+- R9.1. verification=automated; The scheduler never re-delivers a scheduler/fired-message that a later epoch replacement or compaction displaced from visible history.
+- R9.2. verification=automated; Fired events and their projected messages receive no scheduler-specific retention and follow ordinary session history and event-log retention.
 
 ## Implementation
 
@@ -258,14 +262,15 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - I9. A scheduler/gate-run runs outside the delivery-loop write permit between the fire's start and finish phases; the write permit is never held across a scheduler/gate-run, and the resolved fire re-enters the serialized finish path for its delivery bookkeeping.
 - I10. In-flight scheduler/gate-runs live in process memory only; a restart forgets an in-flight run, and the unadvanced scheduler/next-due-time of its row drives the catch-up path at service load.
 - I11. The delivery-loop due scan and timer arm skip scheduler/schedules with an in-flight scheduler/gate-run.
+- I12. The diagnostic log record of R6.19 emits through the process logger of the host as one entry at level SCHEDULER_SUPPRESSION_LOG_LEVEL — as built `Effect.logInfo` with `Effect.annotateLogs` fields for the schedule id and the gate-run exit status — and the marker SCHEDULER_SUPPRESSION_LOG_MARKER rides the entry text.
 
 ## Examples
 
-- E1. R1 subtree: `action: "add", every: "30m", message: "check CI status"` returns the new schedule id, the spec form `*/30 * * * *`, and the next due time, for example `2026-10-24T13:00:00Z`.
-- E1.4. An add of `every: "30m", message: "check CI status", command: "test -f done.flag"` returns the line of E1 ending with the scheduler/gate-echo, for example `Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z [gate: test -f done.flag]`.
+- E1. R1 subtree: result-echo examples of add and list follow:
+- E1.4. An add of `every: "30m", message: "check CI status"` returns the new schedule id, the spec form `*/30 * * * *`, and the next due time, for example `Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z`; an add of the same schedule with `command: "test -f done.flag"` ends that line with the scheduler/gate-echo, for example `Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z [gate: test -f done.flag]`.
 - E1.5. The list line of a schedule stored with `command: "test -f done.flag"` reads `sch_example (*/30 * * * *) next due 2026-10-24T13:00:00Z: check CI status [gate: test -f done.flag]`; the echo follows the first `next due` fragment of the line, and a `next due` occurrence inside the echoed command text names no further schedule.
 - E2. R2 subtree: session A adds a schedule; session B lists and sees none of it; session B removes A's id and receives `schedule-not-found`.
-- E3. R3 subtree: conversion and validation examples follow per requirement.
+- E3. R3 subtree: conversion and validation examples follow per requirement:
 - E3.2. `every: "45m"` converts to `*/45 * * * *`, which fires at minute 0 and minute 45 of every hour under standard cron restart; the add result shows the cron form, so the model sees the effective rule.
 - E3.4. `cron: "0 0 30 2 *"` (minute zero, hour zero, day thirty, February) has no future match and returns `cron-without-future-match`.
 - E3.7. In a process running at offset `+03:00`, a naive `at: "2026-11-02T09:00:00"` and a zoned `at: "2026-11-02T09:00:00+03:00"` both store the due time `2026-11-02T06:00:00Z`.
@@ -275,9 +280,11 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - E3.12. An add of `at: "now+5m"` echoes the spec form `2026-10-25T12:05:00Z` and never `now+5m`; list lines and the scheduler/fired-message at the due time carry the same absolute form.
 - E3.13. A `command` of SCHEDULER_MAX_COMMAND_LENGTH characters is accepted; one character longer returns `command-too-long`.
 - E4. R4 subtree: after a full process restart, list still shows the schedule; deleting the session makes it disappear from the table.
-- E5. R5 subtree: a denied add returns `permission-denied` and no row appears in list; a list runs without any ask.
+- E5. R5 subtree: permission examples follow:
+- E5.2. A denied add returns `permission-denied` and no row appears in list.
+- E5.3. A list runs without any ask.
 - E5.5. A fire running the stored `command: "git status"` performs no permission ask; the storing add asked the `scheduler` permission of R5.1 and nothing more.
-- E6. R6 subtree: fired-message examples follow.
+- E6. R6 subtree: fired-message examples follow:
 - E6.6. A `*/30 * * * *` schedule with message `check CI status` fires the message `2026-10-24T13:00:00Z fired schedule id sch_example */30 * * * *: check CI status`.
 - E6.7. An add of `every: "1d"` fires with the spec `0 0 * * *` in the message text.
 - E6.11. The schedule of E6.6, added without `command`, fires the message text of E6.6 with no scheduler/gate-output-section.
@@ -288,12 +295,14 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - E6.16. A scheduler/one-shot whose gate-run exits nonzero is removed silently; a later list no longer shows it, and no scheduler/fired-message ever appeared.
 - E6.17. The stored `command: "test -f done.flag"` executes as `bash -c` with the command text as its single argument, whatever the host default shell is.
 - E6.18. A gate-run of a schedule whose owning session lives in the workspace `/repo` runs with the working directory `/repo`.
-- E7. R7 subtree: a `0 * * * *` schedule due at 13:00 with the process down until 15:37 delivers one catch-up fire at 15:37 with timestamp `2026-10-24T13:00:00Z` and the catch-up marker; the next due time becomes 16:00; the skipped occurrences 14:00 and 15:00 are never replayed.
+- E7. R7 subtree: catch-up examples follow:
+- E7.3. A `0 * * * *` schedule due at 13:00 with the process down until 15:37 delivers one catch-up fire at 15:37 with timestamp `2026-10-24T13:00:00Z` and the catch-up marker; the next due time becomes 16:00; the skipped occurrences 14:00 and 15:00 are never replayed.
 - E7.6. A one-shot due at 13:00 with the process down until 15:37 fires once at 15:37 with the catch-up marker and is then removed.
-- E7.7. A `0 * * * *` schedule with a stored scheduler/gate-command, due at 13:00 with the process down until 15:37, performs one gate-run for the whole skipped series at 15:37; on status zero it delivers one catch-up fire with the marker of E7 and the scheduler/gate-output-section, and on a nonzero exit nothing is delivered.
+- E7.7. A `0 * * * *` schedule with a stored scheduler/gate-command, due at 13:00 with the process down until 15:37, performs one gate-run for the whole skipped series at 15:37; on status zero it delivers one catch-up fire with the catch-up marker and the scheduler/gate-output-section, and on a nonzero exit nothing is delivered.
 - E7.8. In the nonzero case of E7.7 the occurrences 14:00 and 15:00 are discharged with the series; the session never learns the schedule reached them.
 - E7.9. After the suppressed catch-up of E7.7 resolves at 15:37, the next due time is the earliest match strictly after the resolution time, for example 16:00 for the `0 * * * *` schedule.
-- E8. R8 subtree: with a `*/15 * * * *` schedule and a `0 0 * * *` schedule stored, the timer wakes at the nearer due time and re-arms after each fire.
+- E8. R8 subtree: delivery-loop examples follow:
+- E8.4. With a `*/15 * * * *` schedule and a `0 0 * * *` schedule stored, the timer wakes at the nearer due time and re-arms after each fire.
 - E8.6. With the gate-run of schedule A in flight, an add from another session stores its schedule, and a due fire of schedule B delivers on time.
 - E8.7. A `*/30 * * * *` schedule whose gate-run starts at 13:00 and is still running at 13:30 has exactly one run in flight.
 - E8.8. In the state of E8.7 the 13:30 occurrence starts no new gate-run while the 13:00 run is in flight.
@@ -304,81 +313,83 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 ## Tests
 
 - T1. Tool surface:
-- T1.1. registry-exposes-scheduler-tool (R1.1, R1.2)
-- T1.2. decode-failure-returns-invalid-arguments (R1.3)
-- T1.3. add-result-echoes-id-spec-next-due (R1.4, R3.3)
-- T1.4. list-lines-carry-id-spec-next-message (R1.5)
-- T1.5. remove-confirms-id (R1.6)
-- T1.6. add-result-appends-gate-echo (R1.4)
-- T1.7. list-lines-append-gate-echo (R1.5)
+- T1.1. R-ID=R1.1,R1.2; procedure=registry exposure and action dispatch of the scheduler tool; conditions=the V1 tool registry with the scheduler tool registered and one call per action; expected=the tool appears in the registry and dispatches the add, remove, and list actions through `action`.
+- T1.2. R-ID=R1.3; procedure=decode-failure handling of the tool; conditions=args of wrong types, a remove missing `id`, and an unknown action; expected=each call returns the `invalid-arguments` error result.
+- T1.3. R-ID=R1.4,R3.3; procedure=add-result echo; conditions=an add of `every` and an add of `cron`; expected=each result names the schedule id, the stored scheduler/cron-spec, and the scheduler/next-due-time in UTC, and the `every` add echoes the converted cron-spec.
+- T1.4. R-ID=R1.5; procedure=list-result lines; conditions=a session holding schedules with and without a stored scheduler/gate-command; expected=each line carries the schedule id, the spec form, the scheduler/next-due-time in UTC, and the message text.
+- T1.5. R-ID=R1.6; procedure=remove-result confirmation; conditions=a remove of an owned schedule; expected=the result confirms the removed schedule id.
+- T1.6. R-ID=R1.4; procedure=gate echo on add results; conditions=an add carrying `command`; expected=the result line ends with the scheduler/gate-echo.
+- T1.7. R-ID=R1.5; procedure=gate echo on list lines; conditions=a schedule with a stored scheduler/gate-command in the listing; expected=its list line ends with the scheduler/gate-echo after the first `next due` fragment.
 - T2. Session binding:
-- T2.1. list-isolated-to-calling-session (R2.1, R2.2)
-- T2.2. remove-foreign-or-unknown-id-rejected (R2.3)
-- T2.3. add-rejected-at-per-session-cap (R2.4)
+- T2.1. R-ID=R2.1,R2.2; procedure=session isolation of list; conditions=two sessions each holding schedules; expected=list returns only the scheduler/schedules of the calling session.
+- T2.2. R-ID=R2.3; procedure=remove of foreign and unknown ids; conditions=a remove naming another session's schedule id and one naming no stored schedule; expected=both return `schedule-not-found` and remove nothing.
+- T2.3. R-ID=R2.4; procedure=per-session cap; conditions=a session already holding SCHEDULER_MAX_SCHEDULES_PER_SESSION schedules; expected=the next add returns `schedule-cap-reached`.
 - T3. Schedule spec input:
-- T3.1. every-unit-conversion-covers-units (R3.2, R3.3, I1)
-- T3.2. spec-conflict-rejected (R3.1)
-- T3.3. cron-malformed-rejected (R3.4)
-- T3.4. cron-without-future-match-rejected (R3.5)
-- T3.5. at-naive-resolves-process-timezone (R3.7)
-- T3.6. at-zoned-resolves-offset (R3.7)
-- T3.7. at-in-past-rejected (R3.8)
-- T3.8. message-over-cap-rejected (R3.9)
-- T3.9. relative-at-unit-and-clock-grammar-accepted (R3.10)
-- T3.10. relative-at-covers-each-unit (R3.10, R3.11)
-- T3.11. relative-at-converts-against-current-clock (R3.11)
-- T3.12. relative-at-stored-and-echoed-absolute-only (R3.12)
-- T3.13. relative-at-unit-and-clock-malformed-rejected (R3.10)
-- T3.14. command-over-cap-rejected (R3.13)
+- T3.1. R-ID=R3.2,R3.3; procedure=`every` conversion across units; conditions=adds of `every` values in the `m`, `h`, and `d` units; expected=each is accepted and stored, echoed, and fired as its converted scheduler/cron-spec.
+- T3.2. R-ID=R3.1; procedure=spec-conflict rejection; conditions=adds carrying none and more than one of `every`, `cron`, and `at`; expected=each returns `schedule-spec-conflict` and stores nothing.
+- T3.3. R-ID=R3.4; procedure=malformed cron rejection; conditions=add of a malformed `cron` value; expected=the add returns `invalid-cron`.
+- T3.4. R-ID=R3.5; procedure=cron without future match; conditions=a `cron` value with no future occurrence; expected=the add returns `cron-without-future-match`.
+- T3.5. R-ID=R3.7; procedure=naive `at` resolution; conditions=an `at` without offset in a process at a known offset; expected=the stored due time equals its process-timezone resolution in UTC.
+- T3.6. R-ID=R3.7; procedure=zoned `at` resolution; conditions=an `at` carrying an explicit offset; expected=the stored due time equals its UTC equivalent.
+- T3.7. R-ID=R3.8; procedure=past `at` rejection; conditions=an `at` resolving before the current time; expected=the add returns `at-in-past`.
+- T3.8. R-ID=R3.9; procedure=message length bound; conditions=a `message` longer than SCHEDULER_MAX_MESSAGE_LENGTH; expected=the add returns `message-too-long`.
+- T3.9. R-ID=R3.10; procedure=relative-at grammar acceptance; conditions=unit-form and clock-form `at` values within SCHEDULER_RELATIVE_AT_UNITS and SCHEDULER_RELATIVE_AT_CLOCK_SHAPE; expected=each is accepted.
+- T3.10. R-ID=R3.10,R3.11; procedure=relative-at unit coverage and resolution; conditions=one `at` per unit letter plus clock forms; expected=each resolves to the current time plus its offset.
+- T3.11. R-ID=R3.11; procedure=relative-at conversion against the clock; conditions=adds of `now+` offsets at a pinned process clock; expected=each stored due time equals the pinned reading plus the offset in UTC.
+- T3.12. R-ID=R3.12; procedure=absolute-only storage of relative-at; conditions=an add of a scheduler/relative-at followed by list and fire; expected=the relative form appears in no stored row, tool result, or scheduler/fired-message.
+- T3.13. R-ID=R3.10; procedure=relative-at malformed rejection; conditions=`at` values of any other shape; expected=each returns `invalid-at`.
+- T3.14. R-ID=R3.13; procedure=command length bound; conditions=a `command` longer than SCHEDULER_MAX_COMMAND_LENGTH; expected=the add returns `command-too-long`.
 - T4. Persistence:
-- T4.1. schedule-table-owns-rows-with-cascade (R4.1, R4.2, I3)
-- T4.2. migration-registers-table (R4.3)
-- T4.3. schedules-survive-restart (R4.4)
+- T4.1. R-ID=R4.1,R4.2; procedure=schedule-table ownership and cascade; conditions=the schedule table beside the core storage tables and a session-row delete; expected=rows live under the table-ownership rules of storage-events and the delete removes every bound scheduler/schedule.
+- T4.2. R-ID=R4.3; procedure=migration registration; conditions=the generated migration pipeline of storage-events; expected=the schedule table is registered.
+- T4.3. R-ID=R4.4; procedure=restart survival; conditions=a stored scheduler/schedule across a full process restart; expected=list still shows the schedule.
 - T5. Permissions:
-- T5.1. add-and-remove-ask-scheduler-permission (R5.1)
-- T5.2. deny-leaves-state-untouched (R5.2)
-- T5.3. list-asks-nothing (R5.3)
-- T5.4. fire-asks-nothing (R5.4)
-- T5.5. gate-run-asks-nothing (R5.5)
+- T5.1. R-ID=R5.1; procedure=permission ask of add and remove; conditions=resolved and pending asks through the V1 ask flow; expected=each side effect begins only after the resolved ask.
+- T5.2. R-ID=R5.2; procedure=deny handling; conditions=a denied ask; expected=the call fails with `permission-denied` and leaves state untouched.
+- T5.3. R-ID=R5.3; procedure=list without ask; conditions=a list call; expected=no permission ask occurs.
+- T5.4. R-ID=R5.4; procedure=fire without ask; conditions=a due fire of a commandless scheduler/schedule; expected=no permission ask occurs.
+- T5.5. R-ID=R5.5; procedure=gate-run without ask; conditions=a due fire of a scheduler/schedule with a stored scheduler/gate-command; expected=the run performs no permission ask.
 - T6. Firing and delivery:
-- T6.1. v2-fire-publishes-context-updated-without-epoch-advance (R6.3)
-- T6.2. v2-fire-admits-input-and-wakes-execution (R6.4, I5)
-- T6.3. v1-fire-delivers-synthetic-user-part (R6.5)
-- T6.4. fired-message-follows-grammar (R6.6)
-- T6.5. every-created-schedule-fires-cron-form (R6.7)
-- T6.6. recurring-advances-from-discharged-time (R6.1, R6.8, I2)
-- T6.7. one-shot-removed-after-fire (R6.9)
-- T6.8. dead-session-drops-schedule (R6.10)
-- T6.9. gate-runs-before-delivery-side-effects (R6.12)
-- T6.10. gate-zero-exit-delivers (R6.13)
-- T6.11. gate-output-section-appended-and-truncated (R6.14)
-- T6.12. gate-nonzero-recurring-advances (R6.15)
-- T6.13. gate-nonzero-one-shot-removed (R6.16)
-- T6.14. commandless-schedule-fires-unchanged (R6.11)
-- T6.15. gate-shell-invocation-and-working-directory (R6.17, R6.18)
+- T6.1. R-ID=R6.3; procedure=V2 fire publish; conditions=a due fire of a V2-served session; expected=one `SessionEvent.ContextUpdated` durable event carries the scheduler/fired-message and the context epoch does not advance.
+- T6.2. R-ID=R6.4; procedure=V2 admission and wake; conditions=the fire of T6.1; expected=one durable input with the same text is admitted and the execution wake follows the publish.
+- T6.3. R-ID=R6.5; procedure=V1 fire delivery; conditions=a due fire of a V1-served session; expected=one synthetic user text part carries the scheduler/fired-message through the V1 prompt path.
+- T6.4. R-ID=R6.6; procedure=fired-message grammar; conditions=fires of recurring, one-shot, and catch-up schedules; expected=every message follows the fixed grammar with the scheduler/scheduled-fire-time as its timestamp.
+- T6.5. R-ID=R6.7; procedure=every-created schedule firing; conditions=a scheduler/schedule added from `every`; expected=the fired message carries the converted scheduler/cron-spec.
+- T6.6. R-ID=R6.1,R6.2,R6.8; procedure=due-time firing and recurring advance; conditions=a stored scheduler/recurring schedule reaching its scheduler/next-due-time; expected=the fire delivers at the reached UTC due time and the row advances to the earliest match strictly after the discharged scheduler/scheduled-fire-time.
+- T6.7. R-ID=R6.9; procedure=one-shot removal after fire; conditions=a delivered fire of a scheduler/one-shot; expected=the schedule is removed.
+- T6.8. R-ID=R6.10; procedure=dead-session drop; conditions=a fire whose owning session row is gone; expected=the scheduler/schedule is removed and nothing is delivered.
+- T6.9. R-ID=R6.12; procedure=gate before delivery side effects; conditions=a due fire with a stored scheduler/gate-command and a slow gate command; expected=no delivery side effect of that fire exists before the run exits.
+- T6.10. R-ID=R6.13; procedure=gate decision; conditions=gate-runs exiting with status zero and nonzero; expected=the zero exit delivers and the nonzero exit delivers nothing.
+- T6.11. R-ID=R6.14; procedure=gate-output section; conditions=zero-exit runs writing short output, over-bound output, and no output; expected=the section appends with the fixed header and trimmed output truncated to SCHEDULER_MAX_GATE_OUTPUT_LENGTH, and never appends for an outputless run.
+- T6.12. R-ID=R6.15; procedure=suppressed recurring advance; conditions=a nonzero gate exit on a scheduler/recurring schedule; expected=the row advances to the earliest match strictly after the discharged scheduler/scheduled-fire-time.
+- T6.13. R-ID=R6.16; procedure=suppressed one-shot removal; conditions=a nonzero gate exit on a scheduler/one-shot; expected=the schedule is removed.
+- T6.14. R-ID=R6.11; procedure=commandless schedule; conditions=a scheduler/schedule added without `command`; expected=no scheduler/gate-run occurs and the fire delivers unchanged.
+- T6.15. R-ID=R6.17,R6.18; procedure=gate shell and working directory; conditions=a stored gate command probing its interpreter and its working directory; expected=the run executes under the SCHEDULER_GATE_SHELL invocation with the working directory SCHEDULER_GATE_WORKING_DIRECTORY.
+- T6.16. R-ID=R6.19; procedure=suppression record on nonzero exit; conditions=a gate-run exiting nonzero at a due fire; expected=exactly one diagnostic log record carries the schedule id, that exit status, and the marker SCHEDULER_SUPPRESSION_LOG_MARKER at level SCHEDULER_SUPPRESSION_LOG_LEVEL.
+- T6.17. R-ID=R6.19; procedure=suppression record on spawn failure; conditions=a gate-run that fails to spawn at a due fire; expected=exactly one diagnostic log record carries the schedule id, the status SCHEDULER_GATE_SPAWN_FAILURE_EXIT_CODE, and the marker SCHEDULER_SUPPRESSION_LOG_MARKER at level SCHEDULER_SUPPRESSION_LOG_LEVEL.
 - T7. Catch-up:
-- T7.1. restart-delivers-one-catch-up-per-recurring (R7.3)
-- T7.2. catch-up-carries-marker (R7.2)
-- T7.3. catch-up-advances-from-delivery-time (R7.4)
-- T7.4. skipped-occurrences-not-replayed (R7.5)
-- T7.5. missed-one-shot-fires-then-removed (R7.6)
-- T7.6. failed-delivery-retry-is-catch-up (R7.1, R8.5)
-- T7.7. catch-up-runs-gate-once-per-series (R7.7)
-- T7.8. suppressed-catch-up-discharges-series (R7.8)
-- T7.9. suppressed-catch-up-advances-from-resolution (R7.9)
-- T7.10. gate-held-occurrence-is-catch-up (R7.1)
+- T7.1. R-ID=R7.3; procedure=restart catch-up per recurring; conditions=a stored scheduler/recurring schedule with a past scheduler/next-due-time at service load; expected=exactly one scheduler/catch-up-fire delivers at the first opportunity.
+- T7.2. R-ID=R7.2; procedure=catch-up marker; conditions=a delivered scheduler/catch-up-fire; expected=the scheduler/fired-message carries the literal SCHEDULER_CATCH_UP_MARKER.
+- T7.3. R-ID=R7.4; procedure=catch-up advance; conditions=the delivered catch-up fire of T7.1; expected=the row advances to the earliest match strictly after the delivery time.
+- T7.4. R-ID=R7.5; procedure=skipped-occurrence discharge; conditions=occurrences between the scheduler/scheduled-fire-time and the delivery time of a catch-up fire; expected=none is replayed.
+- T7.5. R-ID=R7.6; procedure=missed one-shot; conditions=a scheduler/one-shot with a past due time at service load; expected=exactly one scheduler/catch-up-fire delivers and the schedule is removed.
+- T7.6. R-ID=R7.1,R8.5; procedure=failed-delivery retry as catch-up; conditions=a delivery failure followed by loop retries; expected=the row stays due and each retry surfaces as a scheduler/catch-up-fire.
+- T7.7. R-ID=R7.7; procedure=one gate-run per skipped series; conditions=a scheduler/schedule with a stored scheduler/gate-command whose series was skipped; expected=its scheduler/catch-up-fire performs exactly one scheduler/gate-run for the entire series.
+- T7.8. R-ID=R7.8; procedure=suppressed catch-up discharge; conditions=a nonzero gate exit of the series run of T7.7; expected=the entire skipped series discharges without replay.
+- T7.9. R-ID=R7.9; procedure=suppressed catch-up advance; conditions=the suppressed catch-up of T7.7 resolving at a known time; expected=the row advances to the earliest match strictly after the scheduler/gate-run resolution time.
+- T7.10. R-ID=R7.1; procedure=gate-held occurrence as catch-up; conditions=a due time reached while a scheduler/gate-run of the same scheduler/schedule is in flight; expected=the held occurrence processes after the run resolves as a scheduler/catch-up-fire.
 - T8. Scheduler service:
-- T8.1. init-loads-schedules-and-arms-timer (R8.2, R8.4, I5)
-- T8.2. mutations-serialize-through-loop (R8.3, I6)
-- T8.3. routing-selects-runtime-path (I7)
-- T8.4. loop-serves-others-while-gate-in-flight (R8.6)
-- T8.5. single-gate-run-per-schedule-in-flight (R8.7)
-- T8.6. held-due-starts-no-second-run (R8.8)
-- T8.7. held-due-processed-after-resolution (R8.9)
-- T8.8. suppressed-fire-not-retried (R8.10, R8.11)
+- T8.1. R-ID=R8.2,R8.4; procedure=init load and timer arming; conditions=service init with stored schedules followed by adds, removes, fires, and a reload; expected=every schedule loads, the timer arms at the earliest scheduler/next-due-time, and re-arms on each of those events.
+- T8.2. R-ID=R8.3; procedure=loop serialization; conditions=concurrent scheduler/schedule mutations and fires; expected=all serialize through the single delivery loop.
+- T8.3. R-ID=R6.3,R6.5; procedure=runtime routing of fires; conditions=one due fire of a V2-served session and one of a V1-served session; expected=each fire takes the delivery path of its owning session's runtime.
+- T8.4. R-ID=R8.6; procedure=loop service during gate flight; conditions=a scheduler/gate-run of one scheduler/schedule in flight; expected=other scheduler/schedules mutate and fire on time.
+- T8.5. R-ID=R8.7; procedure=single gate-run in flight; conditions=a long gate-run spanning later due times of its scheduler/schedule; expected=at most one scheduler/gate-run of that schedule is in flight at any time.
+- T8.6. R-ID=R8.8; procedure=held due starts nothing; conditions=a due time reached during the in-flight run of T8.5; expected=no second scheduler/gate-run starts.
+- T8.7. R-ID=R8.9; procedure=held due processed after resolution; conditions=the in-flight run of T8.5 resolving with status zero; expected=the held occurrence follows as a scheduler/catch-up-fire.
+- T8.8. R-ID=R8.10,R8.11; procedure=suppression is not failure; conditions=a gate-command suppressing an occurrence; expected=no delivery failure is marked and nothing retries the occurrence.
 - T9. Visibility:
-- T9.1. no-redelivery-after-epoch-replacement (R9.1)
-- T9.2. fired-events-follow-ordinary-retention (R9.2)
+- T9.1. R-ID=R9.1; procedure=no redelivery after displacement; conditions=a fired system message displaced from visible history; expected=nothing is re-delivered before the next due time.
+- T9.2. R-ID=R9.2; procedure=ordinary retention; conditions=fired events and their projected messages under session history retention; expected=no scheduler-specific retention applies.
 
 ## Justification
 
@@ -389,11 +400,12 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - J5. Why an `at` in the past is rejected instead of firing immediately (R3.8): an add whose due time already passed would race the tool response with a fire the model never saw scheduled; a typed error result hands the model a correctable mistake.
 - J6. Why the per-session cap and the message length bound are baked constants instead of config keys (see Configuration): the scheduler is an initial surface with no demonstrated tuning need, and fixed bounds keep the add path total on bounded input and bounded table growth.
 - J7. Why the fired-message timestamp is the scheduled fire time rather than the publish time (R6.6): the timestamp identifies the discharged occurrence, stays stable across delivery retries, and makes a duplicate from the crash window of Error handling recognizable.
-- J8. Why `at` accepts a scheduler/relative-at alongside ISO 8601 datetimes (R3.10-R3.12): the model cannot be trusted to know the current wall-clock time, so an authored absolute datetime can silently land in the past or far from intent; the offset form derives the due time from the process clock at add time and removes the hallucinated-timestamp failure mode.
+- J8. Why `at` accepts a scheduler/relative-at alongside `ISO 8601` datetimes (R3.10-R3.12): the model cannot be trusted to know the current wall-clock time, so an authored absolute datetime can silently land in the past or far from intent; the offset form derives the due time from the process clock at add time and removes the hallucinated-timestamp failure mode.
 - J9. Why a scheduler/gate-run has no timeout (SCHEDULER_GATE_TIMEOUT, R8.6-R8.9): an event check may legitimately wait arbitrarily long, a fixed timeout would suppress fires whose event occurs just past it, and the loop isolation plus the single-flight hold already bound what an unbounded run can delay — one schedule's own occurrences.
 - J10. Why a nonzero exit suppresses instead of failing the delivery (R6.15, R6.16, R7.8, R7.9, R8.10, R8.11): the gate checks an event, and not-yet is a normal answer; classifying it as a delivery failure would re-run the command on the loop's retry cadence and hot-loop a check that keeps failing.
 - J11. Why the gate output rides a separate section instead of the message text (R6.14, SCHEDULER_GATE_OUTPUT_HEADER, SCHEDULER_MAX_GATE_OUTPUT_LENGTH): the stored message is model-authored and echoed by list results and fired messages alike, so embedding raw output would break the fixed grammars; a delimited, bounded section keeps every existing line intact and the output recognizable.
 - J12. Why no permission ask guards the scheduler/gate-run (R5.5): the storing add already passed the `scheduler` permission ask with the command echoed in its result, and a fire-time ask would leave every occurrence of the schedule waiting on a prompt nobody may answer.
+- J13. Why every suppression is logged even though not-yet is a normal answer (R6.19, SCHEDULER_SUPPRESSION_LOG_MARKER): a suppressed fire delivers nothing, so outside the diagnostic log a schedule answering not-yet is indistinguishable from a schedule that never came due and from a gate command that cannot even spawn; one record per suppression, carrying the gate outcome, closes that diagnostic gap at constant cost.
 
 ## Error handling
 
@@ -403,7 +415,7 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - A delivery failure is retried by the delivery loop (R8.5); until success the schedule stays due, so the retry surfaces as a scheduler/catch-up-fire (R7.1).
 - A crash between a successful delivery publish and the row advance may re-deliver the same occurrence once after restart; the repeated scheduler/scheduled-fire-time in the fired-message text makes the duplicate recognizable. This window is an accepted risk.
 - A fire for a session whose row is gone drops the schedule silently, with a log line and no event (R6.10).
-- A scheduler/gate-run that fails to spawn or dies to a signal counts as a nonzero exit status and suppresses its fire; the combined output of a scheduler/suppressed-fire's run is discarded.
+- A scheduler/gate-run that fails to spawn or dies to a signal counts as a nonzero exit status — SCHEDULER_GATE_SPAWN_FAILURE_EXIT_CODE for a run that failed to spawn — and suppresses its fire, writing the record of R6.19 with that outcome; the combined output of a scheduler/suppressed-fire's run is discarded.
 - A scheduler/gate-run in flight is not persisted: a crash abandons the run and its output, and the restart catch-up path of R7.3 performs one fresh run for the row's unadvanced scheduler/next-due-time (R7.7).
 - The delivery loop assumes single-process write ownership of the database, per the storage constraint of storage-events; concurrent processes against one database may double-fire and are out of scope.
 
