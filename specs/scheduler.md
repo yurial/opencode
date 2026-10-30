@@ -262,7 +262,7 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - I9. A scheduler/gate-run runs outside the delivery-loop write permit between the fire's start and finish phases; the write permit is never held across a scheduler/gate-run, and the resolved fire re-enters the serialized finish path for its delivery bookkeeping.
 - I10. In-flight scheduler/gate-runs live in process memory only; a restart forgets an in-flight run, and the unadvanced scheduler/next-due-time of its row drives the catch-up path at service load.
 - I11. The delivery-loop due scan and timer arm skip scheduler/schedules with an in-flight scheduler/gate-run.
-- I12. The diagnostic log record of R6.19 emits through the process logger of the host as one entry at level SCHEDULER_SUPPRESSION_LOG_LEVEL — as built `Effect.logInfo` with `Effect.annotateLogs` fields for the schedule id and the gate-run exit status — and the marker SCHEDULER_SUPPRESSION_LOG_MARKER rides the entry text.
+- I12. The diagnostic log record of R6.19 emits through the process logger of the host as one entry at level SCHEDULER_SUPPRESSION_LOG_LEVEL — as built `Effect.logInfo` with `Effect.annotateLogs` fields for the schedule id, the gate-run exit status, and the spawn-failure flag — and the marker SCHEDULER_SUPPRESSION_LOG_MARKER rides the entry text.
 
 ## Examples
 
