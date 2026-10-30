@@ -380,6 +380,10 @@ describe("sidebar schedules block", () => {
       entry("sch_name_exact", { cron: "* * * * *" }, T0 + 3_600_000, "name fire", exact),
       // A name carrying whitespace runs — newline, tab, blanks — collapses.
       entry("sch_name_spaces", { cron: "* * * * *" }, T0 + 3_600_000, "name fire", "deploy\nthe\treport  now"),
+      // An emoji astral character sitting on the truncation boundary: the
+      // sixty-unit slice splits the surrogate pair, leaving the lone
+      // leading surrogate ahead of the ellipsis.
+      entry("sch_name_emoji", { cron: "* * * * *" }, T0 + 3_600_000, "name fire", `${"a".repeat(59)}😀`),
       // A legacy entry (null name) falls back to its message, under the same
       // bound and ellipsis.
       entry("sch_legacy_long", { cron: "* * * * *" }, T0 + 3_600_000, "m".repeat(100), null),
@@ -399,6 +403,12 @@ describe("sidebar schedules block", () => {
       expect(frame).not.toContain(`${exact}…`)
       // Whitespace runs in the name collapse to single spaces.
       expect(frame).toContain("sch_name_spaces (* * * * *): deploy the report now")
+      // The boundary slice cuts the surrogate pair: fifty-nine 'a' units
+      // plus the lone leading surrogate survive ahead of the ellipsis, the
+      // intact emoji never renders.
+      expect(frame).toContain(`sch_name_emoji (* * * * *): ${"a".repeat(59)}\uD83D…`)
+      expect(frame).not.toContain(`${"a".repeat(60)}`)
+      expect(frame).not.toContain("😀")
       // The legacy fallback message obeys the same bound and ellipsis.
       expect(frame).toContain(`sch_legacy_long (* * * * *): ${"m".repeat(60)}…`)
       expect(frame).not.toContain("m".repeat(61))

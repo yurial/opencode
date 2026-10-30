@@ -111,7 +111,8 @@ export const SessionSchedule = Schema.Struct({
     description: "The stored firing rule: a cron spec for a recurring schedule or a one-shot due time.",
   }),
   name: Schema.NullOr(Schema.String).annotate({
-    description: "The stored display name shown in the session sidebar, or null for a legacy schedule created before the name argument existed.",
+    description:
+      "The stored display name shown in the session sidebar, or null for a legacy schedule created before the name argument existed.",
   }),
   message: Schema.String.annotate({ description: "The stored message text delivered on fire." }),
   nextFireAt: Schema.Int.annotate({ description: "The stored next-due-time as integer UTC epoch milliseconds." }),

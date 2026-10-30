@@ -182,7 +182,8 @@ function withContext<A, E>(
               modules.Scheduler.Service.use((svc) =>
                 Effect.forEach(schedules, (input) => svc.add({ sessionID, ...input })).pipe(Effect.orDie),
               ),
-            ),          tasks: (sessionID, runs) =>
+            ),
+          tasks: (sessionID, runs) =>
             run(
               modules.TaskRun.Service.use((svc) =>
                 Effect.forEach(runs, (input) =>
