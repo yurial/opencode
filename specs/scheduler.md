@@ -2,11 +2,11 @@
 
 Status: stable
 Reference: scheduler
-Spec source of truth for: the AI-facing scheduler — the `scheduler` tool (actions add, remove, list), session-bound persisted schedules, the interval, cron, and one-shot time-spec inputs, the optional scheduler/gate-command checked before each fire, fire delivery into sessions served by the V2 and the V1 runtime, missed-fire catch-up, permission gating, and the process-global scheduler service with its single delivery loop.
+Spec source of truth for: the AI-facing scheduler — the `scheduler` tool (actions add, remove, list), session-bound persisted schedules, the schedule display name, the interval, cron, and one-shot time-spec inputs, the optional scheduler/gate-command checked before each fire, fire delivery into sessions served by the V2 and the V1 runtime, missed-fire catch-up, permission gating, and the process-global scheduler service with its single delivery loop.
 
 ## Overview
 
-The scheduler lets the model running inside a session schedule future events for itself. A scheduler/schedule carries a firing rule, a message text, and an optional scheduler/gate-command; at each due time the scheduler/service first runs the stored gate command when one exists, and delivers a scheduler/fired-message into the owning session when the run exits with status zero, so the model sees it and continues work (R6). A nonzero exit status suppresses the fire and writes one diagnostic log record, so a suppressing schedule stays observable outside the session: the event the command checks has not occurred (R6.13, R6.15, R6.16, R6.19). Schedules are created and managed through the `scheduler` tool (R1), are bound to the creating session (R2), and persist in the schedule table across process restarts (R4). Adding and removing asks the `scheduler` permission through the V1 ask flow (R5); firing itself is not a tool call and asks nothing, the gate command included (R5.4, R5.5).
+The scheduler lets the model running inside a session schedule future events for itself. A scheduler/schedule carries a firing rule, a display name, a message text, and an optional scheduler/gate-command; at each due time the scheduler/service first runs the stored gate command when one exists, and delivers a scheduler/fired-message into the owning session when the run exits with status zero, so the model sees it and continues work (R6). A nonzero exit status suppresses the fire and writes one diagnostic log record, so a suppressing schedule stays observable outside the session: the event the command checks has not occurred (R6.13, R6.15, R6.16, R6.19). Schedules are created and managed through the `scheduler` tool (R1), are bound to the creating session (R2), and persist in the schedule table across process restarts (R4). Adding and removing asks the `scheduler` permission through the V1 ask flow (R5); firing itself is not a tool call and asks nothing, the gate command included (R5.4, R5.5). Every add names its scheduler/schedule through the required `name` argument; scheduler-view shows the name to the user in the session sidebar in place of the message text, and legacy schedules created before the field carry none.
 
 The scheduler core ships no HTTP surface of its own: no protocol group, no handler, and no SDK regeneration belong to it. The one exception is the read-only schedule-list endpoint, owned by scheduler-view, which reads scheduler/schedule rows through the scheduler/service as its data source.
 
@@ -17,6 +17,7 @@ Fired messages are transient nudges, not durable state. The schedule row is the 
 In:
 
 - The `scheduler` tool surface: actions add, remove, list; argument domains; success and error result contracts.
+- The schedule display name: the required `name` argument of add, its bound SCHEDULER_MAX_NAME_LENGTH, its storage as the nullable `name` column, and its echo in add and list results.
 - Schedule spec inputs: interval (`every`), cron expression (`cron`), one-shot datetime or scheduler/relative-at (`at`); conversion, validation, and storage rules.
 - The optional scheduler/gate-command of a scheduler/schedule: the `command` argument, validation, execution before each fire, suppression of fires and its diagnostic log record, catch-up interplay, and the scheduler/gate-output-section.
 - Session binding of schedules and cascade removal on session deletion.
@@ -36,7 +37,8 @@ Out (non-goals):
 
 ## Definitions
 
-- **scheduler/schedule**: a persisted record binding a firing rule, a message text, and an optional scheduler/gate-command to the session whose tool call created it; identified by a `sch_`-prefixed id.
+- **scheduler/schedule**: a persisted record binding a firing rule, a display name, a message text, and an optional scheduler/gate-command to the session whose tool call created it; identified by a `sch_`-prefixed id.
+- **scheduler/name**: the display name of a scheduler/schedule, set by the required `name` argument of its add and shown to the user in the session sidebar of scheduler-view in place of the message text; null on a legacy scheduler/schedule created before the field existed.
 - **scheduler/cron-spec**: the standard five-field cron expression that is the canonical stored firing rule of a recurring scheduler/schedule.
 - **scheduler/one-shot**: a scheduler/schedule created from a datetime that fires exactly once at that time and is removed by its fire.
 - **scheduler/relative-at**: an `at` input form consisting of the prefix `now+` followed either by a positive integer and one unit letter of SCHEDULER_RELATIVE_AT_UNITS or by the clock form of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE; it names a positive offset from the current time.
@@ -49,6 +51,7 @@ Out (non-goals):
 - **scheduler/gate-command**: the optional command text stored on a scheduler/schedule through the `command` argument of its add; a scheduler/gate-run executes it before each fire of that schedule, and its exit status decides the fire.
 - **scheduler/gate-run**: one execution of a scheduler/gate-command under the shell invocation of SCHEDULER_GATE_SHELL with the working directory SCHEDULER_GATE_WORKING_DIRECTORY, capturing the combined standard output and error; the exit status of the invocation is the exit status of the run, and the run's resolution time is the time its exit status is observed.
 - **scheduler/gate-echo**: the single-line fragment that the add and list success results of a scheduler/schedule with a stored scheduler/gate-command append, per the gate-echo grammar of the Interface section.
+- **scheduler/name-echo**: the single-line fragment that ends the add success result and the list lines of a scheduler/schedule with a non-null name, per the name-echo grammar of the Interface section.
 - **scheduler/gate-output-section**: the section that a fire permitted by a scheduler/gate-run appends to its scheduler/fired-message when the run wrote output, per the fired-message grammar of the Interface section.
 - **scheduler/suppressed-fire**: a fire whose scheduler/gate-run exited with a nonzero status; it delivers nothing and discharges its occurrence, or its entire skipped series when it is a scheduler/catch-up-fire.
 - **scheduler/service**: the process-global service node that owns schedule rows and the single delivery loop of one process.
@@ -65,25 +68,26 @@ Arguments:
 |---|---|---|
 | `action` | all calls | enum: `add`, `remove`, `list` |
 | `message` | add | non-empty string, at most SCHEDULER_MAX_MESSAGE_LENGTH characters |
+| `name` | add | non-empty string, at most SCHEDULER_MAX_NAME_LENGTH characters — the display name of the created scheduler/schedule, shown to the user in the session sidebar of scheduler-view; it should briefly state what the schedule does and why it fires |
 | `every` | add, optional | positive integer followed by one of the unit letters `m`, `h`, `d` (for example `30m`, `1h`, `1d`) |
 | `cron` | add, optional | standard five-field cron expression |
 | `at` | add, optional | `ISO 8601` datetime, naive or zoned, or a scheduler/relative-at: the unit form `now+<positive integer><unit letter>` with the unit letters of SCHEDULER_RELATIVE_AT_UNITS, or the clock form `now+HH:MM:SS` with the shape and bounds of SCHEDULER_RELATIVE_AT_CLOCK_SHAPE (for example `now+5m`, `now+01:30:25`) |
 | `command` | add, optional | non-empty string, at most SCHEDULER_MAX_COMMAND_LENGTH characters — the scheduler/gate-command text |
 | `id` | remove | schedule id |
 
-`every`, `cron`, and `at` are mutually exclusive; an add carries exactly one of them. The scheduler/relative-at forms are accepted only by `at` and never by `every` or `cron`. `list` takes no further arguments. `command` is independent of the spec inputs: an add may carry it with any one of them, and an add without `command` stores no scheduler/gate-command.
+`every`, `cron`, and `at` are mutually exclusive; an add carries exactly one of them. The scheduler/relative-at forms are accepted only by `at` and never by `every` or `cron`. `list` takes no further arguments. `command` is independent of the spec inputs: an add may carry it with any one of them, and an add without `command` stores no scheduler/gate-command. `name` is required on every add and independent of the spec inputs and of `command`.
 
 Success results (model-facing text):
 
-- add: echoes the schedule id, the spec form (the stored scheduler/cron-spec, or the stored UTC datetime of a scheduler/one-shot), and the scheduler/next-due-time in UTC. An add carrying a `command` ends its result line with the scheduler/gate-echo.
-- list: one line per scheduler/schedule of the calling session, each carrying the schedule id, the spec form, the scheduler/next-due-time in UTC, and the message text; no schedules yields an empty listing. A line of a scheduler/schedule with a stored scheduler/gate-command ends with the scheduler/gate-echo.
+- add: echoes the schedule id, the spec form (the stored scheduler/cron-spec, or the stored UTC datetime of a scheduler/one-shot), the scheduler/next-due-time in UTC, and the `name`. The result line ends with the scheduler/name-echo; an add carrying a `command` places the scheduler/gate-echo immediately before it.
+- list: one line per scheduler/schedule of the calling session, each carrying the schedule id, the spec form, the scheduler/next-due-time in UTC, the message text, and — for a non-null name — the name; no schedules yields an empty listing. A line of a scheduler/schedule with a stored scheduler/gate-command ends with the scheduler/gate-echo, and a line of a scheduler/schedule with a non-null name ends with the scheduler/name-echo; the line of a legacy scheduler/schedule with a null name carries no name fragment.
 - remove: confirms the removed schedule id.
 
 Error results (the complete set; semantics in Error handling):
 
 | Error result | Meaning |
 |---|---|
-| `invalid-arguments` | args fail schema decode: wrong types, missing `id`, unknown action (R1.3) |
+| `invalid-arguments` | args fail schema decode: wrong types, a missing or empty `name` on add, missing `id`, unknown action (R1.3) |
 | `schedule-spec-conflict` | add carries zero or more than one of `every`, `cron`, `at` (R3.1) |
 | `invalid-interval` | `every` is malformed (R3.2) |
 | `invalid-cron` | `cron` is malformed (R3.4) |
@@ -91,6 +95,7 @@ Error results (the complete set; semantics in Error handling):
 | `invalid-at` | `at` is unparseable as an `ISO 8601` datetime or a scheduler/relative-at (R3.6, R3.10) |
 | `at-in-past` | `at` resolves to a time not after the current time (R3.8) |
 | `message-too-long` | `message` is longer than SCHEDULER_MAX_MESSAGE_LENGTH (R3.9) |
+| `name-too-long` | `name` is longer than SCHEDULER_MAX_NAME_LENGTH (R3.14) |
 | `command-too-long` | `command` is longer than SCHEDULER_MAX_COMMAND_LENGTH (R3.13) |
 | `schedule-cap-reached` | the calling session already holds SCHEDULER_MAX_SCHEDULES_PER_SESSION schedules (R2.4) |
 | `schedule-not-found` | remove names no schedule of the calling session (R2.3) |
@@ -106,12 +111,13 @@ Persisted row and list entry:
 | `session_id` | session id | owning session |
 | `cron` | nullable scheduler/cron-spec | firing rule of a scheduler/recurring schedule |
 | `at` | nullable UTC timestamp, integer epoch milliseconds | due time of a scheduler/one-shot |
+| `name` | nullable string, no default | display name shown to the user in the session sidebar; null on a legacy row created before the field existed |
 | `message` | string | message text delivered on fire |
 | `command` | nullable string | the stored scheduler/gate-command text |
 | `next_fire_at` | UTC timestamp, integer epoch milliseconds | stored scheduler/next-due-time |
 | `created_at`, `updated_at` | timestamps | shared timestamp columns |
 
-Exactly one of `cron` and `at` is non-null per row. A null `command` stores no scheduler/gate-command.
+Exactly one of `cron` and `at` is non-null per row. A null `command` stores no scheduler/gate-command. The `name` column is nullable with no default: a null `name` marks a legacy row created before the `name` argument existed, and every row created by an add carries a non-null `name`.
 
 ### Fired-message grammar
 
@@ -133,13 +139,24 @@ Exactly one of `cron` and `at` is non-null per row. A null `command` stores no s
  [gate: <command>]
 ```
 
-- The fragment ends the add and list success lines of a scheduler/schedule with a stored scheduler/gate-command.
+- The fragment ends the add and list success lines of a scheduler/schedule with a stored scheduler/gate-command, immediately before the scheduler/name-echo when the line carries one.
 - `<command>`: the stored command text with every whitespace run collapsed to a single space.
 - The fragment never precedes the `next due` fragment of its line and never introduces a line break, so the first `next due` fragment of the line keeps naming its schedule.
 
+### Name echo
+
+```
+ [name: <name>]
+```
+
+- The fragment ends the add success line of every add and the list line of every scheduler/schedule with a non-null name; the line of a legacy scheduler/schedule with a null name carries no name fragment.
+- `<name>`: the stored scheduler/name with every whitespace run collapsed to a single space.
+- The fragment is the last fragment of its line: it follows the scheduler/gate-echo when that echo is present, and it never precedes the `next due` fragment of its line.
+- The fragment never introduces a line break, so every result line stays single-line and the first `next due` fragment and the first `sch_`-prefixed token of the line keep naming their schedule.
+
 ### Permission ask
 
-Add and remove ask through the V1 permission flow under the permission name `scheduler`; the pattern set of an add ask is the spec form, the pattern set of a remove ask is the schedule id; list asks nothing (R5). A `command` of an add joins no pattern set and asks nothing beyond the add ask.
+Add and remove ask through the V1 permission flow under the permission name `scheduler`; the pattern set of an add ask is the spec form, the pattern set of a remove ask is the schedule id; list asks nothing (R5). A `command` of an add joins no pattern set and asks nothing beyond the add ask, and so does its `name`: the pattern set of an add ask stays the spec form, and the ask metadata may carry the name text as descriptive context, like the message text.
 
 ### Delivery boundary
 
@@ -151,6 +168,7 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 |---|---|---|---|
 | SCHEDULER_MAX_SCHEDULES_PER_SESSION | `fixed` 50 schedules | — | Per-session add cap; an add that would exceed it returns `schedule-cap-reached` (R2.4) |
 | SCHEDULER_MAX_MESSAGE_LENGTH | `fixed` 4096 characters | — | Message length bound; a longer `message` returns `message-too-long` (R3.9) |
+| SCHEDULER_MAX_NAME_LENGTH | `fixed` 32 characters | — | Name length bound; a longer `name` returns `name-too-long` (R3.14) |
 | SCHEDULER_CATCH_UP_MARKER | `fixed` the literal ` [catch-up: delivered after the scheduled fire time]` | — | Text appended to the scheduler/fired-message of a scheduler/catch-up-fire (R7.2) |
 | SCHEDULER_RELATIVE_AT_UNITS | `fixed` unit letters `s`, `m`, `h`, `d` | — | Unit letters accepted after the positive integer of a scheduler/relative-at; any other unit letter or shape returns `invalid-at` (R3.10) |
 | SCHEDULER_RELATIVE_AT_CLOCK_SHAPE | `fixed` the clock form `HH:MM:SS` — hours `00`-`99`, minutes `00`-`59`, seconds `00`-`59`, three colon-separated two-digit groups | — | Clock form accepted after the `now+` prefix of a scheduler/relative-at; the offset is its hours plus its minutes plus its seconds, and hours may reach past a full day; any other shape returns `invalid-at` (R3.10) |
@@ -170,8 +188,8 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - R1.1. verification=automated; The scheduler tool is a V1 built-in registered in the V1 tool registry and defined under the V1 tool contract.
 - R1.2. verification=automated; The tool selects one of the actions add, remove, and list through its `action` argument.
 - R1.3. verification=automated; Args that fail schema decode return the `invalid-arguments` error result.
-- R1.4. verification=automated; An add result echoes the schedule id, the spec form, and the scheduler/next-due-time in UTC. An add carrying a `command` ends its result line with the scheduler/gate-echo.
-- R1.5. verification=automated; A list result carries one line per scheduler/schedule of the calling session, each with the schedule id, the spec form, the scheduler/next-due-time in UTC, and the message text. A line of a scheduler/schedule with a stored scheduler/gate-command ends with the scheduler/gate-echo.
+- R1.4. verification=automated; An add result echoes the schedule id, the spec form, the scheduler/next-due-time in UTC, and the `name`, and ends its result line with the scheduler/name-echo; an add carrying a `command` places the scheduler/gate-echo immediately before the name echo.
+- R1.5. verification=automated; A list result carries one line per scheduler/schedule of the calling session, each with the schedule id, the spec form, the scheduler/next-due-time in UTC, the message text, and — for a non-null name — the name. A line of a scheduler/schedule with a stored scheduler/gate-command ends with the scheduler/gate-echo; a line of a scheduler/schedule with a non-null name ends with the scheduler/name-echo, and the line of a legacy scheduler/schedule with a null name carries no name fragment.
 - R1.6. verification=automated; A remove result confirms the removed schedule id.
 - R2. Session binding:
 - R2.1. verification=automated; Every scheduler/schedule is bound to the session of the tool call that created it.
@@ -192,6 +210,7 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - R3.11. verification=automated; A scheduler/relative-at resolves at add time into the UTC due time equal to the current time plus its offset.
 - R3.12. verification=automated; Only the absolute UTC due time of a scheduler/relative-at is stored, echoed, and fired; the relative form itself never appears in a stored row, a tool result, or a scheduler/fired-message.
 - R3.13. verification=automated; A `command` longer than SCHEDULER_MAX_COMMAND_LENGTH returns `command-too-long`.
+- R3.14. verification=automated; A `name` longer than SCHEDULER_MAX_NAME_LENGTH returns `name-too-long`.
 - R4. Persistence:
 - R4.1. verification=automated; Scheduler/schedule state persists in the schedule table with snake_case columns under the table-ownership rules of storage-events.
 - R4.2. verification=automated; Deleting a session row deletes every scheduler/schedule bound to it through the cascading foreign key.
@@ -267,8 +286,9 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 ## Examples
 
 - E1. R1 subtree: result-echo examples of add and list follow:
-- E1.4. An add of `every: "30m", message: "check CI status"` returns the new schedule id, the spec form `*/30 * * * *`, and the next due time, for example `Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z`; an add of the same schedule with `command: "test -f done.flag"` ends that line with the scheduler/gate-echo, for example `Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z [gate: test -f done.flag]`.
-- E1.5. The list line of a schedule stored with `command: "test -f done.flag"` reads `sch_example (*/30 * * * *) next due 2026-10-24T13:00:00Z: check CI status [gate: test -f done.flag]`; the echo follows the first `next due` fragment of the line, and a `next due` occurrence inside the echoed command text names no further schedule.
+- E1.4. An add of `every: "30m", name: "CI check", message: "check CI status"` returns the new schedule id, the spec form `*/30 * * * *`, the next due time, and the name echo, for example `Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z [name: CI check]`; an add of the same schedule with `command: "test -f done.flag"` places the scheduler/gate-echo before the name echo, for example `Scheduled sch_example (*/30 * * * *), next due 2026-10-24T13:00:00Z [gate: test -f done.flag] [name: CI check]`.
+- E1.5. The list line of a schedule stored with `name: "CI check"` and `command: "test -f done.flag"` reads `sch_example (*/30 * * * *) next due 2026-10-24T13:00:00Z: check CI status [gate: test -f done.flag] [name: CI check]`; the echoes follow the first `next due` fragment of the line, and a `next due` occurrence inside the echoed command or name text names no further schedule.
+- E1.6. The list line of a legacy scheduler/schedule created before the `name` argument existed carries no name fragment and reads `sch_legacy (*/30 * * * *) next due 2026-10-24T13:00:00Z: old check`.
 - E2. R2 subtree: session A adds a schedule; session B lists and sees none of it; session B removes A's id and receives `schedule-not-found`.
 - E3. R3 subtree: conversion and validation examples follow per requirement:
 - E3.2. `every: "45m"` converts to `*/45 * * * *`, which fires at minute 0 and minute 45 of every hour under standard cron restart; the add result shows the cron form, so the model sees the effective rule.
@@ -315,11 +335,13 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - T1. Tool surface:
 - T1.1. R-ID=R1.1,R1.2; procedure=registry exposure and action dispatch of the scheduler tool; conditions=the V1 tool registry with the scheduler tool registered and one call per action; expected=the tool appears in the registry and dispatches the add, remove, and list actions through `action`.
 - T1.2. R-ID=R1.3; procedure=decode-failure handling of the tool; conditions=args of wrong types, a remove missing `id`, and an unknown action; expected=each call returns the `invalid-arguments` error result.
-- T1.3. R-ID=R1.4,R3.3; procedure=add-result echo; conditions=an add of `every` and an add of `cron`; expected=each result names the schedule id, the stored scheduler/cron-spec, and the scheduler/next-due-time in UTC, and the `every` add echoes the converted cron-spec.
-- T1.4. R-ID=R1.5; procedure=list-result lines; conditions=a session holding schedules with and without a stored scheduler/gate-command; expected=each line carries the schedule id, the spec form, the scheduler/next-due-time in UTC, and the message text.
+- T1.3. R-ID=R1.4,R3.3; procedure=add-result echo; conditions=an add of `every` and an add of `cron`; expected=each result names the schedule id, the stored scheduler/cron-spec, the scheduler/next-due-time in UTC, and the `name`, ends its line with the scheduler/name-echo, and the `every` add echoes the converted cron-spec.
+- T1.4. R-ID=R1.5; procedure=list-result lines; conditions=a session holding schedules with and without a stored scheduler/gate-command; expected=each line carries the schedule id, the spec form, the scheduler/next-due-time in UTC, the message text, and — for a non-null name — the scheduler/name-echo.
 - T1.5. R-ID=R1.6; procedure=remove-result confirmation; conditions=a remove of an owned schedule; expected=the result confirms the removed schedule id.
-- T1.6. R-ID=R1.4; procedure=gate echo on add results; conditions=an add carrying `command`; expected=the result line ends with the scheduler/gate-echo.
-- T1.7. R-ID=R1.5; procedure=gate echo on list lines; conditions=a schedule with a stored scheduler/gate-command in the listing; expected=its list line ends with the scheduler/gate-echo after the first `next due` fragment.
+- T1.6. R-ID=R1.4; procedure=gate echo on add results; conditions=an add carrying `command`; expected=the result line carries the scheduler/gate-echo immediately before the scheduler/name-echo.
+- T1.7. R-ID=R1.5; procedure=gate echo on list lines; conditions=a schedule with a stored scheduler/gate-command in the listing; expected=its list line carries the scheduler/gate-echo after the first `next due` fragment, immediately before the scheduler/name-echo when the line carries one.
+- T1.8. R-ID=R1.3; procedure=missing and empty name decode failure; conditions=an add without `name` and an add with an empty `name`; expected=each call returns the `invalid-arguments` error result.
+- T1.9. R-ID=R1.5; procedure=legacy null-name list lines; conditions=a legacy scheduler/schedule stored with a null `name`; expected=its list line carries the message text and no scheduler/name-echo.
 - T2. Session binding:
 - T2.1. R-ID=R2.1,R2.2; procedure=session isolation of list; conditions=two sessions each holding schedules; expected=list returns only the scheduler/schedules of the calling session.
 - T2.2. R-ID=R2.3; procedure=remove of foreign and unknown ids; conditions=a remove naming another session's schedule id and one naming no stored schedule; expected=both return `schedule-not-found` and remove nothing.
@@ -339,6 +361,7 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - T3.12. R-ID=R3.12; procedure=absolute-only storage of relative-at; conditions=an add of a scheduler/relative-at followed by list and fire; expected=the relative form appears in no stored row, tool result, or scheduler/fired-message.
 - T3.13. R-ID=R3.10; procedure=relative-at malformed rejection; conditions=`at` values of any other shape; expected=each returns `invalid-at`.
 - T3.14. R-ID=R3.13; procedure=command length bound; conditions=a `command` longer than SCHEDULER_MAX_COMMAND_LENGTH; expected=the add returns `command-too-long`.
+- T3.15. R-ID=R3.14; procedure=name length bound; conditions=a `name` longer than SCHEDULER_MAX_NAME_LENGTH; expected=the add returns `name-too-long`.
 - T4. Persistence:
 - T4.1. R-ID=R4.1,R4.2; procedure=schedule-table ownership and cascade; conditions=the schedule table beside the core storage tables and a session-row delete; expected=rows live under the table-ownership rules of storage-events and the delete removes every bound scheduler/schedule.
 - T4.2. R-ID=R4.3; procedure=migration registration; conditions=the generated migration pipeline of storage-events; expected=the schedule table is registered.
@@ -406,6 +429,8 @@ A fire of a session served by the V2 runtime: one `SessionEvent.ContextUpdated` 
 - J11. Why the gate output rides a separate section instead of the message text (R6.14, SCHEDULER_GATE_OUTPUT_HEADER, SCHEDULER_MAX_GATE_OUTPUT_LENGTH): the stored message is model-authored and echoed by list results and fired messages alike, so embedding raw output would break the fixed grammars; a delimited, bounded section keeps every existing line intact and the output recognizable.
 - J12. Why no permission ask guards the scheduler/gate-run (R5.5): the storing add already passed the `scheduler` permission ask with the command echoed in its result, and a fire-time ask would leave every occurrence of the schedule waiting on a prompt nobody may answer.
 - J13. Why every suppression is logged even though not-yet is a normal answer (R6.19, SCHEDULER_SUPPRESSION_LOG_MARKER): a suppressed fire delivers nothing, so outside the diagnostic log a schedule answering not-yet is indistinguishable from a schedule that never came due and from a gate command that cannot even spawn; one record per suppression, carrying the gate outcome, closes that diagnostic gap at constant cost.
+- J14. Why the scheduler/name-echo is the last fragment of the add and list lines, after the scheduler/gate-echo (R1.4, R1.5): the name is free model-authored text of up to SCHEDULER_MAX_NAME_LENGTH characters, so it may itself contain a `next due` fragment or a `sch_`-prefixed token; as the final fragment it can never precede the real `next due` fragment or the real schedule id of its line, so the first-fragment, first-token parse of the scheduler-view annotator (scheduler-view R1.3, I2) keeps working unchanged, and collapsing whitespace runs keeps every result line single-line.
+- J15. Why the display name is a stored nullable column instead of reusing the message text (Schedule record, R1.4, R1.5): the message is the model-facing fire payload of up to 4096 characters, while the name is the user-facing sidebar label — short, required, and bounded at 32; a nullable column with no default keeps legacy rows valid without a backfill, and scheduler-view falls back to the message text only for those rows.
 
 ## Error handling
 
