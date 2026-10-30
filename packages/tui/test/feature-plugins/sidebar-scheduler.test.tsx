@@ -68,9 +68,10 @@ function entry(
   spec: SessionSchedule["spec"],
   nextFireAt: number,
   message: string,
+  name: string | null,
   command: string | null = null,
 ): SessionSchedule {
-  return { id, spec, message, nextFireAt, command }
+  return { id, spec, name, message, nextFireAt, command }
 }
 
 // The scheduler-view/eta-clock of the block under test: a mutable reading
@@ -245,8 +246,10 @@ describe("sidebar schedules block", () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
     const schedules = [
-      entry("sch_once", { at: 1792937100000 }, 1792937100000, "deploy check"),
-      entry("sch_rel", { cron: "0 0 * * *" }, 1792972800000, "daily digest"),
+      // E4 verbatim: each display text is the entry's `name`, not its
+      // `message`.
+      entry("sch_once", { at: 1792937100000 }, 1792937100000, "deploy check", "deploy gate"),
+      entry("sch_rel", { cron: "0 0 * * *" }, 1792972800000, "write the daily digest", "daily digest"),
     ]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
@@ -256,8 +259,10 @@ describe("sidebar schedules block", () => {
     try {
       const frame = harness.frame()
       expect(frame).toContain("Schedules")
-      expect(frame).toContain("in 2h 05m (2026-10-25T14:05:00Z) sch_once (2026-10-25T14:05:00Z): deploy check")
+      expect(frame).toContain("in 2h 05m (2026-10-25T14:05:00Z) sch_once (2026-10-25T14:05:00Z): deploy gate")
       expect(frame).toContain("in 12h 00m (2026-10-26T00:00:00Z) sch_rel (0 0 * * *): daily digest")
+      // The message text stays off the line: the name is the display text.
+      expect(frame).not.toContain("deploy check")
       // Server order stands (R3.3 upstream; the block never re-sorts).
       expect(frame.indexOf("sch_once")).toBeLessThan(frame.indexOf("sch_rel"))
       expect(calls).toEqual(["ses"])
@@ -270,14 +275,15 @@ describe("sidebar schedules block", () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
     const schedules = [
-      // E4.4 verbatim: a third entry with a non-null `command` at the same
-      // due time as `sch_rel`.
-      entry("sch_gate", { cron: "0 9 * * 1" }, 1792972800000, "standup prep", "test -f /repo/done.flag"),
-      entry("sch_rel", { cron: "0 0 * * *" }, 1792972800000, "daily digest"),
-      // A gated entry whose message fills the bound exactly, and one past
-      // the bound: the marker must not consume the 60-unit message budget.
-      entry("sch_full", { cron: "0 9 * * 1" }, 1792972800000, "e".repeat(60), "make check"),
-      entry("sch_cut", { cron: "0 9 * * 1" }, 1792972800000, "m".repeat(100), "make check"),
+      // E4.4 verbatim: a gated entry with a non-null `command` at the same
+      // due time as `sch_rel`; the display text is the name, not the message.
+      entry("sch_gate", { cron: "0 9 * * 1" }, 1792972800000, "standup check", "standup prep", "test -f /repo/done.flag"),
+      entry("sch_rel", { cron: "0 0 * * *" }, 1792972800000, "write the daily digest", "daily digest"),
+      // Gated legacy entries (null name) whose fallback message fills the
+      // bound exactly, and one past the bound: the marker must not consume
+      // the 60-unit display-text budget.
+      entry("sch_full", { cron: "0 9 * * 1" }, 1792972800000, "e".repeat(60), null, "make check"),
+      entry("sch_cut", { cron: "0 9 * * 1" }, 1792972800000, "m".repeat(100), null, "make check"),
     ]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
@@ -292,9 +298,9 @@ describe("sidebar schedules block", () => {
       // Null `command`: no marker, the line keeps its exact former shape.
       expect(frame).toContain("in 12h 00m (2026-10-26T00:00:00Z) sch_rel (0 0 * * *): daily digest")
       expect(frame).not.toContain("sch_rel*")
-      // The shortened-message budget counts the message alone: exactly sixty
-      // units stay untruncated behind the marker, one hundred truncate to
-      // sixty plus the ellipsis.
+      // The shortened display-text budget counts the text alone: exactly
+      // sixty units stay untruncated behind the marker, one hundred truncate
+      // to sixty plus the ellipsis.
       expect(frame).toContain(`sch_full* (0 9 * * 1): ${"e".repeat(60)}`)
       expect(frame).not.toContain(`${"e".repeat(60)}…`)
       expect(frame).toContain(`sch_cut* (0 9 * * 1): ${"m".repeat(60)}…`)
@@ -310,8 +316,8 @@ describe("sidebar schedules block", () => {
     // The server orders by next fire time; the block renders in delivery
     // order, so a response listed z-before-a stays z-before-a.
     const schedules = [
-      entry("sch_z", { cron: "5 * * * *" }, T0 + 5 * 3_600_000, "later"),
-      entry("sch_a", { at: T0 + 2 * 3_600_000 }, T0 + 2 * 3_600_000, "sooner"),
+      entry("sch_z", { cron: "5 * * * *" }, T0 + 5 * 3_600_000, "later fire", "later schedule"),
+      entry("sch_a", { at: T0 + 2 * 3_600_000 }, T0 + 2 * 3_600_000, "sooner fire", "sooner schedule"),
     ]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
@@ -330,11 +336,11 @@ describe("sidebar schedules block", () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
     const schedules = [
-      entry("sch_due_now", { cron: "* * * * *" }, T0, "due exactly now"),
-      entry("sch_overdue", { cron: "* * * * *" }, T0 - 60_000, "overdue"),
-      entry("sch_seconds", { cron: "* * * * *" }, T0 + 45_000, "within a minute"),
-      entry("sch_hours", { cron: "* * * * *" }, T0 + 2 * 3_600_000 + 5 * 60_000, "hours ahead"),
-      entry("sch_days", { cron: "0 0 * * *" }, T0 + 50 * 3_600_000, "day crossing"),
+      entry("sch_due_now", { cron: "* * * * *" }, T0, "due exactly now", "due now schedule"),
+      entry("sch_overdue", { cron: "* * * * *" }, T0 - 60_000, "overdue", "overdue schedule"),
+      entry("sch_seconds", { cron: "* * * * *" }, T0 + 45_000, "within a minute", "seconds schedule"),
+      entry("sch_hours", { cron: "* * * * *" }, T0 + 2 * 3_600_000 + 5 * 60_000, "hours ahead", "hours schedule"),
+      entry("sch_days", { cron: "0 0 * * *" }, T0 + 50 * 3_600_000, "day crossing", "days schedule"),
     ]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
@@ -361,15 +367,22 @@ describe("sidebar schedules block", () => {
     }
   })
 
-  test("shortens messages: whitespace runs collapse, bound is 60 with ellipsis (T4.4, R4.6, E4.6)", async () => {
+  test("shortens the display text: whitespace runs collapse, bound is 60 with ellipsis (T4.4, R4.6, E4.6)", async () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
-    const long = "m".repeat(100)
     const exact = "e".repeat(60)
     const schedules = [
-      entry("sch_long", { cron: "* * * * *" }, T0 + 3_600_000, long),
-      entry("sch_exact", { cron: "* * * * *" }, T0 + 3_600_000, exact),
-      entry("sch_spaces", { cron: "* * * * *" }, T0 + 3_600_000, "deploy\nthe\treport  now"),
+      // The name is the display text: one hundred units truncate to sixty
+      // plus the ellipsis — the shared R4.6 production applies to the name
+      // like to any display text.
+      entry("sch_name_long", { cron: "* * * * *" }, T0 + 3_600_000, "name fire", "n".repeat(100)),
+      // Exactly sixty units stay untruncated, without an ellipsis.
+      entry("sch_name_exact", { cron: "* * * * *" }, T0 + 3_600_000, "name fire", exact),
+      // A name carrying whitespace runs — newline, tab, blanks — collapses.
+      entry("sch_name_spaces", { cron: "* * * * *" }, T0 + 3_600_000, "name fire", "deploy\nthe\treport  now"),
+      // A legacy entry (null name) falls back to its message, under the same
+      // bound and ellipsis.
+      entry("sch_legacy_long", { cron: "* * * * *" }, T0 + 3_600_000, "m".repeat(100), null),
     ]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
@@ -378,14 +391,41 @@ describe("sidebar schedules block", () => {
     })
     try {
       const frame = harness.frame()
-      // One hundred characters render as the first sixty plus the ellipsis.
-      expect(frame).toContain(`${"m".repeat(60)}…`)
-      expect(frame).not.toContain("m".repeat(61))
-      // Exactly sixty characters stay untruncated, without an ellipsis.
-      expect(frame).toContain(`sch_exact (* * * * *): ${exact}`)
+      // One hundred name units render as the first sixty plus the ellipsis.
+      expect(frame).toContain(`${"n".repeat(60)}…`)
+      expect(frame).not.toContain("n".repeat(61))
+      // Exactly sixty name units stay untruncated, without an ellipsis.
+      expect(frame).toContain(`sch_name_exact (* * * * *): ${exact}`)
       expect(frame).not.toContain(`${exact}…`)
-      // Whitespace runs — newline, tab, blanks — collapse to single spaces.
-      expect(frame).toContain("sch_spaces (* * * * *): deploy the report now")
+      // Whitespace runs in the name collapse to single spaces.
+      expect(frame).toContain("sch_name_spaces (* * * * *): deploy the report now")
+      // The legacy fallback message obeys the same bound and ellipsis.
+      expect(frame).toContain(`sch_legacy_long (* * * * *): ${"m".repeat(60)}…`)
+      expect(frame).not.toContain("m".repeat(61))
+    } finally {
+      harness.destroy()
+    }
+  })
+
+  test("renders the name as the display text and falls back to the message for a legacy entry (T4.17, R4.4, R4.6)", async () => {
+    const clock = clockFixture(T0)
+    const calls: string[] = []
+    const schedules = [
+      entry("sch_named", { cron: "* * * * *" }, T0 + 3_600_000, "the fire payload", "deploy gate"),
+      entry("sch_legacy", { cron: "* * * * *" }, T0 + 3_600_000, "the legacy fallback", null),
+    ]
+    const harness = await mount({
+      client: clientFixture(calls, () => ({ data: { schedules } })),
+      calls,
+      options: { etaClock: clock.etaClock },
+    })
+    try {
+      const frame = harness.frame()
+      // The name wins over the message when it is non-null.
+      expect(frame).toContain("sch_named (* * * * *): deploy gate")
+      expect(frame).not.toContain("the fire payload")
+      // A null name — a legacy schedule — renders the message text instead.
+      expect(frame).toContain("sch_legacy (* * * * *): the legacy fallback")
     } finally {
       harness.destroy()
     }
@@ -411,8 +451,8 @@ describe("sidebar schedules block", () => {
     const [sessionID, setSessionID] = createSignal("ses_a")
     const calls: string[] = []
     const bySession = new Map<string, SessionSchedule[]>([
-      ["ses_a", [entry("sch_in_a", { cron: "* * * * *" }, T0 + 3_600_000, "session a schedule")]],
-      ["ses_b", [entry("sch_in_b", { cron: "* * * * *" }, T0 + 3_600_000, "session b schedule")]],
+      ["ses_a", [entry("sch_in_a", { cron: "* * * * *" }, T0 + 3_600_000, "session a fire", "session a schedule")]],
+      ["ses_b", [entry("sch_in_b", { cron: "* * * * *" }, T0 + 3_600_000, "session b fire", "session b schedule")]],
     ])
     const harness = await mount({
       client: clientFixture(calls, (session) => ({ data: { schedules: bySession.get(session) ?? [] } })),
@@ -445,8 +485,8 @@ describe("sidebar schedules block", () => {
     const stale = new Promise<unknown>((resolve) => {
       releaseSlow = resolve
     })
-    const schedulesB = [entry("sch_in_b", { cron: "* * * * *" }, T0 + 3_600_000, "session b schedule")]
-    const schedulesA = [entry("sch_in_a", { cron: "* * * * *" }, T0 + 3_600_000, "session a schedule")]
+    const schedulesB = [entry("sch_in_b", { cron: "* * * * *" }, T0 + 3_600_000, "session b fire", "session b schedule")]
+    const schedulesA = [entry("sch_in_a", { cron: "* * * * *" }, T0 + 3_600_000, "session a fire", "session a schedule")]
     const client = {
       v2: {
         session: {
@@ -512,7 +552,7 @@ describe("sidebar schedules block", () => {
       expect(harness.frame().trim()).toBe("")
 
       // A newly observed scheduler tool part in the current session refetches.
-      schedules = [entry("sch_new", { cron: "* * * * *" }, T0 + 3_600_000, "fresh schedule")]
+      schedules = [entry("sch_new", { cron: "* * * * *" }, T0 + 3_600_000, "fresh fire", "fresh schedule")]
       const msg = assistant("msg_a")
       partsByMessage.set("msg_a", [toolPart("msg_a", "scheduler")])
       setMessages([user("msg_u"), msg])
@@ -539,7 +579,7 @@ describe("sidebar schedules block", () => {
   test("refetches on every interval expiry (T4.8, R4.10)", async () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
-    const schedules = [entry("sch_periodic", { cron: "* * * * *" }, T0 + 3_600_000, "periodic")]
+    const schedules = [entry("sch_periodic", { cron: "* * * * *" }, T0 + 3_600_000, "periodic fire", "periodic schedule")]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
       calls,
@@ -559,7 +599,7 @@ describe("sidebar schedules block", () => {
 
   test("falls back to the spec-fixed interval for invalid injected values", async () => {
     const calls: string[] = []
-    const schedules = [entry("sch_default", { cron: "* * * * *" }, T0 + 3_600_000, "default period")]
+    const schedules = [entry("sch_default", { cron: "* * * * *" }, T0 + 3_600_000, "default period", "default schedule")]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
       calls,
@@ -579,7 +619,7 @@ describe("sidebar schedules block", () => {
   test("clears the interval timer on lifecycle disposal (T4.9, R4.11, I5)", async () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
-    const schedules = [entry("sch_cleanup", { cron: "* * * * *" }, T0 + 3_600_000, "cleanup")]
+    const schedules = [entry("sch_cleanup", { cron: "* * * * *" }, T0 + 3_600_000, "cleanup fire", "cleanup schedule")]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
       calls,
@@ -602,8 +642,8 @@ describe("sidebar schedules block", () => {
     const calls: string[] = []
     let failing = false
     const schedules = [
-      entry("sch_keep_a", { at: 1792937100000 }, 1792937100000, "kept a"),
-      entry("sch_keep_b", { cron: "0 0 * * *" }, 1792972800000, "kept b"),
+      entry("sch_keep_a", { at: 1792937100000 }, 1792937100000, "kept a fire", "kept a"),
+      entry("sch_keep_b", { cron: "0 0 * * *" }, 1792972800000, "kept b fire", "kept b"),
     ]
     const harness = await mount({
       client: clientFixture(calls, () => {
@@ -665,7 +705,7 @@ describe("sidebar schedules block", () => {
     const calls: string[] = []
     const [messages, setMessages] = createSignal<Message[]>([])
     const partsByMessage = new Map<string, Part[]>()
-    let schedules = [entry("sch_live", { cron: "* * * * *" }, T0 + 3_600_000, "live schedule")]
+    let schedules = [entry("sch_live", { cron: "* * * * *" }, T0 + 3_600_000, "live fire", "live schedule")]
 
     // Each fetch answers on a macrotask: a remount loop advances at timer
     // pace, so a slot that remounts per response shows up as extra list
@@ -716,7 +756,7 @@ describe("sidebar schedules block", () => {
 
       // A newly observed scheduler tool part still refetches exactly once
       // through the slot (R4.9) and renders the refreshed entry.
-      schedules = [entry("sch_live_next", { cron: "* * * * *" }, T0 + 3_600_000, "refreshed schedule")]
+      schedules = [entry("sch_live_next", { cron: "* * * * *" }, T0 + 3_600_000, "refreshed fire", "refreshed schedule")]
       const schedulerPartMessage = assistant("msg_sched")
       partsByMessage.set(schedulerPartMessage.id, [toolPart(schedulerPartMessage.id, "scheduler")])
       setMessages((previous) => [...previous, user("msg_u_sched"), schedulerPartMessage])
@@ -739,8 +779,8 @@ describe("sidebar schedules block", () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
     const schedules = [
-      entry("sch_tick_a", { cron: "* * * * *" }, T0 + 45_000, "tick line a"),
-      entry("sch_tick_b", { cron: "* * * * *" }, T0 + 120_000, "tick line b"),
+      entry("sch_tick_a", { cron: "* * * * *" }, T0 + 45_000, "tick fire a", "tick line a"),
+      entry("sch_tick_b", { cron: "* * * * *" }, T0 + 120_000, "tick fire b", "tick line b"),
     ]
     // The client answers on a macrotask like the storm test: a remount on
     // any tick expiry would surface as extra list calls, since every fresh
@@ -792,7 +832,7 @@ describe("sidebar schedules block", () => {
   test("issues zero schedule-list requests over consecutive tick expiries (T4.15, R4.16)", async () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
-    const schedules = [entry("sch_quiet", { cron: "* * * * *" }, T0 + 3_600_000, "quiet tick")]
+    const schedules = [entry("sch_quiet", { cron: "* * * * *" }, T0 + 3_600_000, "quiet fire", "quiet tick")]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
       calls,
@@ -814,7 +854,7 @@ describe("sidebar schedules block", () => {
   test("clears the eta-tick timer on lifecycle disposal (T4.16, R4.17)", async () => {
     const clock = clockFixture(T0)
     const calls: string[] = []
-    const schedules = [entry("sch_frozen", { cron: "* * * * *" }, T0 + 45_000, "frozen eta")]
+    const schedules = [entry("sch_frozen", { cron: "* * * * *" }, T0 + 45_000, "frozen fire", "frozen eta")]
     const harness = await mount({
       client: clientFixture(calls, () => ({ data: { schedules } })),
       calls,

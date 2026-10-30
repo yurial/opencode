@@ -21,10 +21,12 @@ import { textAttributes } from "../../theme/catalog"
  *   module is imported and no TuiState accessor for schedules exists (R4.3).
  * - The block renders the header `Schedules` and one entry line per entry,
  *   in the order the server delivered them — the endpoint already orders by
- *   next fire time; the block never re-sorts (R4.4, R4.5, R4.7). An entry
- *   with a non-null `command` carries SCHEDULER_VIEW_SIDEBAR_GATE_MARKER
- *   directly after its schedule id, without consuming the shortened-message
- *   budget (R4.4, R4.6).
+ *   next fire time; the block never re-sorts (R4.4, R4.5, R4.7). Each line
+ *   closes with the entry's display text — its `name` when non-null, else
+ *   its `message` as the legacy fallback — under the shared shortening
+ *   production (R4.4, R4.6). An entry with a non-null `command` carries
+ *   SCHEDULER_VIEW_SIDEBAR_GATE_MARKER directly after its schedule id,
+ *   without consuming the shortened display-text budget (R4.4, R4.6).
  * - Refetch triggers: the first run on mount, a change of the current
  *   session (R4.8), a newly observed scheduler tool part in the current
  *   session (R4.9, I6), and every expiry of the refresh interval (R4.10).
@@ -130,7 +132,8 @@ const SCHEDULER_VIEW_SIDEBAR_REFRESH_INTERVAL_MS = 30_000
 const SCHEDULER_VIEW_SIDEBAR_ETA_TICK_INTERVAL_MS = 1_000
 
 /**
- * Length bound of the shortened message of an entry line
+ * Length bound of the shortened display text of an entry line — the entry
+ * name or, for a legacy entry, its fallback message
  * (specs/scheduler-view.md Configuration, SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX,
  * R4.6). Fixed — the spec has no config key for it.
  */
@@ -141,7 +144,7 @@ const SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX = 60
  * line whose schedule-entry carries a non-null `command`
  * (specs/scheduler-view.md Configuration, SCHEDULER_VIEW_SIDEBAR_GATE_MARKER,
  * R4.4). Fixed — the spec has no config key for it. The marker never
- * consumes the shortened-message budget of R4.6.
+ * consumes the shortened display-text budget of R4.6.
  */
 const SCHEDULER_VIEW_SIDEBAR_GATE_MARKER = "*"
 
@@ -165,7 +168,7 @@ const ETA_SECOND_MS = 1_000
 const ISO_SECOND_LENGTH = 19
 
 /**
- * The ellipsis character appended to a truncated entry message (R4.6).
+ * The ellipsis character appended to a truncated entry display text (R4.6).
  */
 const ELLIPSIS = "…"
 
@@ -203,29 +206,31 @@ function specForm(spec: SessionSchedule["spec"]): string {
 }
 
 /**
- * Shortens the message of an entry line (R4.6): every whitespace run
+ * Shortens the display text of an entry line (R4.6): every whitespace run
  * collapses to a single space, the text truncates to
  * SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX characters with an ellipsis character
  * appended when truncation occurs.
  */
-function shorten(message: string): string {
-  const collapsed = message.replace(/\s+/g, " ")
+function shorten(text: string): string {
+  const collapsed = text.replace(/\s+/g, " ")
   return collapsed.length <= SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX
     ? collapsed
     : collapsed.slice(0, SCHEDULER_VIEW_SIDEBAR_MESSAGE_MAX) + ELLIPSIS
 }
 
 /**
- * Renders one entry line (R4.4): `<eta> (<absolute>) <id><gate-marker> (<spec>): <message>`
- * — the eta and absolute productions of R2.1-R2.5, the schedule id with the
- * gate marker appended directly after it when the entry carries a non-null
- * `command`, the spec form of R4.5, and the shortened message of R4.6. The
- * marker is no part of the message: shorten sees the message text alone.
+ * Renders one entry line (R4.4):
+ * `<eta> (<absolute>) <id><gate-marker> (<spec>): <display-text>` — the eta
+ * and absolute productions of R2.1-R2.5, the schedule id with the gate
+ * marker appended directly after it when the entry carries a non-null
+ * `command`, the spec form of R4.5, and the shortened display text of R4.6 —
+ * the entry `name` when non-null, else its `message` as the legacy fallback.
+ * The marker is no part of the display text: shorten sees the text alone.
  */
 function entryLine(entry: SessionSchedule, now: number): string {
   const due = entry.nextFireAt
   const gateMarker = entry.command === null ? "" : SCHEDULER_VIEW_SIDEBAR_GATE_MARKER
-  return `${eta(due, now)} (${absolute(due)}) ${entry.id}${gateMarker} (${specForm(entry.spec)}): ${shorten(entry.message)}`
+  return `${eta(due, now)} (${absolute(due)}) ${entry.id}${gateMarker} (${specForm(entry.spec)}): ${shorten(entry.name ?? entry.message)}`
 }
 
 /**
