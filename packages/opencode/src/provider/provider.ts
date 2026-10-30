@@ -1093,6 +1093,9 @@ export const Model = Schema.Struct({
   primeTimeEnd: optional(Schema.String),
   primeTimeDay: optional(Schema.mutable(Schema.Array(ConfigProviderV1.PrimeTimeDay))),
   primeTimeRetry: optional(Schema.Boolean),
+  // Inherited from provider options.timezone at assembly; wall-clock zone of
+  // the provider's server for suffix-less prime-time bounds.
+  timezone: optional(Schema.String),
   variants: optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Any))),
 }).annotate({ identifier: "Model" })
 export type Model = Types.DeepMutable<Schema.Schema.Type<typeof Model>>
@@ -1706,6 +1709,10 @@ const layer = Layer.effect(
               (configProvider?.whitelist && !configProvider.whitelist.includes(modelID))
             )
               delete provider.models[modelID]
+
+            // Provider wall-clock zone inherited by every model of this
+            // provider for suffix-less prime-time bounds.
+            if (configProvider?.options?.timezone) model.timezone = configProvider.options.timezone
 
             if (model.variants === undefined) {
               model.variants = mapValues(ProviderTransform.variants(model), (v) => v)

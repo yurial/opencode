@@ -174,6 +174,31 @@ describe("session.retry.delay", () => {
     expect(SessionRetry.delay(1, limitError(message), 0)).toBe(2_000)
   })
 
+  test("interprets naive reset times in a fixed-offset provider timezone", () => {
+    const shifted = new Date(Date.now() + 60_000 + 5 * 3_600_000)
+    const message = `${LIMIT_EXHAUSTED}${shifted.toISOString().slice(0, 19).replace("T", " ")}`
+    const d = SessionRetry.delay(1, limitError(message), 0, 300, "+05:00")
+    expect(d).toBeGreaterThanOrEqual(58_000)
+    expect(d).toBeLessThanOrEqual(60_000)
+  })
+
+  test("interprets naive reset times in an IANA provider timezone", () => {
+    const shifted = new Date(Date.now() + 60_000 + 7 * 3_600_000)
+    const message = `${LIMIT_EXHAUSTED}${shifted.toISOString().slice(0, 19).replace("T", " ")}`
+    const d = SessionRetry.delay(1, limitError(message), 0, 300, "Asia/Novosibirsk")
+    expect(d).toBeGreaterThanOrEqual(58_000)
+    expect(d).toBeLessThanOrEqual(60_000)
+  })
+
+  test("prefers the offset in the reset text over the provider timezone", () => {
+    const shifted = new Date(Date.now() + 90_000 + 2 * 3_600_000)
+    const stamp = `${shifted.toISOString().slice(0, 19)}+02:00`
+    const message = `${LIMIT_EXHAUSTED}${stamp}`
+    const d = SessionRetry.delay(1, limitError(message), 0, 300, "+05:00")
+    expect(d).toBeGreaterThanOrEqual(88_000)
+    expect(d).toBeLessThanOrEqual(90_000)
+  })
+
   it.instance("policy updates retry status and increments attempts", () =>
     Effect.gen(function* () {
       const sessionID = SessionID.make("session-retry-test")
@@ -289,6 +314,28 @@ describe("session.retry.delay", () => {
       const meta = yield* step(error)
 
       expect(Duration.toMillis(meta.duration)).toBe(1_000)
+    }),
+  )
+
+  it.instance("policy interprets naive reset times in the provider timezone", () =>
+    Effect.gen(function* () {
+      // ~1.2s ahead in +05:00 wall clock, so the step sleeps under the timeout.
+      const shifted = new Date(Date.now() + 1_200 + 5 * 3_600_000)
+      const message = `${LIMIT_EXHAUSTED}${shifted.toISOString().slice(0, 19).replace("T", " ")}`
+      const step = yield* Schedule.toStepWithMetadata(
+        SessionRetry.policy({
+          provider: "test",
+          timezone: "+05:00",
+          parse: Schema.decodeUnknownSync(SessionV1.APIError.Schema),
+          set: () => Effect.void,
+        }),
+      )
+
+      const meta = yield* step(limitError(message))
+
+      // Second truncation of the naive stamp keeps the wait in [0.2s, 1.2s].
+      expect(Duration.toMillis(meta.duration)).toBeGreaterThanOrEqual(100)
+      expect(Duration.toMillis(meta.duration)).toBeLessThanOrEqual(1_200)
     }),
   )
 })

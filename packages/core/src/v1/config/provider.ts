@@ -2,6 +2,7 @@ export * as ConfigProviderV1 from "./provider"
 
 import { Schema } from "effect"
 import { PositiveInt } from "../../schema"
+import { isZone, Zone } from "../../util/zone"
 
 export const ModelStatus = Schema.Literals(["alpha", "beta", "deprecated", "active"])
 
@@ -22,6 +23,31 @@ export const PrimeTimeDay = Schema.Literals(["sun", "mon", "tue", "wed", "thu", 
  * config load.
  */
 const ISO_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?(Z|[+-]\d{2}(?::?[0-5]\d)?)?$/
+
+/**
+ * Schema filter enforcing the provider timezone format: an IANA zone name
+ * known to the runtime's ICU (e.g. "Asia/Novosibirsk") or an explicit
+ * `±HH:MM`/`±HHMM`/`±HH` offset. Malformed values fail config load instead of
+ * silently falling back to the machine-local timezone.
+ *
+ * The attached arbitrary candidate generates well-formed zones for
+ * `Schema.toArbitrary` (property-based config tests); the base string
+ * generator almost never satisfies either form and rejection sampling
+ * diverges.
+ */
+const isTimeZone = Schema.makeFilter<string>(
+  (value) =>
+    isZone(value)
+      ? undefined
+      : `Invalid provider timezone '${value}': expected an IANA zone name or a ±HH:MM/±HHMM/±HH offset`,
+  {
+    arbitrary: {
+      candidate: {
+        make: (fc) => fc.constantFrom("+05:00", "-08:00", "+0530", "+03", "Asia/Novosibirsk", "Europe/Moscow", "America/New_York"),
+      },
+    },
+  },
+)
 
 /**
  * Schema filter enforcing the strict prime-time bound format per field, so
@@ -227,6 +253,10 @@ export const Info = Schema.Struct({
           description:
             "Upper bound in seconds for the exponential backoff delay between provider retries (default 300). Applies only to the computed exponential delay; explicit server hints (retry-after headers) and parsed provider limit-reset times are not capped.",
         }),
+        timezone: Schema.optional(Schema.String.check(isTimeZone)).annotate({
+          description:
+            "Time zone of the provider's server clock, as an IANA zone name (e.g. \"Asia/Novosibirsk\") or an explicit ±HH:MM/±HHMM/±HH offset. Naive provider wall-clock times — limit-reset timestamps in error messages and prime-time bounds without an offset suffix — are interpreted in this zone; explicit offsets in the data always win. Defaults to the machine's local time zone when unset.",
+        }),
       }),
       [Schema.Record(Schema.String, Schema.Any)],
     ),
@@ -239,6 +269,13 @@ export interface PrimeTimeWindow {
   readonly primeTimeStart?: string
   readonly primeTimeEnd?: string
   readonly primeTimeDay?: ReadonlyArray<string>
+  /**
+   * Time zone of the window's wall clock when the bounds carry no offset
+   * suffix: an IANA zone name or a `±HH:MM`/`±HHMM`/`±HH` offset (the
+   * provider's `options.timezone`). Explicit suffixes on the bounds keep
+   * precedence; unset falls back to the process-local timezone.
+   */
+  readonly timezone?: string
 }
 
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const
@@ -273,6 +310,51 @@ function parseTimeOfDay(value: string): PrimeTimeBound | null {
   const digits = zone.slice(1).replace(":", "")
   const totalMinutes = Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2).padEnd(2, "0"))
   return { secondsOfDay, offsetMinutes: (zone[0] === "+" ? 1 : -1) * totalMinutes }
+}
+
+/**
+ * Effective window zone, in precedence order: the bounds' shared explicit
+ * offset when both carry a suffix, else the provider `timezone` option, else
+ * the process-local timezone.
+ */
+type ResolvedZone =
+  | { kind: "fixed"; offsetSeconds: number }
+  | { kind: "named"; zone: string }
+  | { kind: "local" }
+
+function windowZone(window: PrimeTimeWindow, from: PrimeTimeBound): ResolvedZone {
+  if (from.offsetMinutes !== null) return { kind: "fixed", offsetSeconds: from.offsetMinutes * 60 }
+  if (window.timezone !== undefined) return { kind: "named", zone: window.timezone }
+  return { kind: "local" }
+}
+
+/**
+ * Weekday (0 = Sunday) and seconds-of-day of `instant` on the wall clock of
+ * the resolved zone: a fixed offset shifts the epoch, a named zone resolves
+ * through ICU, and the local zone reads the process timezone directly.
+ */
+function zoneClock(zone: ResolvedZone, instant: Date): { weekday: number; secondsOfDay: number } {
+  if (zone.kind === "fixed") {
+    const shifted = Math.floor(instant.getTime() / 1000) + zone.offsetSeconds
+    return {
+      weekday: new Date(shifted * 1000).getUTCDay(),
+      secondsOfDay: (((shifted % SECONDS_PER_DAY) + SECONDS_PER_DAY) % SECONDS_PER_DAY),
+    }
+  }
+  if (zone.kind === "named") return Zone.wallClock(instant.getTime(), zone.zone)
+  return {
+    weekday: instant.getDay(),
+    secondsOfDay:
+      (((Math.floor(instant.getTime() / 1000) - instant.getTimezoneOffset() * 60) % SECONDS_PER_DAY) + SECONDS_PER_DAY) %
+      SECONDS_PER_DAY,
+  }
+}
+
+/** Offset of the resolved zone in seconds east of UTC at `instant`. */
+function zoneOffsetSeconds(zone: ResolvedZone, instant: Date): number {
+  if (zone.kind === "fixed") return zone.offsetSeconds
+  if (zone.kind === "named") return Zone.offsetMinutes(instant.getTime(), zone.zone) * 60
+  return -instant.getTimezoneOffset() * 60
 }
 
 /**
@@ -332,11 +414,12 @@ export function isPrimeTimeEnforced(): boolean {
  * - Process-wide enforcement disabled via `setPrimeTimeEnforced(false)`
  *   overrides any window: the predicate reports "no window" for as long as the
  *   toggle is off.
- * - The window timezone is the shared explicit offset of both bounds, or the
- *   process timezone when neither bound has a suffix. Both the weekday and the
- *   seconds-of-day of `now` are computed in that timezone: the instant is
- *   shifted by the explicit offset (or read through the process timezone)
- *   before deriving weekday and wall-clock time.
+ * - The window timezone is the shared explicit offset of both bounds when they
+ *   carry a suffix, else the provider `timezone` when set, else the process
+ *   timezone. Both the weekday and the seconds-of-day of `now` are computed in
+ *   that timezone: the instant is shifted by the explicit offset (or read
+ *   through the provider zone or process timezone) before deriving weekday and
+ *   wall-clock time.
  * - The window matches when the window-timezone weekday of `now` is listed in
  *   `primeTimeDay` and the window-timezone seconds-of-day lies inside the
  *   bounds, both ends inclusive. When `start <= end` the window is that single
@@ -356,15 +439,12 @@ export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date())
   const to = parseTimeOfDay(end)
   if (from === null || to === null || from.offsetMinutes !== to.offsetMinutes) return false
 
-  // Weekday and wall-clock time of `now` in the window's timezone: an explicit
-  // offset shifts the instant; a suffix-less window uses the process timezone.
-  const epochSeconds = Math.floor(now.getTime() / 1000)
-  const offsetSeconds = from.offsetMinutes === null ? -now.getTimezoneOffset() * 60 : from.offsetMinutes * 60
-  const weekday =
-    from.offsetMinutes === null ? now.getDay() : new Date((epochSeconds + from.offsetMinutes * 60) * 1000).getUTCDay()
+  // Weekday and wall-clock time of `now` in the window's timezone: the bounds'
+  // explicit offset shifts the instant, a provider zone resolves through ICU,
+  // and a suffix-less zone-less window uses the process timezone.
+  const { weekday, secondsOfDay } = zoneClock(windowZone(window, from), now)
   if (!days.includes(WEEKDAYS[weekday])) return false
 
-  const secondsOfDay = (((epochSeconds + offsetSeconds) % SECONDS_PER_DAY) + SECONDS_PER_DAY) % SECONDS_PER_DAY
   return from.secondsOfDay <= to.secondsOfDay
     ? secondsOfDay >= from.secondsOfDay && secondsOfDay <= to.secondsOfDay
     : secondsOfDay >= from.secondsOfDay || secondsOfDay <= to.secondsOfDay
@@ -379,6 +459,10 @@ export function primeTimeActive(window: PrimeTimeWindow, now: Date = new Date())
  * `setPrimeTimeEnforced(false)` — the same "window not active" outcome as
  * `primeTimeActive`.
  *
+ * The window timezone follows the same precedence as `primeTimeActive`: the
+ * bounds' shared explicit offset, else the provider `timezone`, else the
+ * process timezone.
+ *
  * Used to schedule a prime-time-blocked retry for `primeTimeRetry` models: the
  * delay is the time remaining until this instant.
  */
@@ -392,13 +476,14 @@ export function primeTimeWindowEnd(window: PrimeTimeWindow, now: Date = new Date
   const to = parseTimeOfDay(end)
   if (from === null || to === null || from.offsetMinutes !== to.offsetMinutes) return undefined
   if (!primeTimeActive(window, now)) return undefined
+  const zone = windowZone(window, from)
 
   // Epoch second at which the active span containing `instant` ends, computed
   // in the window's timezone with the same offset rules as `primeTimeActive`.
   // The end bound still matches (inclusive), so the first non-matching second
   // is one past it.
   const spanEndSeconds = (instant: Date): number => {
-    const offsetSeconds = from.offsetMinutes === null ? -instant.getTimezoneOffset() * 60 : from.offsetMinutes * 60
+    const offsetSeconds = zoneOffsetSeconds(zone, instant)
     const localSeconds = Math.floor(instant.getTime() / 1000) + offsetSeconds
     const localDay = Math.floor(localSeconds / SECONDS_PER_DAY)
     const localSecondsOfDay = localSeconds - localDay * SECONDS_PER_DAY

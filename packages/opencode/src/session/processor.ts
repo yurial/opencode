@@ -703,6 +703,8 @@ const layer = Layer.effect(
                 maxRetries: providerOptions?.retries,
                 // Per-provider exponential backoff bound in seconds from provider.<id>.options.maxRetryDelaySec; 300 when unset
                 maxRetryDelaySec: providerOptions?.maxRetryDelaySec,
+                // Provider server wall-clock zone from provider.<id>.options.timezone; machine-local when unset
+                timezone: providerOptions?.timezone,
                 parse,
                 set: (info) =>
                   Effect.gen(function* () {

@@ -1,4 +1,5 @@
 import type { NamedError } from "@opencode-ai/core/util/error"
+import { Zone } from "@opencode-ai/core/util/zone"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Cause, Clock, Duration, Effect, Schedule } from "effect"
 import { MessageV2 } from "./message-v2"
@@ -70,12 +71,17 @@ function cap(ms: number) {
  * @param maxRetryDelaySec per-provider upper bound in seconds for the computed
  *   exponential delay (provider.<id>.options.maxRetryDelaySec); defaults to
  *   RETRY_MAX_DELAY_SEC
+ * @param timezone provider wall-clock zone (provider.<id>.options.timezone,
+ *   IANA name or ±HH:MM/±HHMM/±HH offset) applied to naive limit-reset
+ *   timestamps; explicit offsets in the parsed text keep precedence; undefined
+ *   falls back to the machine's local timezone
  */
 export function delay(
   attempt: number,
   error?: SessionV1.APIError,
   random = Math.random(),
   maxRetryDelaySec = RETRY_MAX_DELAY_SEC,
+  timezone?: string,
 ) {
   if (error) {
     const headers = error.data.responseHeaders
@@ -102,13 +108,13 @@ export function delay(
         }
       }
 
-      const reset = limitResetDelay(error, Date.now())
+      const reset = limitResetDelay(error, Date.now(), timezone)
       if (reset !== undefined) return reset
 
       return cap(Math.min(exponential(attempt, random), maxRetryDelaySec * 1000))
     }
 
-    const reset = limitResetDelay(error, Date.now())
+    const reset = limitResetDelay(error, Date.now(), timezone)
     if (reset !== undefined) return reset
   }
 
@@ -133,11 +139,13 @@ function exponential(attempt: number, random: number) {
  *
  * @param error APIError whose data.message may carry the reset line
  * @param now epoch milliseconds to measure the remaining wait from
+ * @param timezone provider wall-clock zone for naive timestamps (IANA name or
+ *   ±HH:MM/±HHMM/±HH offset); undefined keeps the machine-local fallback
  */
-function limitResetDelay(error: SessionV1.APIError, now: number) {
+function limitResetDelay(error: SessionV1.APIError, now: number, timezone?: string) {
   const match = /limit exhausted.*reset at (.+)$/i.exec(error.data.message)
   if (!match) return undefined
-  const reset = parseResetAt(match[1].trim())
+  const reset = parseResetAt(match[1].trim(), timezone)
   if (Number.isNaN(reset)) return undefined
   const wait = reset - now
   if (wait <= 0) return undefined
@@ -148,23 +156,37 @@ function limitResetDelay(error: SessionV1.APIError, now: number) {
  * Parses the timestamp captured from a limit-reset message into epoch
  * milliseconds. Accepts ISO 8601 with an explicit offset or Z suffix, plus the
  * naive "YYYY-MM-DD HH:MM[:SS]" form (space or T separator) the providers
- * print. Naive values carry no zone and providers emit them in the user's
- * wall clock, so they are interpreted in the machine's local timezone —
- * matching what the user sees in the provider console. Anything else yields
- * NaN, which the caller treats as "no reset".
+ * print. Naive values carry no zone: when `timezone` names the provider's
+ * server zone (provider.<id>.options.timezone) the stamp is interpreted in it,
+ * else in the machine's local timezone; explicit offsets in the text always
+ * win over `timezone`. Anything else yields NaN, which the caller treats as
+ * "no reset".
  */
-function parseResetAt(value: string) {
+function parseResetAt(value: string, timezone?: string) {
   const naive = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value)
   if (!naive) return Date.parse(value)
   const [, year, month, day, hour, minute, second] = naive
-  return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    second ? Number(second) : 0,
-  ).getTime()
+  if (timezone === undefined) {
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      second ? Number(second) : 0,
+    ).getTime()
+  }
+  return Zone.toEpoch(
+    {
+      year: Number(year),
+      month: Number(month),
+      day: Number(day),
+      hour: Number(hour),
+      minute: Number(minute),
+      second: second ? Number(second) : 0,
+    },
+    timezone,
+  )
 }
 
 export function retryable(error: Err, provider: string) {
@@ -284,6 +306,13 @@ export function policy(opts: {
    * not capped. Defaults to RETRY_MAX_DELAY_SEC (300).
    */
   maxRetryDelaySec?: number
+  /**
+   * Provider wall-clock zone (provider.<id>.options.timezone; IANA name or
+   * ±HH:MM/±HHMM/±HH offset) applied to naive limit-reset timestamps in error
+   * messages. Explicit offsets in the parsed text keep precedence; undefined
+   * falls back to the machine's local timezone.
+   */
+  timezone?: string
 }) {
   const maxRetries = opts.maxRetries ?? RETRY_MAX_RETRIES
   const maxRetryDelaySec = opts.maxRetryDelaySec ?? RETRY_MAX_DELAY_SEC
@@ -299,6 +328,7 @@ export function policy(opts: {
           SessionV1.APIError.isInstance(error) ? error : undefined,
           Math.random(),
           maxRetryDelaySec,
+          opts.timezone,
         )
         const now = yield* Clock.currentTimeMillis
         yield* opts.set({

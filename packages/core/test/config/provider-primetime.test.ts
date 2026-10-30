@@ -139,3 +139,52 @@ describe("ConfigProviderV1 prime-time enforcement toggle", () => {
     expect(primeTimeActive(primeWindow, now)).toBe(false)
   })
 })
+
+describe("ConfigProviderV1 prime-time window timezone", () => {
+  // 2026-08-24 is a Monday. Suffix-less bounds pick up the window's
+  // `timezone`; every instant below is expressed in UTC to stay independent of
+  // the process timezone.
+  beforeEach(() => {
+    setPrimeTimeEnforced(true)
+  })
+
+  afterEach(() => {
+    setPrimeTimeEnforced(true)
+  })
+
+  test("interprets suffix-less bounds in a fixed-offset provider timezone", () => {
+    const window = { primeTimeStart: "22:00:00", primeTimeEnd: "23:00:00", primeTimeDay: ["mon"], timezone: "+05:00" }
+    // 22:30 in +05:00 is 17:30Z on the listed Monday.
+    const now = new Date(Date.UTC(2026, 7, 24, 17, 30))
+    expect(primeTimeActive(window, now)).toBe(true)
+    // The span ends one second past the 23:00:00 wall-clock bound in +05:00.
+    expect(primeTimeWindowEnd(window, now)).toBe(Date.UTC(2026, 7, 24, 18, 0, 1))
+  })
+
+  test("interprets suffix-less bounds in an IANA provider timezone", () => {
+    const window = {
+      primeTimeStart: "22:00:00",
+      primeTimeEnd: "23:00:00",
+      primeTimeDay: ["mon"],
+      timezone: "Asia/Novosibirsk",
+    }
+    // 22:30 in Asia/Novosibirsk (+07:00) is 15:30Z on the listed Monday.
+    const now = new Date(Date.UTC(2026, 7, 24, 15, 30))
+    expect(primeTimeActive(window, now)).toBe(true)
+    expect(primeTimeWindowEnd(window, now)).toBe(Date.UTC(2026, 7, 24, 16, 0, 1))
+  })
+
+  test("derives the window-timezone weekday of now from the provider timezone", () => {
+    const window = { primeTimeStart: "22:00:00", primeTimeEnd: "23:00:00", primeTimeDay: ["mon"], timezone: "+05:00" }
+    // 23:50Z on Monday is 04:50+05:00 Tuesday, so the listed Monday misses.
+    expect(primeTimeActive(window, new Date(Date.UTC(2026, 7, 24, 23, 50)))).toBe(false)
+  })
+
+  test("explicit bound suffixes keep precedence over the provider timezone", () => {
+    const window = { primeTimeStart: "22:00:00Z", primeTimeEnd: "23:00:00Z", primeTimeDay: ["mon"], timezone: "+05:00" }
+    // 22:30Z is 03:30+05:00 Tuesday: the provider timezone must be ignored.
+    const now = new Date(Date.UTC(2026, 7, 24, 22, 30))
+    expect(primeTimeActive(window, now)).toBe(true)
+    expect(primeTimeWindowEnd(window, now)).toBe(Date.UTC(2026, 7, 24, 23, 0, 1))
+  })
+})
