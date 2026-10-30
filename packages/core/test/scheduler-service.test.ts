@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs"
 import { Clock, Deferred, Duration, Effect, Fiber, Layer } from "effect"
 import { eq, sql } from "drizzle-orm"
 import * as TestClock from "effect/testing/TestClock"
+import * as TestConsole from "effect/testing/TestConsole"
 import { Database } from "@opencode-ai/core/database/database"
 import { migrations } from "@opencode-ai/core/database/migration.gen"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -148,10 +149,35 @@ const replacements = [
 // the production runner spawns actual `bash -c` invocations.
 const replacementsWithoutGate = [[SessionExecution.node, execution]] as const
 
+// The spawn-failure variant of the fake gate: the underlying invocation
+// fails — a run that cannot spawn — and the gate resolves the failure to the
+// substituted exit status exactly like the production runner (gate.ts,
+// Error handling).
+const spawnFailureGate = Layer.succeed(
+  SchedulerGate.Service,
+  SchedulerGate.Service.of({
+    run: (input) =>
+      Effect.suspend(() => {
+        gateCalls.push({ command: input.command, directory: input.directory })
+        return Effect.catch(
+          Effect.fail(new Error("injected spawn failure")),
+          () => Effect.succeed({ exitCode: SchedulerGate.SPAWN_FAILURE_EXIT_CODE, output: "" }),
+        )
+      }),
+  }),
+)
+const replacementsWithSpawnFailureGate = [
+  [SessionExecution.node, execution],
+  [SchedulerGate.node, spawnFailureGate],
+] as const
+
 const it = testEffect(AppNodeBuilder.build(nodes, replacements))
 // Restart-style tests manage their own stacks over a file-backed database;
 // the ambient layer stays empty.
 const itStandalone = testEffect(Layer.empty)
+// The spawn-failure record test swaps the fake gate for its spawn-failure
+// variant.
+const itSpawnFailure = testEffect(AppNodeBuilder.build(nodes, replacementsWithSpawnFailureGate))
 
 const makeSession = (sessionID: SessionV2.ID, directory: string = "/project") =>
   Database.Service.use(({ db }) =>
@@ -322,6 +348,26 @@ const eventually = <R>(
           eventually(effect),
         ),
   )
+
+// The diagnostic log record of a suppressed fire (R6.19): the default logger
+// writes one console.log entry per record — a header carrying the level, the
+// record text carrying the marker, and the annotations object — and the
+// TestConsole of the harness flattens those parameters into logLines.
+const suppressionRecords = Effect.map(TestConsole.logLines, (lines) => {
+  const records: { readonly header: string; readonly text: string; readonly annotations: Record<string, unknown> }[] =
+    []
+  for (let index = 0; index < lines.length; index++) {
+    const text = lines[index]
+    if (typeof text === "string" && text.includes(Scheduler.SUPPRESSION_LOG_MARKER)) {
+      records.push({
+        header: lines[index - 1] as string,
+        text,
+        annotations: lines[index + 1] as Record<string, unknown>,
+      })
+    }
+  }
+  return records
+})
 
 describe("Scheduler service", () => {
   it.effect("computes the stored next due time from the spec at add", () =>
@@ -1293,6 +1339,105 @@ describe("Scheduler service", () => {
       expect(v1Calls).toEqual([])
       const rows = yield* scheduleRows
       expect(rows[0]!.next_fire_at).toBe(due + 2 * 3_600_000)
+    }),
+  )
+
+  it.effect("writes one suppression record on a nonzero gate exit", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_suppress_record")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      gateBehavior.exitCodes.push(3)
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "check flag",
+        spec: { cron: "0 * * * *" },
+        command: "test -f done.flag",
+      })
+      yield* advance(added.nextFireAt + 1)
+      yield* flushed
+
+      // T6.16: exactly one diagnostic record — the marker rides the text,
+      // the schedule id and the exit status ride the annotations, at level
+      // info (R6.19).
+      const records = yield* suppressionRecords
+      expect(records).toHaveLength(1)
+      expect(records[0]!.header).toContain("INFO")
+      expect(records[0]!.text).toContain(Scheduler.SUPPRESSION_LOG_MARKER)
+      expect(records[0]!.annotations).toEqual({
+        scheduleID: added.id,
+        gateExitCode: 3,
+        spawnFailure: false,
+      })
+      // The suppression stays a silent non-delivery otherwise (R8.10).
+      expect(v1Calls).toEqual([])
+    }),
+  )
+
+  itSpawnFailure.effect("writes one suppression record on a spawn failure", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_spawn_record")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+
+      const added = yield* scheduler.add({
+        sessionID,
+        message: "unspawnable",
+        spec: { cron: "0 * * * *" },
+        command: "check",
+      })
+      yield* advance(added.nextFireAt + 1)
+      yield* flushed
+
+      // T6.17: exactly one record — the failed run resolves to
+      // SCHEDULER_GATE_SPAWN_FAILURE_EXIT_CODE, and the record names the
+      // spawn-failure outcome (R6.19).
+      const records = yield* suppressionRecords
+      expect(records).toHaveLength(1)
+      expect(records[0]!.header).toContain("INFO")
+      expect(records[0]!.text).toContain(Scheduler.SUPPRESSION_LOG_MARKER)
+      expect(records[0]!.annotations).toEqual({
+        scheduleID: added.id,
+        gateExitCode: SchedulerGate.SPAWN_FAILURE_EXIT_CODE,
+        spawnFailure: true,
+      })
+      expect(v1Calls).toEqual([])
+      // The occurrence discharged like any suppression (R6.15).
+      const rows = yield* scheduleRows
+      expect(rows[0]!.next_fire_at).toBe(added.nextFireAt + 3_600_000)
+    }),
+  )
+
+  it.effect("writes no suppression record on the delivered paths", () =>
+    Effect.gen(function* () {
+      yield* resetRecordings
+      const sessionID = SessionV2.ID.make("ses_gate_no_suppress_record")
+      yield* makeSession(sessionID)
+      const scheduler = yield* Scheduler.Service
+      gateBehavior.exitCodes.push(0)
+
+      // A gated schedule with a permitting gate and a commandless schedule:
+      // both fires deliver.
+      const gated = yield* scheduler.add({
+        sessionID,
+        message: "permitted",
+        spec: { at: (yield* now) + 60_000 },
+        command: "check",
+      })
+      const plain = yield* scheduler.add({ sessionID, message: "plain", spec: { at: (yield* now) + 120_000 } })
+      yield* advance(gated.nextFireAt + 1)
+      yield* settled
+      expect(v1Calls).toHaveLength(1)
+      yield* advance(plain.nextFireAt - gated.nextFireAt)
+      yield* settled
+      expect(v1Calls).toHaveLength(2)
+
+      // Delivered fires write no suppression record (R6.19 covers
+      // suppressed fires only).
+      expect(yield* suppressionRecords).toEqual([])
     }),
   )
 

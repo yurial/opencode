@@ -42,6 +42,14 @@ export const MAX_MESSAGE_LENGTH = 4096
 export const MAX_COMMAND_LENGTH = 4096
 
 /**
+ * Marker naming the scheduler/suppressed-fire in its diagnostic log record
+ * (specs/scheduler.md Configuration SCHEDULER_SUPPRESSION_LOG_MARKER). The
+ * marker rides the record text (I12); the record's severity is the level of
+ * SCHEDULER_SUPPRESSION_LOG_LEVEL, emitted as `Effect.logInfo`.
+ */
+export const SUPPRESSION_LOG_MARKER = "suppressed"
+
+/**
  * Delay between delivery attempts of a failing fire, in milliseconds
  * (specs/scheduler.md R8.5, Error handling). Keeps a persistently failing
  * delivery from spinning the single delivery loop while leaving the schedule
@@ -120,9 +128,10 @@ export class NotFound extends Schema.TaggedErrorClass<NotFound>()("Scheduler.Not
  *   processed as a catch-up fire (R7.1 third disjunct, R8.9). A zero exit
  *   delivers the fire, appending the scheduler/gate-output-section when the
  *   run wrote output (R6.13, R6.14); a nonzero exit — spawn failure or
- *   signal death included (Error handling) — suppresses it: no delivery
- *   side effect, no retry, no delivery-failure marking (R8.10, R8.11), the
- *   occurrence discharges (R6.15, R7.9; a one-shot is removed, R6.16). A
+ *   signal death included (Error handling) — suppresses it: one diagnostic
+ *   log record (R6.19), no delivery side effect, no retry, no
+ *   delivery-failure marking (R8.10, R8.11), the occurrence discharges
+ *   (R6.15, R7.9; a one-shot is removed, R6.16). A
  *   catch-up fire runs the gate exactly once for its entire skipped series
  *   (R7.7) and a suppressed one discharges the series (R7.8).
  * - `attachV1Prompt` binds the host's V1 prompt admission capability (I4);
@@ -431,14 +440,15 @@ const layer = Layer.effect(
      * The serialized continuation of a resolved gate-run (I9): the resolved
      * fire re-enters the write permit for its delivery bookkeeping. A
      * nonzero exit — spawn failure and signal death included (Error
-     * handling) — suppresses the fire: no delivery side effect, the output
-     * is discarded, and the occurrence discharges through `finishFire`
-     * (R6.13, R6.15, R6.16; a catch-up fire advances from the resolution
-     * time, R7.9). A zero exit builds the fired text with the
-     * gate-output-section (R6.14) and routes it like `startFire` does.
-     * Returns the V1 admission inputs, or `undefined` when the fire
-     * finished under the hold, was suppressed, or the schedule was removed
-     * while the run was in flight — a removed schedule never fires.
+     * handling) — suppresses the fire: the diagnostic record of R6.19 is
+     * written, no delivery side effect happens, the output is discarded,
+     * and the occurrence discharges through `finishFire` (R6.13, R6.15,
+     * R6.16; a catch-up fire advances from the resolution time, R7.9). A
+     * zero exit builds the fired text with the gate-output-section (R6.14)
+     * and routes it like `startFire` does. Returns the V1 admission inputs,
+     * or `undefined` when the fire finished under the hold, was suppressed,
+     * or the schedule was removed while the run was in flight — a removed
+     * schedule never fires.
      */
     const resolveGateFire = Effect.fn("Scheduler.resolveGateFire")(function* (
       started: GateStart,
@@ -454,6 +464,18 @@ const layer = Layer.effect(
       if (present === undefined) return undefined
 
       if (result.exitCode !== 0) {
+        // R6.19: exactly one diagnostic record per suppression — the marker
+        // rides the text (I12), the gate-run exit status and the
+        // spawn-failure outcome (SCHEDULER_GATE_SPAWN_FAILURE_EXIT_CODE)
+        // ride the annotations. The record emits from the serialized finish
+        // path, so it never duplicates and never blocks the loop.
+        yield* Effect.logInfo(`Scheduler ${SUPPRESSION_LOG_MARKER} a gated fire`).pipe(
+          Effect.annotateLogs({
+            scheduleID: started.row.id,
+            gateExitCode: result.exitCode,
+            spawnFailure: result.exitCode === SchedulerGate.SPAWN_FAILURE_EXIT_CODE,
+          }),
+        )
         yield* finishFire({ row: started.row, catchUp: started.catchUp, deliveredAt: resolvedAt })
         return undefined
       }
