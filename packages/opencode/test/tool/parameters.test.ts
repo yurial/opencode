@@ -223,6 +223,12 @@ describe("tool parameters", () => {
       expect(parsed.offset).toBe(10)
       expect(parsed.limit).toBe(100)
     })
+    test("accepts limit at the cap", () => {
+      expect(parse(Read, { filePath: "/a", limit: 4294967295 }).limit).toBe(4294967295)
+    })
+    test("rejects limit above the cap", () => {
+      expect(accepts(Read, { filePath: "/a", limit: 4294967296 })).toBe(false)
+    })
   })
 
   describe("skill", () => {
