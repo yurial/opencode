@@ -325,6 +325,10 @@ const layer = Layer.effect(
       }
     })
 
+    // Loads the full config state for an instance. Each config directory also gets a background
+    // install of the `@opencode-ai/plugin` SDK, forked only when at least one plugin is declared
+    // in config or auto-discovered under a config directory. The forked fibers are collected in
+    // `deps` and joined by `waitForDependencies` before plugin code is imported.
     const loadInstanceState = Effect.fn("Config.loadInstanceState")(
       function* (ctx: InstanceContext) {
         const auth = yield* authSvc.all().pipe(Effect.orDie)
@@ -449,34 +453,43 @@ const layer = Layer.effect(
 
           yield* ensureGitignore(dir).pipe(Effect.orDie)
 
-          const dep = yield* npmSvc
-            .install(dir, {
-              add: [
-                {
-                  name: "@opencode-ai/plugin",
-                  version: InstallationLocal ? undefined : InstallationVersion,
-                },
-              ],
-            })
-            .pipe(
-              Effect.exit,
-              Effect.tap((exit) =>
-                Exit.isFailure(exit)
-                  ? Effect.logWarning("background dependency install failed", { dir, error: String(exit.cause) })
-                  : Effect.void,
-              ),
-              Effect.asVoid,
-              Effect.forkDetach,
-            )
-          deps.push(dep)
-
           result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => ConfigCommand.load(dir)))
           result.agent = mergeDeep(result.agent ?? {}, yield* Effect.promise(() => ConfigAgent.load(dir)))
           result.agent = mergeDeep(result.agent ?? {}, yield* Effect.promise(() => ConfigAgent.loadMode(dir)))
           // Auto-discovered plugins under `.opencode/plugin(s)` are already local files, so ConfigPlugin.load
-          // returns normalized Specs and we only need to attach origin metadata here.
+          // returns normalized Specs and we only need to attach origin metadata here. Discovery runs before
+          // the install decision below so local plugins count as configured plugins.
           const list = yield* Effect.promise(() => ConfigPlugin.load(dir))
           yield* mergePluginOrigins(dir, list)
+
+          // The plugin SDK is only needed when plugins actually run: file plugins resolve
+          // `@opencode-ai/plugin` against the config directory's node_modules. Without plugins, skip the
+          // fork entirely instead of running a pointless npm reify on every Config.get().
+          if (result.plugin?.length) {
+            // Preview builds (0.0.0-<channel>-...) never publish that version to the registry, so omit
+            // the version and let npm resolve latest rather than fail every install.
+            const dep = yield* npmSvc
+              .install(dir, {
+                add: [
+                  {
+                    name: "@opencode-ai/plugin",
+                    version:
+                      InstallationLocal || InstallationVersion.startsWith("0.0.0-") ? undefined : InstallationVersion,
+                  },
+                ],
+              })
+              .pipe(
+                Effect.exit,
+                Effect.tap((exit) =>
+                  Exit.isFailure(exit)
+                    ? Effect.logWarning("background dependency install failed", { dir, error: String(exit.cause) })
+                    : Effect.void,
+                ),
+                Effect.asVoid,
+                Effect.forkDetach,
+              )
+            deps.push(dep)
+          }
         }
 
         if (process.env.OPENCODE_CONFIG_CONTENT) {
@@ -629,6 +642,8 @@ const layer = Layer.effect(
       return yield* InstanceState.use(state, (s) => s.consoleState)
     })
 
+    // Joins the background plugin SDK installs forked during config load. Resolves immediately when
+    // no plugins are configured because no installs are forked in that case.
     const waitForDependencies = Effect.fn("Config.waitForDependencies")(function* () {
       yield* InstanceState.useEffect(state, (s) =>
         Effect.forEach(s.deps, Fiber.join, { concurrency: "unbounded" }).pipe(Effect.asVoid),
