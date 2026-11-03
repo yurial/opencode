@@ -98,12 +98,13 @@ const configLayer = (
     auth?: Layer.Layer<Auth.Service>
     account?: Layer.Layer<Account.Service>
     client?: HttpClient.HttpClient
+    npm?: Layer.Layer<Npm.Service>
   } = {},
 ) =>
   LayerNode.compile(LayerNode.group([Config.node, FSUtil.node, Env.node, CrossSpawnSpawner.node]), [
     [Auth.node, options.auth ?? AuthTest.empty],
     [Account.node, options.account ?? AccountTest.empty],
-    [Npm.node, NpmTest.noop],
+    [Npm.node, options.npm ?? NpmTest.noop],
     [httpClient, Layer.succeed(HttpClient.HttpClient, options.client ?? unexpectedHttp)],
   ])
 
@@ -113,6 +114,19 @@ const it = testEffect(layer)
 const configIt = (options?: Parameters<typeof configLayer>[0]) => testEffect(configLayer(options))
 
 const schemaConfig = (config: object) => ({ $schema: "https://opencode.ai/config.json", ...config })
+
+// Npm.Service mock that records every install call so tests can assert when the background
+// plugin SDK install is forked.
+const recordingNpm = () => {
+  const calls: { dir: string; add: { name: string; version?: string }[] }[] = []
+  const layer = Layer.mock(Npm.Service)({
+    install: (dir, input) =>
+      Effect.sync(() => {
+        calls.push({ dir, add: input?.add ?? [] })
+      }),
+  })
+  return { calls, layer }
+}
 
 const provideCurrentInstance = <A, E, R>(effect: Effect.Effect<A, E, R>, ctx: InstanceContext) =>
   effect.pipe(Effect.provideService(InstanceRef, ctx))
@@ -1183,6 +1197,54 @@ it.effect("installs dependencies in writable OPENCODE_CONFIG_DIR", () =>
 // Note: deduplication and serialization of npm installs is now handled by the
 // core Npm.Service (via EffectFlock). Those behaviors are tested in the core
 // package's npm tests, not here.
+
+const noPluginNpm = recordingNpm()
+const noPluginIt = testEffect(configLayer({ npm: noPluginNpm.layer }))
+
+noPluginIt.instance("skips background plugin install when no plugins are configured", () =>
+  Effect.gen(function* () {
+    yield* Config.Service.use((svc) => svc.get().pipe(Effect.andThen(svc.waitForDependencies())))
+    expect(noPluginNpm.calls).toEqual([])
+  }),
+)
+
+const declaredPluginNpm = recordingNpm()
+const declaredPluginIt = testEffect(configLayer({ npm: declaredPluginNpm.layer }))
+
+declaredPluginIt.instance("forks background plugin install when a plugin is declared in config", () =>
+  Effect.gen(function* () {
+    const test = yield* TestInstance
+    yield* writeConfigEffect(test.directory, { plugin: ["@scope/plugin"] })
+
+    yield* Config.Service.use((svc) => svc.get().pipe(Effect.andThen(svc.waitForDependencies())))
+
+    expect(declaredPluginNpm.calls.length).toBeGreaterThanOrEqual(1)
+    for (const call of declaredPluginNpm.calls) {
+      expect(call.add).toHaveLength(1)
+      expect(call.add[0].name).toBe("@opencode-ai/plugin")
+      // Dev/preview builds have no published version; the SDK must resolve latest instead.
+      expect(call.add[0].version).toBeUndefined()
+    }
+  }),
+)
+
+const localPluginNpm = recordingNpm()
+const localPluginIt = testEffect(configLayer({ npm: localPluginNpm.layer }))
+
+localPluginIt.instance("forks background plugin install for auto-discovered local plugins", () =>
+  Effect.gen(function* () {
+    const test = yield* TestInstance
+    const configDir = path.join(test.directory, ".opencode")
+    yield* FSUtil.use.writeWithDirs(path.join(configDir, "plugin", "local.ts"), "export default {}\n")
+
+    yield* Config.Service.use((svc) => svc.get().pipe(Effect.andThen(svc.waitForDependencies())))
+
+    expect(localPluginNpm.calls.some((call) => call.dir === configDir)).toBe(true)
+    for (const call of localPluginNpm.calls) {
+      expect(call.add[0].name).toBe("@opencode-ai/plugin")
+    }
+  }),
+)
 
 it.instance("resolves scoped npm plugins in config", () =>
   Effect.gen(function* () {
