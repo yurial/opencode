@@ -204,6 +204,7 @@ const providerErrorLLM = Layer.succeed(
         LLMEvent.stepFinish({ index: 0, reason: "stop" }),
         LLMEvent.finish({ reason: "stop" }),
       ),
+    captureBody: () => Effect.die(new Error("LLM.captureBody not configured in processor tests")),
   }),
 )
 const providerErrorEnv = LayerNode.compile(root, [...replacements, [LLM.node, providerErrorLLM]])
@@ -221,6 +222,7 @@ const fragmentFailureLLM = Layer.succeed(
         LLMEvent.textDelta({ id: "text-1", text: "partial" }),
         LLMEvent.providerError({ message: "provider boom" }),
       ),
+    captureBody: () => Effect.die(new Error("LLM.captureBody not configured in processor tests")),
   }),
 )
 const fragmentFailureEnv = LayerNode.compile(root, [...replacements, [LLM.node, fragmentFailureLLM]])

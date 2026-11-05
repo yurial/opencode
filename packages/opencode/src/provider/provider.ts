@@ -172,6 +172,136 @@ function selectBedrockMantleLanguageModel(sdk: BundledSDK, modelID: string) {
   return sdk.responses?.(modelID) ?? sdk.languageModel(modelID)
 }
 
+// Thrown by the capture transport after the provider SDK has serialized the
+// request; it never reaches the network. Caught only by streamText, which
+// turns it into a stream error part.
+class CaptureCompleteError extends Error {
+  override readonly name = "ProviderCaptureCompleteError"
+
+  constructor(providerID: ProviderV2.ID) {
+    super(`request body captured; transport disabled for ${providerID}`)
+  }
+}
+
+/**
+ * Builds the AI SDK provider options for `model`: provider options copy,
+ * google-vertex baseURL/location fixes, includeUsage normalization, baseURL
+ * variable substitution against vars loaders and environment, auth key
+ * fallback, and model header merge. Shared by the battle path (resolveSDK)
+ * and the request-dump capture path so both construct identical option sets.
+ *
+ * The returned options still carry the opencode-level keys `chunkTimeout`,
+ * `headerTimeout`, `retries`, and a possibly user-configured `fetch`; each
+ * caller removes or replaces them for its own transport.
+ */
+function sdkOptions(model: Model, s: State, envs: Record<string, string | undefined>) {
+  const provider = s.providers[model.providerID]
+  const options = { ...provider.options }
+
+  if (model.providerID === "google-vertex" && model.api.npm === "@ai-sdk/google-vertex/anthropic" && !options.baseURL) {
+    const baseURL = googleVertexAnthropicBaseURL(
+      typeof options.project === "string" ? options.project : undefined,
+      typeof options.location === "string" ? options.location : undefined,
+    )
+    if (baseURL) options.baseURL = baseURL
+  }
+
+  if (model.providerID === "google-vertex" && !model.api.npm.includes("@ai-sdk/openai-compatible")) {
+    delete options.fetch
+  }
+
+  if (model.api.npm.includes("@ai-sdk/openai-compatible") && options["includeUsage"] !== false) {
+    options["includeUsage"] = true
+  }
+
+  const baseURL = iife(() => {
+    let url = typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : model.api.url
+    if (!url) return
+
+    const loader = s.varsLoaders[model.providerID]
+    if (loader) {
+      const vars = loader(options)
+      for (const [key, value] of Object.entries(vars)) {
+        const field = "${" + key + "}"
+        url = url.replaceAll(field, value)
+      }
+    }
+
+    url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
+      const val = envs[String(key)]
+      return val ?? item
+    })
+    return url
+  })
+
+  if (baseURL !== undefined) options["baseURL"] = baseURL
+  if (options["apiKey"] === undefined && provider.key) options["apiKey"] = provider.key
+  if (model.headers)
+    options["headers"] = {
+      ...options["headers"],
+      ...model.headers,
+    }
+
+  return options
+}
+
+/**
+ * Instantiates the provider SDK from prepared options: bundled factories for
+ * catalog npm packages, otherwise a dynamic import of the installed package
+ * (or `file://` path) picking its `create*` entry point. Shared by the battle
+ * path and the request-dump capture path so both run the same construction
+ * branches. Errors are thrown raw; callers wrap them in InitError.
+ */
+async function instantiateSDK(model: Model, options: Record<string, any>): Promise<BundledSDK | SDK> {
+  const bundledLoader = BUNDLED_PROVIDERS[model.api.npm]
+  if (bundledLoader) {
+    const factory = await bundledLoader()
+    return factory({
+      name: model.providerID,
+      ...options,
+    })
+  }
+
+  const installedPath = await (async () => {
+    if (model.api.npm.startsWith("file://")) {
+      return model.api.npm
+    }
+    const item = await Npm.add(model.api.npm)
+    if (!item.entrypoint) throw new Error(`Package ${model.api.npm} has no import entrypoint`)
+    return item.entrypoint
+  })()
+
+  // `installedPath` is a local entry path or an existing `file://` URL. Normalize
+  // only path inputs so Node on Windows accepts the dynamic import.
+  const importSpec = installedPath.startsWith("file://") ? installedPath : pathToFileURL(installedPath).href
+  const mod = await import(importSpec)
+
+  const fn = mod[Object.keys(mod).find((key) => key.startsWith("create"))!]
+  return fn({
+    name: model.providerID,
+    ...options,
+  }) as SDK
+}
+
+/**
+ * Resolves the language model for an instantiated SDK: custom per-provider
+ * model loaders when registered, otherwise `sdk.languageModel(model.api.id)`.
+ * Shared by `getLanguage` and the request-dump capture path so a captured
+ * model matches the battle model for the same provider/model pair.
+ */
+async function languageFromSDK(
+  s: State,
+  provider: Info,
+  sdk: BundledSDK | SDK,
+  model: Model,
+): Promise<LanguageModelV3> {
+  return s.modelLoaders[model.providerID]
+    ? await s.modelLoaders[model.providerID](sdk, model.api.id, { ...provider.options, ...model.options }, model)
+    : // ai's SDK returns its `LanguageModel` alias (model instance or id string); a
+      // resolved provider SDK always yields an instance.
+      (sdk.languageModel(model.api.id) as LanguageModelV3)
+}
+
 function custom(dep: CustomDep): Record<string, CustomLoader> {
   return {
     anthropic: () =>
@@ -1200,11 +1330,50 @@ export class NoModelsError extends Schema.TaggedErrorClass<NoModelsError>()("Pro
 export type DefaultModelError = ModelNotFoundError | NoProvidersError | NoModelsError
 export type Error = ModelNotFoundError | InitError | NoProvidersError | NoModelsError
 
+/**
+ * A language model wired to an in-memory capture transport for the request
+ * dump feature.
+ *
+ * Contract:
+ * - `language` is a fresh LanguageModelV3 built from the same SDK options as
+ *   the battle path (provider options, baseURL substitution, auth key, model
+ *   headers), but its fetch is replaced by a capture stub. It shares no state
+ *   with the cached battle models: neither the SDK cache nor the language
+ *   model cache is consulted or populated, so concurrent battle streams are
+ *   never affected.
+ * - `takeBody()` returns the exact string the production fetch wrapper would
+ *   receive as `init.body` — the provider-serialized JSON payload — or
+ *   `undefined` when the model never reached the fetch call (request failed
+ *   before serialization) or the provider serializes a non-string body
+ *   (multipart providers). Capture is one-shot per instance: request a fresh
+ *   CaptureLanguage for every dump.
+ * - No network I/O happens: the capture fetch aborts before any socket is
+ *   opened. SDK construction effects (bundled factory or dynamic package
+ *   import, custom model loaders) still run, mirroring the battle path.
+ *
+ * Errors: ModelNotFoundError when the provider or model is unknown, InitError
+ * when the SDK package cannot be loaded. UB: calling `takeBody()` before the
+ * model produced a request yields `undefined` by design.
+ */
+export interface CaptureLanguage {
+  readonly language: LanguageModelV3
+  readonly takeBody: () => string | undefined
+}
+
 export interface Interface {
   readonly list: () => Effect.Effect<Record<ProviderV2.ID, Info>>
   readonly getProvider: (providerID: ProviderV2.ID) => Effect.Effect<Info>
   readonly getModel: (providerID: ProviderV2.ID, modelID: ModelV2.ID) => Effect.Effect<Model, ModelNotFoundError>
   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3, ModelNotFoundError>
+  /**
+   * Builds a capture-model pair for `model` (see CaptureLanguage): the same
+   * SDK options and loader branches as `getLanguage`, but with a capture
+   * fetch instead of the network transport and without any caching. The
+   * provider itself is never contacted; feed `language` through the same
+   * streamText/middleware assembly as the battle path to obtain a
+   * byte-identical request body via `takeBody()`.
+   */
+  readonly getCaptureLanguage: (model: Model) => Effect.Effect<CaptureLanguage, Error>
   readonly closest: (
     providerID: ProviderV2.ID,
     query: string[],
@@ -1749,57 +1918,7 @@ const layer = Layer.effect(
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
-        const provider = s.providers[model.providerID]
-        const options = { ...provider.options }
-
-        if (
-          model.providerID === "google-vertex" &&
-          model.api.npm === "@ai-sdk/google-vertex/anthropic" &&
-          !options.baseURL
-        ) {
-          const baseURL = googleVertexAnthropicBaseURL(
-            typeof options.project === "string" ? options.project : undefined,
-            typeof options.location === "string" ? options.location : undefined,
-          )
-          if (baseURL) options.baseURL = baseURL
-        }
-
-        if (model.providerID === "google-vertex" && !model.api.npm.includes("@ai-sdk/openai-compatible")) {
-          delete options.fetch
-        }
-
-        if (model.api.npm.includes("@ai-sdk/openai-compatible") && options["includeUsage"] !== false) {
-          options["includeUsage"] = true
-        }
-
-        const baseURL = iife(() => {
-          let url =
-            typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : model.api.url
-          if (!url) return
-
-          const loader = s.varsLoaders[model.providerID]
-          if (loader) {
-            const vars = loader(options)
-            for (const [key, value] of Object.entries(vars)) {
-              const field = "${" + key + "}"
-              url = url.replaceAll(field, value)
-            }
-          }
-
-          url = url.replace(/\$\{([^}]+)\}/g, (item, key) => {
-            const val = envs[String(key)]
-            return val ?? item
-          })
-          return url
-        })
-
-        if (baseURL !== undefined) options["baseURL"] = baseURL
-        if (options["apiKey"] === undefined && provider.key) options["apiKey"] = provider.key
-        if (model.headers)
-          options["headers"] = {
-            ...options["headers"],
-            ...model.headers,
-          }
+        const options = sdkOptions(model, s, envs)
 
         const key = Hash.fast(
           JSON.stringify({
@@ -1846,38 +1965,9 @@ const layer = Layer.effect(
           return wrapSSE(res, chunkTimeout, chunkAbortCtl)
         }
 
-        const bundledLoader = BUNDLED_PROVIDERS[model.api.npm]
-        if (bundledLoader) {
-          const factory = await bundledLoader()
-          const loaded = factory({
-            name: model.providerID,
-            ...options,
-          })
-          s.sdk.set(key, loaded)
-          return loaded as SDK
-        }
-
-        const installedPath = await (async () => {
-          if (model.api.npm.startsWith("file://")) {
-            return model.api.npm
-          }
-          const item = await Npm.add(model.api.npm)
-          if (!item.entrypoint) throw new Error(`Package ${model.api.npm} has no import entrypoint`)
-          return item.entrypoint
-        })()
-
-        // `installedPath` is a local entry path or an existing `file://` URL. Normalize
-        // only path inputs so Node on Windows accepts the dynamic import.
-        const importSpec = installedPath.startsWith("file://") ? installedPath : pathToFileURL(installedPath).href
-        const mod = await import(importSpec)
-
-        const fn = mod[Object.keys(mod).find((key) => key.startsWith("create"))!]
-        const loaded = fn({
-          name: model.providerID,
-          ...options,
-        })
-        s.sdk.set(key, loaded)
-        return loaded as SDK
+        const loaded = await instantiateSDK(model, options)
+        s.sdk.set(key, loaded as BundledSDK)
+        return loaded
       } catch (e) {
         throw new InitError({ providerID: model.providerID, cause: e })
       }
@@ -1921,19 +2011,45 @@ const layer = Layer.effect(
       return yield* EffectPromise.refineRejection(
         async () => {
           const sdk = await resolveSDK(model, s, envs)
-          const language = s.modelLoaders[model.providerID]
-            ? await s.modelLoaders[model.providerID](
-                sdk,
-                model.api.id,
-                {
-                  ...provider.options,
-                  ...model.options,
-                },
-                model,
-              )
-            : sdk.languageModel(model.api.id)
+          const language = await languageFromSDK(s, provider, sdk, model)
           s.models.set(key, language)
           return language
+        },
+        (cause) =>
+          cause instanceof NoSuchModelError
+            ? new ModelNotFoundError({ modelID: model.id, providerID: model.providerID, cause })
+            : undefined,
+      )
+    })
+
+    const getCaptureLanguage = Effect.fn("Provider.getCaptureLanguage")(function* (model: Model) {
+      const s = yield* InstanceState.get(state)
+      const envs = yield* env.all()
+      const provider = s.providers[model.providerID]
+      return yield* EffectPromise.refineRejection(
+        async (): Promise<CaptureLanguage> => {
+          const options = sdkOptions(model, s, envs)
+          // Mirrors resolveSDK: the AI SDK factory must not receive the
+          // opencode-level transport keys. The capture transport replaces the
+          // fetch wrapper entirely.
+          delete options["chunkTimeout"]
+          delete options["headerTimeout"]
+          delete options["retries"]
+
+          const captured: { body?: string } = {}
+          options["fetch"] = async (_input: any, init?: BunFetchRequestInit) => {
+            const body = init?.body
+            captured.body = typeof body === "string" ? body : undefined
+            throw new CaptureCompleteError(model.providerID)
+          }
+
+          // Same construction branches as the battle path, but never cached:
+          // every dump gets its own SDK and language model instance.
+          const sdk = await instantiateSDK(model, options).catch((cause) =>
+            Promise.reject(new InitError({ providerID: model.providerID, cause })),
+          )
+          const language = await languageFromSDK(s, provider, sdk, model)
+          return { language, takeBody: () => captured.body }
         },
         (cause) =>
           cause instanceof NoSuchModelError
@@ -2058,7 +2174,16 @@ const layer = Layer.effect(
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    return Service.of({
+      list,
+      getProvider,
+      getModel,
+      getLanguage,
+      getCaptureLanguage,
+      closest,
+      getSmallModel,
+      defaultModel,
+    })
   }),
 )
 

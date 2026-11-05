@@ -68,6 +68,7 @@ import { QuestionPrompt } from "./question"
 import { DialogSessionList } from "../../component/dialog-session-list"
 import { slashCommandToken } from "../../keymap"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
+import { DialogPrompt } from "../../ui/dialog-prompt"
 import type { KeyEvent } from "@opentui/core"
 import * as Model from "../../util/model"
 import { formatTranscript } from "../../util/transcript"
@@ -1061,6 +1062,53 @@ export function Session() {
         } catch {
           toast.show({ message: "Failed to export session", variant: "error" })
         }
+        dialog.clear()
+      },
+    },
+    {
+      title: "Dump last request",
+      value: "session.dump_request",
+      category: "Session",
+      run: async () => {
+        // The server rebuilds the body of the session's last sent main LLM
+        // request from the current state (no provider call) and writes it to
+        // `path`. Paths follow open(2) semantics: a relative path resolves
+        // against the workspace directory and an absolute path is used as-is
+        // anywhere the server can write; any path containing ~ is rejected
+        // with BadRequest. BadRequest also covers an unknown session and a
+        // session without a completed model turn.
+        const value = await DialogPrompt.show(dialog, "File path", {
+          placeholder: "request.json",
+        })
+        if (value === null || value.trim() === "") return
+        const result = await sdk.client.experimental.requestDump
+          .create({
+            experimentalRequestDumpPayload: { sessionID: route.sessionID, path: value },
+          })
+          .catch((error: unknown) => {
+            // A rejected call must surface as a toast: the keymap swallows
+            // async command errors silently.
+            toast.show({
+              variant: "error",
+              message: error instanceof Error && error.message ? error.message : "Failed to dump request",
+              duration: 5000,
+            })
+            return undefined
+          })
+        if (!result) {
+          dialog.clear()
+          return
+        }
+        if (result.error || result.data === undefined) {
+          toast.show({
+            variant: "error",
+            message: result.error ? errorMessage(result.error) : "Failed to dump request",
+            duration: 5000,
+          })
+          dialog.clear()
+          return
+        }
+        toast.show({ message: `Request dumped to ${result.data.path}`, variant: "success" })
         dialog.clear()
       },
     },

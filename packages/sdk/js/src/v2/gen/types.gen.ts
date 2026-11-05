@@ -1772,7 +1772,21 @@ export type ProviderConfig = {
      */
     chunkTimeout?: number | false
     retries?: number
-    [key: string]: unknown | string | boolean | number | false | number | false | number | false | number | undefined
+    maxRetryDelaySec?: number
+    timezone?: string
+    [key: string]:
+      | unknown
+      | string
+      | boolean
+      | number
+      | false
+      | number
+      | false
+      | number
+      | false
+      | number
+      | number
+      | undefined
   }
   models?: {
     [key: string]: {
@@ -2143,6 +2157,7 @@ export type Model = {
   primeTimeEnd?: string
   primeTimeDay?: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat">
   primeTimeRetry?: boolean
+  timezone?: string
   variants?: {
     [key: string]: {
       [key: string]: unknown
@@ -2176,6 +2191,16 @@ export type EffectHttpApiErrorInternalServerError = {
 
 export type ExperimentalPrimeTimeState = {
   enabled: boolean
+}
+
+export type ExperimentalRequestDumpPayload = {
+  sessionID: string
+  path: string
+}
+
+export type ExperimentalRequestDumpResult = {
+  path: string
+  bytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
 }
 
 export type ToolListItem = {
@@ -7772,6 +7797,40 @@ export type ExperimentalPrimeTimeSwitchResponses = {
 
 export type ExperimentalPrimeTimeSwitchResponse =
   ExperimentalPrimeTimeSwitchResponses[keyof ExperimentalPrimeTimeSwitchResponses]
+
+export type ExperimentalRequestDumpCreateData = {
+  body?: ExperimentalRequestDumpPayload
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/request-dump"
+}
+
+export type ExperimentalRequestDumpCreateErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * InternalServerError
+   */
+  500: EffectHttpApiErrorInternalServerError
+}
+
+export type ExperimentalRequestDumpCreateError =
+  ExperimentalRequestDumpCreateErrors[keyof ExperimentalRequestDumpCreateErrors]
+
+export type ExperimentalRequestDumpCreateResponses = {
+  /**
+   * Written dump file path and size in bytes
+   */
+  200: ExperimentalRequestDumpResult
+}
+
+export type ExperimentalRequestDumpCreateResponse =
+  ExperimentalRequestDumpCreateResponses[keyof ExperimentalRequestDumpCreateResponses]
 
 export type ToolListData = {
   body?: never

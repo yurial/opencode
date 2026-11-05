@@ -5,9 +5,10 @@ import { ConfigProviderV1 } from "@opencode-ai/core/v1/config/provider"
 import { Provider } from "@/provider/provider"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool } from "ai"
+import type { LanguageModelV3Middleware } from "@ai-sdk/provider"
 import type { LLMEvent } from "@opencode-ai/llm"
 import { LLMClient } from "@opencode-ai/llm/route"
 import type { LLMClientService } from "@opencode-ai/llm/route"
@@ -33,6 +34,26 @@ import { LLMRequestPrep } from "./llm/request"
 
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
+/**
+ * Middleware that lowers ModelMessages into the provider prompt shape via
+ * `ProviderTransform.message`, exactly as the battle path does inside
+ * `streamText`. Shared by `run` and `captureBody` so a captured request gets
+ * the same prompt transform as a live stream.
+ */
+function messageTransformMiddleware(model: Provider.Model, options: Record<string, any>): LanguageModelV3Middleware {
+  return {
+    specificationVersion: "v3",
+    async transformParams({ params, type }) {
+      if (type === "stream") {
+        // @ts-expect-error ProviderTransform.message lowers ModelMessages into
+        // the runtime provider prompt shape; the declared parameter types lag.
+        params.prompt = ProviderTransform.message(params.prompt, model, options)
+      }
+      return params
+    },
+  }
+}
+
 export type StreamInput = {
   user: SessionV1.User
   sessionID: string
@@ -52,8 +73,45 @@ export type StreamRequest = StreamInput & {
   abort: AbortSignal
 }
 
+/**
+ * Raised when the request body of a stream input cannot be captured.
+ *
+ * `reason` describes the failure stage; `cause` carries the underlying
+ * provider error when one exists. This is a pure dry-run error: it never
+ * touches the session state and no network request was sent when it fails.
+ */
+export class CaptureError extends Schema.TaggedErrorClass<CaptureError>()("LLMCaptureError", {
+  reason: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {
+  override get message() {
+    return this.reason
+  }
+}
+
 export interface Interface {
   readonly stream: (input: StreamInput) => Stream.Stream<LLMEvent, unknown>
+  /**
+   * Rebuilds the exact provider request body for `input` without contacting
+   * the provider and without touching session state (pure dry-run).
+   *
+   * The input goes through the same preparation (`LLMRequestPrep.prepare`)
+   * and the same streamText argument assembly as `stream`, but the language
+   * model comes from `Provider.getCaptureLanguage`, whose fetch aborts as soon
+   * as the provider SDK has serialized the request. Returns that serialized
+   * body — byte-for-byte the string the battle path would pass to fetch as
+   * `init.body`.
+   *
+   * Accuracy caveat: the body reproduces the request under the CURRENT
+   * session/config/plugin state. If config, plugins, agent instructions, or
+   * session history changed since the original turn, the dump differs from
+   * what was actually sent.
+   *
+   * Errors: CaptureError — provider/model resolution failed, the model routes
+   * over a non-fetch transport (workflow models), or the provider never
+   * serialized a request body.
+   */
+  readonly captureBody: (input: StreamInput) => Effect.Effect<string, CaptureError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM") {}
@@ -356,22 +414,7 @@ const live: Layer.Layer<
           messages: prepared.messages,
           model: wrapLanguageModel({
             model: language,
-            middleware: [
-              {
-                specificationVersion: "v3" as const,
-                async transformParams(args) {
-                  if (args.type === "stream") {
-                    // @ts-expect-error
-                    args.params.prompt = ProviderTransform.message(
-                      args.params.prompt,
-                      input.model,
-                      prepared.messageTransformOptions,
-                    )
-                  }
-                  return args.params
-                },
-              },
-            ],
+            middleware: [messageTransformMiddleware(input.model, prepared.messageTransformOptions)],
           }),
           experimental_telemetry: {
             isEnabled: cfg.experimental?.openTelemetry,
@@ -384,6 +427,78 @@ const live: Layer.Layer<
           },
         }),
       }
+    })
+
+    const captureBody = Effect.fn("LLM.captureBody")(function* (input: StreamInput) {
+      const [item, info, capture] = yield* Effect.all(
+        [
+          provider.getProvider(input.model.providerID),
+          auth.get(input.model.providerID),
+          provider.getCaptureLanguage(input.model),
+        ],
+        { concurrency: "unbounded" },
+      ).pipe(Effect.catch((cause) => new CaptureError({ reason: "provider resolution failed", cause })))
+
+      // Workflow models dispatch over the LLM WebSocket transport instead of
+      // an HTTP fetch, so the capture transport can never see their body.
+      if (capture.language instanceof GitLabWorkflowLanguageModel) {
+        return yield* new CaptureError({
+          reason: "workflow models route over the LLM WebSocket transport and cannot be captured",
+        })
+      }
+
+      const prepared = yield* LLMRequestPrep.prepare({
+        ...input,
+        provider: item,
+        auth: info,
+        plugin,
+        flags,
+        isWorkflow: false,
+      }).pipe(Effect.catch((cause) => new CaptureError({ reason: "request preparation failed", cause })))
+
+      // Same argument assembly as the battle streamText call below, minus
+      // response-side concerns that cannot affect the outgoing body (error
+      // logging, tool-call repair, telemetry, raw chunks). The capture fetch
+      // throws as soon as the provider SDK serializes the request, so the
+      // stream always ends in an error part and never touches the network.
+      const controller = new AbortController()
+      const failure = yield* Effect.tryPromise({
+        try: async () => {
+          let error: unknown
+          const result = streamText({
+            temperature: prepared.params.temperature,
+            topP: prepared.params.topP,
+            topK: prepared.params.topK,
+            providerOptions: ProviderTransform.providerOptions(input.model, prepared.params.options),
+            activeTools: Object.keys(prepared.tools).filter((x) => x !== "invalid"),
+            tools: prepared.tools,
+            toolChoice: input.toolChoice,
+            maxOutputTokens: prepared.params.maxOutputTokens,
+            abortSignal: controller.signal,
+            headers: prepared.headers,
+            maxRetries: 0,
+            messages: prepared.messages,
+            model: wrapLanguageModel({
+              model: capture.language,
+              middleware: [messageTransformMiddleware(input.model, prepared.messageTransformOptions)],
+            }),
+          })
+          for await (const part of result.fullStream) {
+            if (part.type === "error") error = part.error
+          }
+          return error
+        },
+        catch: (cause) => new CaptureError({ reason: "capture stream failed", cause }),
+      })
+
+      const body = capture.takeBody()
+      if (body === undefined) {
+        return yield* new CaptureError({
+          reason: "the provider never serialized a request body",
+          cause: failure,
+        })
+      }
+      return body
     })
 
     const stream: Interface["stream"] = (input) =>
@@ -412,7 +527,7 @@ const live: Layer.Layer<
         ),
       )
 
-    return Service.of({ stream })
+    return Service.of({ stream, captureBody })
   }),
 )
 
