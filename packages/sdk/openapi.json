@@ -1167,6 +1167,86 @@
         ]
       }
     },
+    "/experimental/request-dump": {
+      "post": {
+        "tags": ["experimental"],
+        "operationId": "experimental.requestDump.create",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Written dump file path and size in bytes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentalRequestDumpResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "InternalServerError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/effect_HttpApiError_InternalServerError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Rebuild the body of the session's last main LLM request from current state without contacting the provider, and write it as raw JSON to a file. Paths follow open(2) semantics: relative paths resolve against the instance directory, absolute paths are used as-is anywhere the server process can write; any path containing ~ is rejected with BadRequest.",
+        "summary": "Dump the last provider request body",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExperimentalRequestDumpPayload"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.experimental.requestDump.create({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/experimental/tool": {
       "get": {
         "tags": ["experimental"],
@@ -21224,6 +21304,13 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 1000000
+              },
+              "maxRetryDelaySec": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "timezone": {
+                "type": "string"
               }
             },
             "additionalProperties": {}
@@ -22280,6 +22367,9 @@
           "primeTimeRetry": {
             "type": "boolean"
           },
+          "timezone": {
+            "type": "string"
+          },
           "variants": {
             "type": "object",
             "additionalProperties": {
@@ -22376,6 +22466,53 @@
           }
         },
         "required": ["enabled"],
+        "additionalProperties": false
+      },
+      "ExperimentalRequestDumpPayload": {
+        "type": "object",
+        "properties": {
+          "sessionID": {
+            "type": "string",
+            "pattern": "^ses"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": ["sessionID", "path"],
+        "additionalProperties": false
+      },
+      "ExperimentalRequestDumpResult": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          }
+        },
+        "required": ["path", "bytes"],
         "additionalProperties": false
       },
       "ToolListItem": {
@@ -24279,6 +24416,16 @@
           "spec": {
             "$ref": "#/components/schemas/SessionScheduleSpec"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "message": {
             "type": "string",
             "description": "The stored message text delivered on fire."
@@ -24298,7 +24445,7 @@
             ]
           }
         },
-        "required": ["id", "spec", "message", "nextFireAt", "command"],
+        "required": ["id", "spec", "name", "message", "nextFireAt", "command"],
         "additionalProperties": false
       },
       "SessionScheduleList": {

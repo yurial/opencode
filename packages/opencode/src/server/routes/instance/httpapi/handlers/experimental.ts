@@ -2,20 +2,24 @@ import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 import { MCP } from "@/mcp"
 import { Project } from "@/project/project"
 import { Session } from "@/session/session"
+import { SessionPrompt } from "@/session/prompt"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
 import { Worktree } from "@/worktree"
 import { isPrimeTimeEnforced, setPrimeTimeEnforced } from "@opencode-ai/core/v1/config/provider"
 import { Effect, Option } from "effect"
+import path from "path"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import {
   ConsoleSwitchPayload,
   PrimeTimeSwitchPayload,
+  RequestDumpPayload,
   SessionListQuery,
   ToolListQuery,
   WorktreeApiError,
@@ -37,6 +41,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const registry = yield* ToolRegistry.Service
     const worktreeSvc = yield* Worktree.Service
     const sessions = yield* Session.Service
+    const prompts = yield* SessionPrompt.Service
+    const fsx = yield* FSUtil.Service
 
     const getConsole = Effect.fn("ExperimentalHttpApi.console")(function* () {
       const [state, groups] = yield* Effect.all(
@@ -98,6 +104,23 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     }) {
       setPrimeTimeEnforced(ctx.payload.enabled)
       return { enabled: isPrimeTimeEnforced() }
+    })
+
+    const requestDump = Effect.fn("ExperimentalHttpApi.requestDump")(function* (ctx: {
+      payload: typeof RequestDumpPayload.Type
+    }) {
+      // open(2) semantics: a relative path resolves against the instance
+      // directory and an absolute path is used as-is anywhere the server
+      // process can write. A path containing `~` in any position is rejected
+      // with BadRequest — a deliberate choice against ambiguous literal
+      // tilde paths; no tilde expansion is performed.
+      if (ctx.payload.path.includes("~")) return yield* new HttpApiError.BadRequest({})
+      const file = path.resolve((yield* InstanceState.context).directory, ctx.payload.path)
+      const body = yield* prompts
+        .dumpRequest(ctx.payload.sessionID)
+        .pipe(Effect.catch(() => new HttpApiError.BadRequest({})))
+      yield* fsx.writeWithDirs(file, body).pipe(Effect.catch(() => new HttpApiError.InternalServerError({})))
+      return { path: ctx.payload.path, bytes: Buffer.byteLength(body) }
     })
 
     const tool = Effect.fn("ExperimentalHttpApi.tool")(function* (ctx: { query: typeof ToolListQuery.Type }) {
@@ -175,6 +198,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("consoleSwitch", switchConsole)
       .handle("primeTime", primeTime)
       .handle("primeTimeSwitch", primeTimeSwitch)
+      .handle("requestDump", requestDump)
       .handle("tool", tool)
       .handle("toolIDs", toolIDs)
       .handle("worktree", worktree)

@@ -42,6 +42,9 @@ import type {
   ExperimentalPrimeTimeSwitchResponses,
   ExperimentalProjectCopyGenerateNameErrors,
   ExperimentalProjectCopyGenerateNameResponses,
+  ExperimentalRequestDumpCreateErrors,
+  ExperimentalRequestDumpCreateResponses,
+  ExperimentalRequestDumpPayload,
   ExperimentalResourceListErrors,
   ExperimentalResourceListResponses,
   ExperimentalSessionListErrors,
@@ -851,6 +854,49 @@ export class PrimeTime extends HeyApiClient {
   }
 }
 
+export class RequestDump extends HeyApiClient {
+  /**
+   * Dump the last provider request body
+   *
+   * Rebuild the body of the session's last main LLM request from current state without contacting the provider, and write it as raw JSON to a file. Paths follow open(2) semantics: relative paths resolve against the instance directory, absolute paths are used as-is anywhere the server process can write; any path containing ~ is rejected with BadRequest.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      experimentalRequestDumpPayload?: ExperimentalRequestDumpPayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "experimentalRequestDumpPayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ExperimentalRequestDumpCreateResponses,
+      ExperimentalRequestDumpCreateErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/request-dump",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session extends HeyApiClient {
   /**
    * List sessions
@@ -1267,6 +1313,11 @@ export class Experimental extends HeyApiClient {
   private _primeTime?: PrimeTime
   get primeTime(): PrimeTime {
     return (this._primeTime ??= new PrimeTime({ client: this.client }))
+  }
+
+  private _requestDump?: RequestDump
+  get requestDump(): RequestDump {
+    return (this._requestDump ??= new RequestDump({ client: this.client }))
   }
 
   private _session?: Session

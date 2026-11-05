@@ -107,9 +107,52 @@ export interface Interface {
   readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
   readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
+  /**
+   * Rebuilds the provider request body of the session's last main LLM turn
+   * (the turn that produced the newest assistant row) and returns it as the
+   * raw JSON string — byte-for-byte what the battle path passes to fetch.
+   *
+   * Contract:
+   * - The input is reconstructed from the session projection strictly BEFORE
+   *   the newest assistant row (each loop iteration reloads history before
+   *   creating its assistant), with model/agent taken from that assistant's
+   *   parent user message. Nothing is written: no messages, parts, events, or
+   *   DB rows change, and the provider is never contacted (the request is
+   *   aborted at serialization by a capture transport).
+   * - Small calls (title, summary, compaction helpers) create no assistant
+   *   rows and are therefore never dumped; compaction summary turns are real
+   *   assistant rows and are dumped like any other turn.
+   * - Accuracy caveat: the body reproduces the request under the CURRENT
+   *   session/config/plugin state. If config, plugins, instructions, or
+   *   history changed since the original turn, the dump differs from the
+   *   body that was actually sent. The loop step counter (which only matters
+   *   for the MAX_STEPS_PROMPT suffix of finite-steps agents) is reconstructed
+   *   from assistant rows sharing the same parent and is approximate after
+   *   mid-run auto-compaction.
+   *
+   * Errors: DumpError — session not found, no assistant row exists yet, the
+   * parent user message/model/agent of the last turn is no longer resolvable,
+   * or the provider request body could not be captured (see LLM.CaptureError).
+   */
+  readonly dumpRequest: (sessionID: SessionID) => Effect.Effect<string, DumpError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionPrompt") {}
+
+/**
+ * Raised when the last provider request body of a session cannot be rebuilt.
+ * `detail` names the failing stage (session lookup, history boundary, model
+ * or agent resolution, body capture); `cause` carries the underlying error
+ * when one exists. Dry-run only: no session state is modified on failure.
+ */
+export class DumpError extends Schema.TaggedErrorClass<DumpError>()("SessionDumpError", {
+  detail: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {
+  override get message() {
+    return `Failed to dump provider request: ${this.detail}`
+  }
+}
 
 const layer = Layer.effect(
   Service,
@@ -610,6 +653,107 @@ const layer = Layer.effect(
         })
       }
       return yield* Effect.die(err)
+    })
+
+    /**
+     * Assembles the LLM request input for one provider turn: reminder
+     * injection, agent-check bypass detection, tool resolution, the
+     * structured-output tool, the plugin message transform, system prompt
+     * assembly, and history lowering. Shared verbatim by the prompt loop and
+     * the request dump (`dumpRequest`) so a dump rebuilds the exact battle
+     * request input.
+     *
+     * `processor` and `promptOps` serve tool execution only; tools are never
+     * invoked while merely building the request, so the dump passes inert
+     * stubs. No state is written here (reminder persistence stays with the
+     * provided Session service, which callers control).
+     */
+    const buildRequest = Effect.fn("SessionPrompt.buildRequest")(function* (input: {
+      session: Session.Info
+      user: SessionV1.User
+      agent: Agent.Info
+      model: Provider.Model
+      messages: SessionV1.WithParts[]
+      discardEnabled: boolean
+      isLastStep: boolean
+      processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
+      promptOps: TaskPromptOps
+      onStructured: (output: unknown) => void
+    }) {
+      const msgs = yield* SessionReminders.apply({
+        messages: input.messages,
+        agent: input.agent,
+        session: input.session,
+      }).pipe(
+        Effect.provideService(RuntimeFlags.Service, flags),
+        Effect.provideService(FSUtil.Service, fsys),
+        Effect.provideService(Session.Service, sessions),
+      )
+
+      const bypassAgentCheck =
+        msgs.findLast((m) => m.info.role === "user")?.parts.some((p) => p.type === "agent") ?? false
+
+      const tools = yield* SessionTools.resolve({
+        agent: input.agent,
+        session: input.session,
+        model: input.model,
+        processor: input.processor,
+        bypassAgentCheck,
+        messages: msgs,
+        promptOps: input.promptOps,
+      }).pipe(
+        Effect.provideService(Plugin.Service, plugin),
+        Effect.provideService(Permission.Service, permission),
+        Effect.provideService(ToolRegistry.Service, registry),
+        Effect.provideService(MCP.Service, mcp),
+        Effect.provideService(Truncate.Service, truncate),
+        Effect.provideService(RuntimeFlags.Service, flags),
+      )
+
+      if (input.user.format?.type === "json_schema") {
+        tools["StructuredOutput"] = createStructuredOutputTool({
+          schema: input.user.format.schema,
+          onSuccess: input.onStructured,
+        })
+      }
+
+      yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+
+      const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
+        sys.skills(input.agent),
+        sys.environment(input.model),
+        instruction.system().pipe(Effect.orDie),
+        sys.mcp(input.agent, input.session.permission),
+        // The part-id markers are projection-only and flag-gated: they ride
+        // the provider request on flag-enabled turns only (R8.1, R8.5).
+        // Compaction and title generation lower without them.
+        MessageV2.toModelMessagesEffect(msgs, input.model, { partIdMarkers: input.discardEnabled }),
+      ])
+      const system = [
+        ...env,
+        ...instructions,
+        ...(mcpInstructions ? [mcpInstructions] : []),
+        ...(skills ? [skills] : []),
+        ...(input.discardEnabled ? [DiscardContext.INSTRUCTION] : []),
+      ]
+      const format = input.user.format ?? { type: "text" as const }
+      if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+
+      return {
+        user: input.user,
+        agent: input.agent,
+        permission: input.session.permission,
+        sessionID: input.session.id,
+        parentSessionID: input.session.parentID,
+        system,
+        messages: [
+          ...modelMsgs,
+          ...(input.isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
+        ],
+        tools,
+        model: input.model,
+        toolChoice: format.type === "json_schema" ? ("required" as const) : undefined,
+      }
     })
 
     const currentModel = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -1184,11 +1328,6 @@ const layer = Layer.effect(
           }
           const maxSteps = agent.steps ?? Infinity
           const isLastStep = step >= maxSteps
-          msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
-            Effect.provideService(RuntimeFlags.Service, flags),
-            Effect.provideService(FSUtil.Service, fsys),
-            Effect.provideService(Session.Service, sessions),
-          )
 
           const msg: SessionV1.Assistant = {
             id: MessageID.ascending(),
@@ -1226,75 +1365,23 @@ const layer = Layer.effect(
             .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
 
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
-            const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
-            const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
-            const promptOps = yield* ops()
-
-            const tools = yield* SessionTools.resolve({
-              agent,
-              session,
-              model,
-              processor: handle,
-              bypassAgentCheck,
-              messages: msgs,
-              promptOps,
-            }).pipe(
-              Effect.provideService(Plugin.Service, plugin),
-              Effect.provideService(Permission.Service, permission),
-              Effect.provideService(ToolRegistry.Service, registry),
-              Effect.provideService(MCP.Service, mcp),
-              Effect.provideService(Truncate.Service, truncate),
-              Effect.provideService(RuntimeFlags.Service, flags),
-            )
-
-            if (lastUser.format?.type === "json_schema") {
-              tools["StructuredOutput"] = createStructuredOutputTool({
-                schema: lastUser.format.schema,
-                onSuccess(output) {
-                  structured = output
-                },
-              })
-            }
-
             if (step === 1)
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
-
-            yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-
-            const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
-              sys.skills(agent),
-              sys.environment(model),
-              instruction.system().pipe(Effect.orDie),
-              sys.mcp(agent, session.permission),
-              // The part-id markers are projection-only and flag-gated: they
-              // ride the provider request on flag-enabled turns only (R8.1,
-              // R8.5). Compaction and title generation lower without them.
-              MessageV2.toModelMessagesEffect(msgs, model, { partIdMarkers: discardEnabled }),
-            ])
-            const system = [
-              ...env,
-              ...instructions,
-              ...(mcpInstructions ? [mcpInstructions] : []),
-              ...(skills ? [skills] : []),
-              ...(discardEnabled ? [DiscardContext.INSTRUCTION] : []),
-            ]
-            const format = lastUser.format ?? { type: "text" as const }
-            if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-            const result = yield* handle.process({
+            const request = yield* buildRequest({
+              session,
               user: lastUser,
               agent,
-              permission: session.permission,
-              sessionID,
-              parentSessionID: session.parentID,
-              system,
-              messages: [
-                ...modelMsgs,
-                ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
-              ],
-              tools,
               model,
-              toolChoice: format.type === "json_schema" ? "required" : undefined,
+              messages: msgs,
+              discardEnabled,
+              isLastStep,
+              processor: handle,
+              promptOps: yield* ops(),
+              onStructured: (output) => {
+                structured = output
+              },
             })
+            const result = yield* handle.process(request)
 
             if (structured !== undefined) {
               handle.message.structured = structured
@@ -1317,7 +1404,7 @@ const layer = Layer.effect(
                 yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
                 return "break" as const
               }
-              if (format.type === "json_schema") {
+              if (lastUser.format?.type === "json_schema") {
                 handle.message.error = new SessionV1.StructuredOutputError({
                   message: "Model did not produce structured output",
                   retries: 0,
@@ -1491,6 +1578,98 @@ const layer = Layer.effect(
       return result
     })
 
+    const dumpRequest = Effect.fn("SessionPrompt.dumpRequest")(function* (sessionID: SessionID) {
+      const session = yield* sessions
+        .get(sessionID)
+        .pipe(Effect.mapError((cause) => new DumpError({ detail: `session not found: ${sessionID}`, cause })))
+      const all = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
+        Effect.provideService(Database.Service, database),
+      )
+      const last = MessageV2.latest(all).assistant
+      if (!last) {
+        return yield* new DumpError({ detail: `session ${sessionID} has no model requests to dump` })
+      }
+
+      // The loop reloads the projection before creating each assistant, so
+      // the request input of the newest assistant is the projection strictly
+      // before it; the model and agent come from its parent user message.
+      const history = all.filter((msg) => msg.info.id !== last.id)
+      const discardEnabled = (yield* config.get()).discard_context === true
+      const projected = discardEnabled ? DiscardContext.filterEntries(history) : history
+      const parent = projected.find((msg) => msg.info.id === last.parentID)
+      const lastUser = parent?.info.role === "user" ? parent.info : undefined
+      if (!lastUser) {
+        return yield* new DumpError({
+          detail: `the request context of ${last.id} is no longer part of the ${sessionID} projection`,
+        })
+      }
+
+      const model = yield* provider
+        .getModel(lastUser.model.providerID, lastUser.model.modelID)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new DumpError({
+                detail: `model not found: ${lastUser.model.providerID}/${lastUser.model.modelID}`,
+                cause,
+              }),
+          ),
+        )
+      const agent = yield* agents.get(lastUser.agent)
+      if (!agent) {
+        return yield* new DumpError({ detail: `agent not found: "${lastUser.agent}"` })
+      }
+
+      // Loop step reconstruction: every run-loop iteration that produces an
+      // assistant row with the same parent consumes one step, so the dumped
+      // assistant's position among its parent siblings is its step count.
+      // Approximate after a mid-run auto-compaction, whose overflow iteration
+      // leaves no assistant row behind.
+      const step =
+        projected.filter((msg) => msg.info.role === "assistant" && msg.info.parentID === last.parentID).length + 1
+      const isLastStep = step >= (agent.steps ?? Infinity)
+
+      // The processor and prompt ops exist for tool execution, which a dump
+      // never performs; the stub carries the real assistant row so tool
+      // definitions that reference message ids resolve to it.
+      const processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall"> = {
+        message: last,
+        updateToolCall: () => Effect.succeed(undefined),
+        completeToolCall: () => Effect.void,
+      }
+      const promptOps: TaskPromptOps = {
+        cancel: () => Effect.void,
+        resolvePromptParts: () => Effect.succeed([]),
+        prompt: () => Effect.die(new Error("prompt is unavailable while dumping a request")),
+      }
+
+      // Plan-mode reminders persist a reminder part through Session.updatePart;
+      // the dump must not write, so the builder sees a Session service whose
+      // updatePart only echoes its input. The in-memory part push (which does
+      // affect the request body) still happens on the freshly loaded rows.
+      const request = yield* buildRequest({
+        session,
+        user: lastUser,
+        agent,
+        model,
+        messages: projected,
+        discardEnabled,
+        isLastStep,
+        processor,
+        promptOps,
+        onStructured: () => {},
+      }).pipe(
+        Effect.provideService(
+          Session.Service,
+          Session.Service.of({ ...sessions, updatePart: (part) => Effect.succeed(part) }),
+        ),
+      )
+
+      return yield* llm
+        .captureBody(request)
+        .pipe(Effect.mapError((cause) => new DumpError({ detail: "provider request capture failed", cause })))
+    })
+
     return Service.of({
       cancel,
       prompt,
@@ -1498,6 +1677,7 @@ const layer = Layer.effect(
       shell,
       command,
       resolvePromptParts,
+      dumpRequest,
     })
   }),
 )

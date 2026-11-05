@@ -1,6 +1,7 @@
 import { AccountID, OrgID } from "@/account/schema"
 import { MCP } from "@/mcp"
 
+import { SessionID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { Worktree } from "@/worktree"
 import { NonNegativeInt } from "@opencode-ai/core/schema"
@@ -50,6 +51,27 @@ export const PrimeTimeSwitchPayload = Schema.Struct({
   enabled: Schema.Boolean,
 })
 
+/**
+ * Asks the server to rebuild the provider request body of the session's last
+ * main LLM turn and write it to `path`. Paths follow open(2) semantics: a
+ * relative path resolves against the instance directory and an absolute path
+ * is used as-is anywhere the server process can write. A path containing `~`
+ * in any position is rejected with BadRequest — a deliberate choice against
+ * ambiguous literal tilde paths; no tilde expansion is performed. The provider
+ * is never contacted and no session state changes — the dump is a dry-run
+ * rebuilt from the current session/config/plugin state, so it may differ from
+ * the body originally sent if that state changed in between.
+ */
+export const RequestDumpPayload = Schema.Struct({
+  sessionID: SessionID,
+  path: Schema.String,
+}).annotate({ identifier: "ExperimentalRequestDumpPayload" })
+
+export const RequestDumpResult = Schema.Struct({
+  path: Schema.String,
+  bytes: Schema.Number,
+}).annotate({ identifier: "ExperimentalRequestDumpResult" })
+
 const ToolIDs = Schema.Array(Schema.String).annotate({ identifier: "ToolIDs" })
 const ToolListItem = Schema.Struct({
   id: Schema.String,
@@ -96,6 +118,7 @@ export const ExperimentalPaths = {
   consoleSwitch: "/experimental/console/switch",
   primeTime: "/experimental/prime-time",
   primeTimeSwitch: "/experimental/prime-time/switch",
+  requestDump: "/experimental/request-dump",
   tool: "/experimental/tool",
   toolIDs: "/experimental/tool/ids",
   worktree: "/experimental/worktree",
@@ -163,6 +186,19 @@ export const ExperimentalApi = HttpApi.make("experimental")
             summary: "Switch prime-time enforcement",
             description:
               "Enable or disable prime-time enforcement for this OpenCode server process and return the new state.",
+          }),
+        ),
+        HttpApiEndpoint.post("requestDump", ExperimentalPaths.requestDump, {
+          query: WorkspaceRoutingQuery,
+          payload: RequestDumpPayload,
+          success: described(RequestDumpResult, "Written dump file path and size in bytes"),
+          error: [HttpApiError.BadRequest, HttpApiError.InternalServerError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.requestDump.create",
+            summary: "Dump the last provider request body",
+            description:
+              "Rebuild the body of the session's last main LLM request from current state without contacting the provider, and write it as raw JSON to a file. Paths follow open(2) semantics: relative paths resolve against the instance directory, absolute paths are used as-is anywhere the server process can write; any path containing ~ is rejected with BadRequest.",
           }),
         ),
         HttpApiEndpoint.get("tool", ExperimentalPaths.tool, {
