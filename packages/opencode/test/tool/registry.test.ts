@@ -271,6 +271,48 @@ describe("tool.registry", () => {
     }),
   )
 
+  it.instance("keeps write available alongside apply_patch for gpt models", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const agent = yield* agents.defaultInfo()
+      const ids = (modelID: string) =>
+        registry.tools({
+          providerID: ProviderV2.ID.opencode,
+          modelID: ModelV2.ID.make(modelID),
+          agent,
+        }).pipe(Effect.map((tools) => tools.map((tool) => tool.id)))
+
+      for (const modelID of ["gpt-5.2", "gpt-6"]) {
+        const model = yield* ids(modelID)
+        expect(model).toContain("write")
+        expect(model).toContain("apply_patch")
+        expect(model).not.toContain("edit")
+      }
+    }),
+  )
+
+  it.instance("keeps write and edit available without apply_patch for gpt-4, gpt-oss, and non-gpt models", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const agent = yield* agents.defaultInfo()
+      const ids = (modelID: string) =>
+        registry.tools({
+          providerID: ProviderV2.ID.opencode,
+          modelID: ModelV2.ID.make(modelID),
+          agent,
+        }).pipe(Effect.map((tools) => tools.map((tool) => tool.id)))
+
+      for (const modelID of ["gpt-4.1", "gpt-oss-120b", "claude-sonnet-4-6"]) {
+        const model = yield* ids(modelID)
+        expect(model).toContain("write")
+        expect(model).toContain("edit")
+        expect(model).not.toContain("apply_patch")
+      }
+    }),
+  )
+
   withCodeMode.instance("exposes execute when code mode is enabled", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
