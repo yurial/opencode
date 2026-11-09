@@ -30,7 +30,7 @@ import { TestLLMServer } from "./llm-server"
 import { testProviderConfig } from "./test-provider"
 import { it } from "./effect"
 
-const opencodeRoot = path.resolve(import.meta.dir, "../../")
+export const opencodeRoot = path.resolve(import.meta.dir, "../../")
 const cliEntry = path.join(opencodeRoot, "src/index.ts")
 
 export const testModelID = "test/test-model"
@@ -89,7 +89,15 @@ export type RunHandle = {
   readonly result: Effect.Effect<RunResult>
 }
 
-export type SpawnOpts = { readonly timeoutMs?: number; readonly env?: Record<string, string> }
+export type SpawnOpts = {
+  readonly timeoutMs?: number
+  readonly env?: Record<string, string>
+  // Working directory of the spawned CLI. Defaults to the fixture home, which
+  // keeps process cwd out of the test's control; tests that need the CLI to
+  // run inside the workspace (module resolution of hoisted peer deps such as
+  // react only works from inside it in dev mode) pass an explicit cwd.
+  readonly cwd?: string
+}
 
 // Typed equivalent of constructing argv for `opencode run`. New flags should
 // land here so tests stay grep-able and refactor-safe.
@@ -212,7 +220,7 @@ export function withCliFixture<A, E>(
       // consumed as the prompt). The old Process.run wrapper defaulted to
       // ignore; ChildProcess.make defaults to pipe, so we set it explicitly.
       const command = ChildProcess.make("bun", ["run", cliEntry, ...args], {
-        cwd: home,
+        cwd: opts?.cwd ?? home,
         env: { ...env, ...opts?.env },
         extendEnv: true,
         stdin: "ignore",

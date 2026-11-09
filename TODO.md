@@ -1,5 +1,41 @@
 # TODO
 
+## attach-directory (attach-directory)
+
+- **Локализованные копии документации не обновлялись**: правки о directory по умолчанию
+  (cwd клиента при attach/run) внесены только в en-версии
+  `packages/web/src/content/docs/cli.mdx` и `packages/web/src/content/docs/web.mdx`;
+  переводы в остальных локалях требуют отдельного translation-пасса.
+- **`x-opencode-workspace` на POST /api/session не читается**: цепочка резолва directory
+  v2 session.create — `payload.location` → `x-opencode-directory` → `location[directory]`
+  (query) → `process.cwd()`; workspace передаётся только через `payload.location.workspaceID`.
+  Заголовок workspace при создании сессии вне скоупа этой задачи.
+- **Пустые значения header/query трактуются как отсутствующие**: пустой
+  `x-opencode-directory: ""` или `?location[directory]=` при создании v2-сессии дают
+  fallback на cwd сервера (как в LocationMiddleware), а не ошибку и не directory "".
+- **Валидация существования directory — только на v2 `session.create`**: явная
+  (payload/header/query) несуществующая directory даёт 400 InvalidRequestError вместо
+  молчаливого проекта "/". v1-роуты (workspace-routing → instance-context →
+  `Project.fromDirectory`) и остальные v2-эндпоинты (LocationMiddleware →
+  `Location.node` → `ProjectV2.resolve`) по-прежнему молча сводят несуществующую
+  directory к worktree "/" — мягкий fallback сохранён намеренно; перенос проверки в
+  `ProjectV2.resolve`/instance-loading потребовал бы расширять error-канал
+  `resolve()` во всех вызывающих (широкий рефакторинг, отложен).
+- **Перезапись default location клиента ответом сервера оставлена как есть**:
+  `packages/tui/src/context/data.tsx` (`location.refresh` → `setDefaultLocation`) и
+  `run.ts current()` — при переданном directory это безвредно (сервер отвечает тем же
+  directory), меняется только при пустом directory, чего после этой задачи у attach/run
+  не бывает.
+- **`opencode attach` subprocess-тесты падают в этом окружении на чистом main**:
+  спавн CLI с cwd вне workspace (`test/lib/cli-process.ts` использует cwd=home) не может
+  разрешить hoisted peer-зависимости TUI-цепочки импортов ("Cannot find package 'react'"
+  из `packages/tui/src/config/index.tsx`); падение воспроизведено на базовом коммите
+  (тест "routes attached sessions to mini mode" в `test/cli/tui/thread.test.ts`).
+  Новый тест attach в `test/cli/tui/attach.test.ts` обходится опцией `cwd` у `spawn`
+  (спавн из `packages/opencode`); fixture-дефолт не менялся.
+- **`httpapi-cors` / `httpapi-listen` флакают под полной нагрузкой `test/server/`**
+  (таймауты 4.5s/30s), изолированно проходят; не связаны с изменениями ветки.
+
 ## discard-context UI (issue-discard-context)
 
 - **session-ui (web)**: маркер-дивидер показывает «Discarded N context parts» сразу, включая

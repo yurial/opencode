@@ -1,20 +1,23 @@
 import { SessionV2 } from "@opencode-ai/core/session"
 import { Scheduler } from "@opencode-ai/core/scheduler/scheduler"
 import { TaskRun } from "@opencode-ai/core/task-run/task-run"
+import { FSUtil } from "@opencode-ai/core/fs-util"
+import { AbsolutePath } from "@opencode-ai/core/schema"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
+import { decode } from "../location"
 import { SessionsCursor, SessionTask } from "@opencode-ai/protocol/groups/session"
 import {
   ConflictError,
   InvalidCursorError,
+  InvalidRequestError,
   MessageNotFoundError,
   ServiceUnavailableError,
   SessionNotFoundError,
   TaskNotFoundError,
   UnknownError,
 } from "@opencode-ai/protocol/errors"
-import { AbsolutePath } from "@opencode-ai/core/schema"
 
 const DefaultSessionsLimit = 50
 const DefaultSessionHistoryLimit = 50
@@ -36,6 +39,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
     const session = yield* SessionV2.Service
     const scheduler = yield* Scheduler.Service
     const taskRun = yield* TaskRun.Service
+    const fs = yield* FSUtil.Service
 
     // The status surfaces report the derived state of a run (specs/tool-task.md
     // R5.4): the registry read applies the host liveness reader — a run with
@@ -97,12 +101,29 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.create",
         Effect.fn(function* (ctx) {
+          // Directory chain: payload location → x-opencode-directory header →
+          // location[directory] query → server process cwd. Empty header and
+          // query values count as absent, like in the location middleware. The
+          // cwd fallback stays deliberately permissive; an explicitly
+          // requested directory must exist on the server, otherwise project
+          // resolution would silently degrade the session to the global "/"
+          // worktree.
+          const payload = ctx.payload.location
+          const header = ctx.request.headers["x-opencode-directory"]
+          const query =
+            new URL(ctx.request.url, "http://localhost").searchParams.get("location[directory]") || undefined
+          const explicit = payload?.directory ?? (header ? AbsolutePath.make(decode(header)) : undefined) ?? query
+          if (explicit && !(yield* fs.existsSafe(explicit))) {
+            return yield* new InvalidRequestError({
+              message: `Directory does not exist or is not accessible on the server: ${explicit}`,
+            })
+          }
           return {
             data: yield* session.create({
               id: ctx.payload.id,
               agent: ctx.payload.agent,
               model: ctx.payload.model,
-              location: ctx.payload.location ?? { directory: AbsolutePath.make(process.cwd()) },
+              location: payload ?? { directory: AbsolutePath.make(explicit ?? process.cwd()) },
             }),
           }
         }),

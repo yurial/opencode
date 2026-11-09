@@ -331,8 +331,10 @@ export const RunCommand = effectCmd({
       const replay = args.replay === false ? false : args.replay || args["replay-limit"] !== undefined
 
       const root = Filesystem.resolve(process.env.PWD ?? process.cwd())
+      // Attach defaults to the client's working directory so the server does
+      // not fall back to its own cwd; --dir still wins as the explicit flag.
       const directory = (() => {
-        if (!args.dir) return args.attach ? undefined : root
+        if (!args.dir) return root
         if (args.attach) return args.dir
 
         try {

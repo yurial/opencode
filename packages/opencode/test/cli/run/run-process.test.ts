@@ -5,6 +5,8 @@
 // `OPENCODE_CONFIG_CONTENT` providing the test provider config inline.
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
+import { HttpClient } from "effect/unstable/http"
+import { mkdir } from "node:fs/promises"
 import { reply } from "../../lib/llm-server"
 import { cliIt } from "../../lib/cli-process"
 
@@ -302,6 +304,31 @@ describe("opencode run (non-interactive subprocess)", () => {
         const input = JSON.stringify(yield* llm.inputs)
         expect(input).toContain(sentinel)
         expect(input).not.toContain(`file://${source}`)
+      }),
+    60_000,
+  )
+
+  cliIt.live(
+    "attach mode defaults the session directory to the client working directory",
+    ({ home, llm, opencode }) =>
+      Effect.gen(function* () {
+        // The spawned client runs with cwd=home; the PWD override points at a
+        // different directory, so the session directory can only come from the
+        // client's resolution (PWD ?? cwd), not from the server's own cwd.
+        const clientDirectory = `${home}/client-project`
+        yield* Effect.promise(() => mkdir(clientDirectory, { recursive: true }))
+        yield* llm.text("attached")
+        const server = yield* opencode.serve()
+
+        const result = yield* opencode.run("where am i", {
+          extraArgs: ["--attach", server.url, "--"],
+          env: { PWD: clientDirectory },
+        })
+        opencode.expectExit(result, 0)
+
+        const response = yield* HttpClient.get(`${server.url}/api/session`)
+        const body = (yield* response.json) as { data: Array<{ location?: { directory?: string } }> }
+        expect(body.data.map((session) => session.location?.directory)).toEqual([clientDirectory])
       }),
     60_000,
   )
