@@ -38,7 +38,7 @@ function ref(request: HttpServerRequest.HttpServerRequest): Location.Ref {
   })
 }
 
-function decode(input: string) {
+export function decode(input: string) {
   try {
     return decodeURIComponent(input)
   } catch {

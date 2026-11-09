@@ -3,6 +3,7 @@ import { UI } from "@/cli/ui"
 import { errorMessage } from "@opencode-ai/tui/util/error"
 import { validateSession } from "../tui/validate-session"
 import { ServerAuth } from "@/server/auth"
+import { Filesystem } from "@/util/filesystem"
 
 export const AttachCommand = cmd({
   command: "attach <url>",
@@ -67,8 +68,10 @@ export const AttachCommand = cmd({
     }
     const noReplay = args.replay === false || args.noReplay === true
 
+    // Without --dir the client sends its own working directory so the server
+    // does not fall back to its own cwd.
     const directory = (() => {
-      if (!args.dir) return undefined
+      if (!args.dir) return Filesystem.resolve(process.env.PWD ?? process.cwd())
       try {
         process.chdir(args.dir)
         return process.cwd()

@@ -114,11 +114,13 @@ opencode web --port 4096 --hostname 0.0.0.0
 opencode attach http://10.20.30.40:4096
 ```
 
+Sessions you create while attached are placed in the working directory of the terminal you attached from; pass `--dir` to use a different directory on the server.
+
 #### Flags
 
 | Flag                                     | Short | Description                                                                |
 | ---------------------------------------- | ----- | -------------------------------------------------------------------------- |
-| <nobr><code>{"--dir"}</code></nobr>      |       | Working directory to start TUI in                                          |
+| <nobr><code>{"--dir"}</code></nobr>      |       | Working directory to start TUI in (defaults to the current directory)      |
 | <nobr><code>{"--continue"}</code></nobr> | `-c`  | Continue the last session                                                  |
 | <nobr><code>{"--session"}</code></nobr>  | `-s`  | Session ID to continue                                                     |
 | <nobr><code>{"--fork"}</code></nobr>     |       | Fork the session when continuing (use with `--continue` or `--session`)    |
@@ -360,6 +362,8 @@ opencode serve
 opencode run --attach http://localhost:4096 "Explain async/await in JavaScript"
 ```
 
+When attaching, the session is created in the working directory of the terminal you run from; pass `--dir` to use a different directory on the server.
+
 #### Flags
 
 | Flag                                     | Short | Description                                                                |
@@ -377,7 +381,7 @@ opencode run --attach http://localhost:4096 "Explain async/await in JavaScript"
 | <nobr><code>{"--attach"}</code></nobr>   |       | Attach to a running opencode server (e.g., http://localhost:4096)          |
 | <nobr><code>{"--password"}</code></nobr> | `-p`  | Basic auth password (defaults to `OPENCODE_SERVER_PASSWORD`)               |
 | <nobr><code>{"--username"}</code></nobr> | `-u`  | Basic auth username (defaults to `OPENCODE_SERVER_USERNAME` or `opencode`) |
-| <nobr><code>{"--dir"}</code></nobr>      |       | Directory to run in, or path on the remote server when attaching           |
+| <nobr><code>{"--dir"}</code></nobr>      |       | Directory to run in; attach defaults to the client working directory       |
 | <nobr><code>{"--port"}</code></nobr>     |       | Port for the local server (defaults to random port)                        |
 | <nobr><code>{"--variant"}</code></nobr>  |       | Model variant (provider-specific reasoning effort)                         |
 | <nobr><code>{"--thinking"}</code></nobr> |       | Show thinking blocks                                                       |

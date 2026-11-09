@@ -194,11 +194,13 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
           location: Location.Ref.pipe(Schema.optional),
         }),
         success: Schema.Struct({ data: Session.Info }),
+        error: InvalidRequestError,
       }).annotateMerge(
         OpenApi.annotations({
           identifier: "v2.session.create",
           summary: "Create session",
-          description: "Create a session at the requested location.",
+          description:
+            "Create a session at the requested location. A directory sent through the location payload, the x-opencode-directory header, or the location[directory] query field must exist on the server.",
         }),
       ),
     )
